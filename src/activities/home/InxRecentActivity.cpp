@@ -447,7 +447,9 @@ void InxRecentActivity::drawFlow(const Rect& content) {
 
   const int bookCount = books ? static_cast<int>(books->size()) : 0;
   const int dotH = bookCount > 1 ? 16 : 0;
-  const int gridH = std::max(168, (content.height - dotH) * 34 / 100);
+  // 2x2 metric cells must fit value+label at their real line heights.
+  const int gridH =
+      std::max(2 * InxInkCards::metricCardMinHeight(renderer) + InxInkCards::kGap, (content.height - dotH) * 34 / 100);
   const Rect grid{content.x + pad, content.y + content.height - dotH - gridH, content.width - pad * 2, gridH};
   const Rect hero{content.x + pad, content.y + 8 + titleH + 10, content.width - pad * 2,
                   std::max(120, grid.y - InxInkCards::kGap - (content.y + 8 + titleH + 10))};
@@ -455,8 +457,8 @@ void InxRecentActivity::drawFlow(const Rect& content) {
 
   const int heroPad = 14;
   const auto coverSize = InxCoverGeometry::fit(hero.width * 38 / 100, hero.height - heroPad * 2);
-  heroCoverRect_ = Rect{hero.x + heroPad, hero.y + (hero.height - coverSize.height) / 2, coverSize.width,
-                        coverSize.height};
+  heroCoverRect_ =
+      Rect{hero.x + heroPad, hero.y + (hero.height - coverSize.height) / 2, coverSize.width, coverSize.height};
   setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(heroCoverRect_.height));
   drawBookCover(selected, heroCoverRect_);
   renderer.drawRect(heroCoverRect_.x, heroCoverRect_.y, heroCoverRect_.width, heroCoverRect_.height);

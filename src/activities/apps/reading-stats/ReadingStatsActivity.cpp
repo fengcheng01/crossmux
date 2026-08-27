@@ -612,19 +612,20 @@ void ReadingStatsActivity::renderInx() {
   const int cellHeight = statsCellHeight(renderer);
 
   if (selectedIndex == 0 || books.empty()) {
-    coverHitRect_ = {};
+    coverHitRect_ = Rect{};
     const int titleH = InxInkCards::pageTitleHeight(renderer);
     InxInkCards::drawPageTitle(renderer, content.x, content.y + 4, tr(STR_READING_STATS));
 
     const int footerH = std::max(88, content.height * 14 / 100);
     const int donutH = std::max(140, content.height * 24 / 100);
-    const int gridH = std::max(140, content.height * 22 / 100);
+    // 2x2 metric cells must fit value+label at their real line heights.
+    const int gridH =
+        std::max(2 * InxInkCards::metricCardMinHeight(renderer) + InxInkCards::kGap, content.height * 22 / 100);
     const int titleBottom = content.y + 4 + titleH + 8;
     const Rect footer{content.x, content.y + content.height - footerH, content.width, footerH};
     const Rect donutCard{content.x, footer.y - InxInkCards::kGap - donutH, content.width, donutH};
     const Rect grid{content.x, donutCard.y - InxInkCards::kGap - gridH, content.width, gridH};
-    const Rect hero{content.x, titleBottom, content.width,
-                    std::max(96, grid.y - InxInkCards::kGap - titleBottom)};
+    const Rect hero{content.x, titleBottom, content.width, std::max(96, grid.y - InxInkCards::kGap - titleBottom)};
 
     if (books.empty()) {
       drawCenteredClippedText(renderer, UI_12_FONT_ID, hero, tr(STR_NO_READING_STATS));
@@ -633,16 +634,15 @@ void ReadingStatsActivity::renderInx() {
       InxInkCards::drawCard(renderer, hero);
       const int heroPad = 12;
       const auto coverSize = InxCoverGeometry::fit(hero.width * 28 / 100, hero.height - heroPad * 2);
-      coverHitRect_ = Rect{hero.x + heroPad, hero.y + (hero.height - coverSize.height) / 2, coverSize.width,
-                           coverSize.height};
+      coverHitRect_ =
+          Rect{hero.x + heroPad, hero.y + (hero.height - coverSize.height) / 2, coverSize.width, coverSize.height};
       renderedCoverMissing = !drawCover(renderer, recentBook, coverHitRect_);
 
       const int textX = coverHitRect_.x + coverHitRect_.width + 14;
       const int textW = hero.x + hero.width - heroPad - textX;
       const int titleFont = titleFontId();
       const int titleLineH = renderer.getLineHeight(titleFont);
-      const auto titleLines =
-          renderer.wrappedText(titleFont, titleOf(recentBook), textW, 2, EpdFontFamily::BOLD);
+      const auto titleLines = renderer.wrappedText(titleFont, titleOf(recentBook), textW, 2, EpdFontFamily::BOLD);
       int titleCursor = hero.y + heroPad;
       for (const auto& line : titleLines) {
         drawClippedText(renderer, titleFont, Rect{textX, titleCursor, textW, titleLineH}, line.c_str(),
@@ -662,8 +662,8 @@ void ReadingStatsActivity::renderInx() {
                       tr(STR_BOOK_PROGRESS));
       renderer.drawText(SMALL_FONT_ID, textX + textW - progressW, barY - bodyHeight, progress, true,
                         EpdFontFamily::BOLD);
-      InxInkCards::drawProgress(
-          renderer, Rect{textX, barY, textW, InxInkCards::kProgressHeight}, recentBook.lastProgressPercent);
+      InxInkCards::drawProgress(renderer, Rect{textX, barY, textW, InxInkCards::kProgressHeight},
+                                recentBook.lastProgressPercent);
     }
 
     const uint32_t sessions =
@@ -689,8 +689,7 @@ void ReadingStatsActivity::renderInx() {
     InxInkCards::drawCard(renderer, donutCard);
     const uint64_t todayMs = READING_STATS.getTodayReadingMs();
     const uint64_t goalMs = getDailyReadingGoalMs();
-    const uint8_t goalPercent =
-        goalMs == 0 ? 0 : static_cast<uint8_t>(std::min<uint64_t>(100, todayMs * 100 / goalMs));
+    const uint8_t goalPercent = goalMs == 0 ? 0 : static_cast<uint8_t>(std::min<uint64_t>(100, todayMs * 100 / goalMs));
     const int donutRadius = std::min(donutCard.width, donutCard.height) * 32 / 100;
     InxInkCards::drawDonut(renderer, donutCard.x + donutCard.width / 2, donutCard.y + donutCard.height / 2, donutRadius,
                            goalPercent, tr(STR_DAILY_GOAL));

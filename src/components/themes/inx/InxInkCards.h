@@ -22,11 +22,22 @@ inline void drawCard(const GfxRenderer& renderer, const Rect rect) {
   renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, kRadius, true);
 }
 
+// Minimum cell height drawMetricCard needs: value + gap + label line heights
+// plus one top pad (the card anchors the block at max(pad, centered)). Layouts
+// sizing a metric-card grid must give every row at least this much, or the
+// label lands below the card and gets clipped (CN fonts are 3x instanced:
+// UI_12 line = 36 px, SMALL line = 24 px).
+inline int metricCardMinHeight(const GfxRenderer& renderer) {
+  return renderer.getLineHeight(UI_12_FONT_ID) + 6 + renderer.getLineHeight(SMALL_FONT_ID) + 14;
+}
+
 inline void drawMetricCard(const GfxRenderer& renderer, const Rect rect, const char* value, const char* label) {
   drawCard(renderer, rect);
   const int pad = 14;
   const int innerW = std::max(1, rect.width - pad * 2);
-  const int valueFont = NOTOSANS_18_FONT_ID;
+  // UI_12 bold matches the list-layout AppMetricCard value size; the 18pt
+  // slot's 54 px line needs cells so tall that 2x2 grids cannot fit it.
+  const int valueFont = UI_12_FONT_ID;
   const int labelFont = SMALL_FONT_ID;
   const int valueH = renderer.getLineHeight(valueFont);
   const int labelH = renderer.getLineHeight(labelFont);

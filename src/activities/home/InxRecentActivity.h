@@ -9,6 +9,7 @@
 #include "InxRecentLayout.h"
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
+#include "components/themes/BaseTheme.h"
 
 #if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR) && !defined(CROSSPOINT_EMULATED)
 #include <cstddef>

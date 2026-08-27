@@ -2,6 +2,7 @@
 
 #include "../../Activity.h"
 #include "Bitmap.h"
+#include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
 struct ReadingBookStats;
