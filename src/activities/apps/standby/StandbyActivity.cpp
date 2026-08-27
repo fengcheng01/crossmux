@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <HalClock.h>
+#include <HalEnvironment.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -10,8 +11,10 @@
 #include <esp_wifi.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <string>
 
+#include "../../../util/EnvReadingLabel.h"
 #include "../../../util/PaginationDots.h"
 #include "../../../util/TimeUtils.h"
 #include "../../ActivityResult.h"
@@ -119,6 +122,9 @@ void StandbyActivity::onEnter() {
     return;
   }
   currentFace_->onEnter();
+  envOk_ = false;
+  envLastMs_ = 0;
+  refreshEnvironment();
   mode_ = DisplayMode::Normal;
   lastInputMs_ = millis();
   if (!TimeUtils::isClockValid() && SETTINGS.clockAutoSync) {
@@ -467,8 +473,20 @@ void StandbyActivity::loop() {
   }
 
   if (currentFace_ && currentFace_->tick()) {
+    refreshEnvironment();
     requestUpdate();
   }
+}
+
+void StandbyActivity::refreshEnvironment() {
+  if (!halEnvironment.present()) {
+    envOk_ = false;
+    return;
+  }
+  const uint32_t now = millis();
+  if (envLastMs_ != 0 && now - envLastMs_ < 60000u) return;
+  envOk_ = halEnvironment.read(envTempC_, envHumidityPct_);
+  envLastMs_ = now;
 }
 
 void StandbyActivity::render(RenderLock&&) {
@@ -498,6 +516,11 @@ void StandbyActivity::render(RenderLock&&) {
   const bool clockValid = TimeUtils::isClockValid();
   if (!clockValid) {
     UITheme::drawCenteredText(renderer, faceViewport, SMALL_FONT_ID, overlayTop, tr(STR_STANDBY_SYNCING));
+  }
+
+  if (envOk_) {
+    const int envY = faceViewport.y + faceViewport.height - renderer.getTextHeight(SMALL_FONT_ID) - 8;
+    drawCelsiusHumidity(renderer, SMALL_FONT_ID, envY, envTempC_, envHumidityPct_, faceViewport.x, faceViewport.width);
   }
 
   if (mode_ != DisplayMode::Normal) {

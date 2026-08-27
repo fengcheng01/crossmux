@@ -52,7 +52,10 @@ class FontDownloadActivity final : public UiListActivity {
            // during downloading.
            state_ == COMPLETE || state_ == ERROR;
   }
-  bool skipLoopDelay() override { return true; }
+  // Spin the loop only while a blocking network transfer is in progress.
+  // Leaving this true on the family list / complete screens starves input and
+  // the e-paper refresh on ESP32-S3 (Murphy M4).
+  bool skipLoopDelay() override { return state_ == LOADING_MANIFEST || state_ == DOWNLOADING; }
 
  private:
   enum State {
@@ -107,6 +110,8 @@ class FontDownloadActivity final : public UiListActivity {
   // Set when the cancel came from the home gesture (consumed by the download
   // callback's own input pump); exit to home after the abort unwinds.
   bool goHomeRequested_ = false;
+  unsigned lastDownloadPaintPercent_ = 0;
+  uint32_t lastDownloadPaintMs_ = 0;
 
   // Row cache: buildScreen() only runs while state_ == FAMILY_LIST, and
   // families_ only changes at the handful of state_-transition points back to

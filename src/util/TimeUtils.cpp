@@ -134,6 +134,16 @@ bool TimeUtils::formatCurrentTime(char* buffer, const size_t bufferSize, const b
   return formatTime(getCurrentValidTimestamp(), SETTINGS.clockUtcOffsetQ, use12Hour, buffer, bufferSize);
 }
 
+uint32_t TimeUtils::secondsUntilNextLocalMinute() {
+  const uint32_t now = getCurrentValidTimestamp();
+  std::tm civil{};
+  if (!isClockValid(now) || !getLocalDateTime(now, civil)) return 60;
+  const int sec = civil.tm_sec;
+  if (sec < 0 || sec > 59) return 60;
+  const uint32_t remaining = (sec == 0) ? 60u : static_cast<uint32_t>(60 - sec);
+  return remaining < 2u ? remaining + 60u : remaining;
+}
+
 bool TimeUtils::formatCurrentDateTime(char* buffer, const size_t bufferSize, const bool use12Hour) {
   const uint32_t now = getCurrentValidTimestamp();
   std::tm local{};

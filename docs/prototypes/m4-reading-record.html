@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>阅读记录</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #d8d8d8; font-family: "Noto Serif SC", "Source Han Serif SC", serif; }
+  .screen {
+    width: 480px; height: 800px; margin: 24px auto; background: #f4f1ea;
+    color: #111; position: relative; overflow: hidden;
+    box-shadow: 0 8px 28px rgba(0,0,0,.18);
+  }
+  .tabs { height: 66px; display: flex; align-items: center; justify-content: space-around;
+    border-bottom: 1px solid #111; padding: 0 8px; }
+  .tabs span { width: 28px; height: 28px; display: block; border: 1.5px solid #111; border-radius: 4px; }
+  .tabs .on { background: #111; }
+  .page { padding: 16px 20px 48px; }
+  h1 { font-size: 22px; font-weight: 700; margin: 4px 0 14px; }
+  .hero { background: #e7e3d9; border: 1px solid #222; border-radius: 16px; padding: 14px;
+    display: flex; gap: 16px; min-height: 220px; }
+  .cover { width: 118px; height: 172px; background: #cfc9bc; border: 1px solid #222; flex: none; }
+  .meta { flex: 1; display: flex; flex-direction: column; }
+  .title { font-size: 22px; font-weight: 700; line-height: 1.25; margin-top: 18px; }
+  .author { font-size: 13px; color: #333; margin-top: 8px; font-weight: 400; }
+  .progress { margin-top: auto; display: flex; align-items: center; gap: 8px; }
+  .bar { flex: 1; height: 4px; border: 1px solid #111; }
+  .bar i { display: block; width: 19%; height: 100%; background: #111; }
+  .pct { font-size: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .card { background: #e7e3d9; border: 1px solid #222; border-radius: 16px; min-height: 108px;
+    padding: 18px 16px 14px; }
+  .val { font-size: 28px; font-weight: 700; line-height: 1; }
+  .lab { font-size: 12px; margin-top: 10px; color: #333; }
+  .bat { position: absolute; right: 18px; bottom: 16px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="screen">
+  <div class="tabs"><span class="on"></span><span></span><span></span><span></span><span></span></div>
+  <div class="page">
+    <h1>阅读记录</h1>
+    <div class="hero">
+      <div class="cover"></div>
+      <div class="meta">
+        <div class="title">重生之大涅槃</div>
+        <div class="author">奥尔良烤鲟鱼堡</div>
+        <div class="progress"><div class="bar"><i></i></div><div class="pct">19%</div></div>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="card"><div class="val">1m</div><div class="lab">总时长</div></div>
+      <div class="card"><div class="val">0</div><div class="lab">阅读次数</div></div>
+      <div class="card"><div class="val">0m</div><div class="lab">上次阅读</div></div>
+      <div class="card"><div class="val">42%</div><div class="lab">章节进度</div></div>
+    </div>
+  </div>
+  <div class="bat">80%</div>
+</div>
+</body>
+</html>

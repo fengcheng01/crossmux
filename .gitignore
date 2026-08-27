@@ -29,6 +29,10 @@ lib/EpdFont/scripts/output/
 weread_apikey*.txt
 weread_apikey*.bin
 
+# Local Murphy M4 flash images (device identity stamps, not source).
+firmware-m4*.bin
+boot_app0-m4.bin
+
 # Claude Code: share project skills with the team, keep local agent state
 # (worktrees, scheduled-task locks, settings.local, scout CLEANUP.md) out.
 .claude/*

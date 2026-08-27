@@ -1,5 +1,6 @@
 #include "SdCardFontCache.h"
 
+#include <Arduino.h>
 #include <HalOtaSlot.h>
 #include <HalStorage.h>
 #include <Logging.h>
@@ -145,6 +146,7 @@ Result preload(const char* sourcePath, ProgressCallback progress, void* context)
       }
       offset += length;
       report(progress, offset, total, context);
+      delay(1);  // yield so the task watchdog and render task stay alive
     }
   }
   payloadCrc ^= UINT32_MAX;
@@ -159,6 +161,7 @@ Result preload(const char* sourcePath, ProgressCallback progress, void* context)
     flashCrc = sd_card_font_cache_format::crc32Update(flashCrc, buffer.get(), length);
     offset += length;
     report(progress, source.size + offset, total, context);
+    delay(1);
   }
   flashCrc ^= UINT32_MAX;
   if (flashCrc != payloadCrc) return Result::VerifyFailed;

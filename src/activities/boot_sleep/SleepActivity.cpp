@@ -6,6 +6,7 @@
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
+#include <HalEnvironment.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -17,7 +18,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <limits>
 #include <string>
 
@@ -28,6 +31,8 @@
 #include "fontIds.h"
 #include "images/Logo120.h"
 #include "images/MoonIcon.h"
+#include "util/EnvReadingLabel.h"
+#include "util/TimeUtils.h"
 
 namespace {
 
@@ -485,6 +490,25 @@ void releaseSdFontCachesForDecode(const GfxRenderer& renderer) {
   }
 }
 
+void drawSevenSegDigit(GfxRenderer& renderer, const int x, const int y, const int w, const int h, const int digit) {
+  static constexpr uint8_t kMap[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};
+  const uint8_t mask = (digit >= 0 && digit <= 9) ? kMap[digit] : 0x00;
+  const int t = std::max(4, w / 6);
+  // 1 and 7 only light the right verticals; shift them left so the row's
+  // optical center matches the geometric center.
+  const int ox = (digit == 1 || digit == 7) ? x - (w - t) / 3 : x;
+  const int inset = t / 2;
+  const int innerW = std::max(1, w - t);
+  const int halfH = std::max(1, (h - t) / 2);
+  if (mask & 0x01) renderer.fillRect(ox + inset, y, innerW, t);
+  if (mask & 0x02) renderer.fillRect(ox + w - t, y + inset, t, halfH);
+  if (mask & 0x04) renderer.fillRect(ox + w - t, y + halfH + inset, t, halfH);
+  if (mask & 0x08) renderer.fillRect(ox + inset, y + h - t, innerW, t);
+  if (mask & 0x10) renderer.fillRect(ox, y + halfH + inset, t, halfH);
+  if (mask & 0x20) renderer.fillRect(ox, y + inset, t, halfH);
+  if (mask & 0x40) renderer.fillRect(ox + inset, y + halfH, innerW, t);
+}
+
 }  // namespace
 
 void SleepActivity::onEnter() {
@@ -504,6 +528,16 @@ void SleepActivity::onEnter() {
   const bool preservesCurrentFrame =
       renderQuickResume || SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT;
   if (frameWasInverted && preservesCurrentFrame) renderer.invertScreen();
+
+  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK) {
+    if (APP_STATE.lastSleepFromReader) {
+      ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+    } else {
+      renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+    }
+    paintClock(renderer);
+    return;
+  }
 
   if (renderQuickResume) {
     return renderLastScreenSleepScreen();
@@ -603,6 +637,81 @@ void SleepActivity::renderDefaultSleepScreen() const {
   // Make sleep screen dark unless light is selected in settings
   if (SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT) {
     renderer.invertScreen();
+  }
+
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+}
+
+void SleepActivity::renderClockSleepScreen() const { paintClock(renderer); }
+
+void SleepActivity::paintClock(GfxRenderer& renderer) {
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
+  renderer.clearScreen();
+
+  const uint32_t now = TimeUtils::getCurrentValidTimestamp();
+  std::tm civil{};
+  const bool haveTime = TimeUtils::isClockValid(now) && TimeUtils::getLocalDateTime(now, civil);
+  const bool use12Hour = SETTINGS.clockFormat == 1;
+  int hour = haveTime ? civil.tm_hour : -1;
+  const int minute = haveTime ? civil.tm_min : -1;
+  const bool pm = hour >= 12;
+  if (haveTime && use12Hour) hour = (hour % 12 == 0) ? 12 : hour % 12;
+
+  const int hourTens = haveTime ? hour / 10 : -1;
+  const int hourOnes = haveTime ? hour % 10 : -1;
+  const int minTens = haveTime ? minute / 10 : -1;
+  const int minOnes = haveTime ? minute % 10 : -1;
+  const bool drawHourTens = !haveTime || !use12Hour || hourTens > 0;
+  const int hourDigits = drawHourTens ? 2 : 1;
+  const int digitSlots = hourDigits + 2;
+
+  const int sidePad = std::max(36, pageWidth / 8);
+  const int gap = std::max(8, pageWidth / 48);
+  const int colonW = std::max(8, pageWidth / 36);
+  const int digitW = std::max(36, (pageWidth - sidePad * 2 - gap * (digitSlots - 1) - colonW) / digitSlots);
+  const int digitH = std::max(72, std::min(pageHeight / 4, digitW * 18 / 10));
+  const int rowWidth = digitW * digitSlots + gap * (digitSlots - 1) + colonW;
+
+  float tempC = 0;
+  float humidityPct = 0;
+  const bool haveEnv = halEnvironment.read(tempC, humidityPct);
+  const int metaLineH = renderer.getTextHeight(UI_12_FONT_ID);
+  int metaH = 0;
+  if (haveTime && use12Hour) metaH += metaLineH + 12;
+  if (haveTime) metaH += metaLineH + 16;
+  if (haveEnv) metaH += metaLineH;
+
+  const int blockH = digitH + 28 + metaH;
+  const int y = std::max(8, (pageHeight - blockH) / 2);
+  int x = (pageWidth - rowWidth) / 2;
+  if (drawHourTens) {
+    drawSevenSegDigit(renderer, x, y, digitW, digitH, hourTens);
+    x += digitW + gap;
+  }
+  drawSevenSegDigit(renderer, x, y, digitW, digitH, hourOnes);
+  x += digitW + gap;
+  const int dot = std::max(4, digitW / 8);
+  renderer.fillRect(x + (colonW - dot) / 2, y + digitH / 3 - dot / 2, dot, dot);
+  renderer.fillRect(x + (colonW - dot) / 2, y + digitH * 2 / 3 - dot / 2, dot, dot);
+  x += colonW + gap;
+  drawSevenSegDigit(renderer, x, y, digitW, digitH, minTens);
+  x += digitW + gap;
+  drawSevenSegDigit(renderer, x, y, digitW, digitH, minOnes);
+
+  int metaY = y + digitH + 28;
+  if (haveTime && use12Hour) {
+    renderer.drawCenteredText(UI_12_FONT_ID, metaY, pm ? "PM" : "AM", true, EpdFontFamily::BOLD);
+    metaY += metaLineH + 12;
+  }
+  if (haveTime) {
+    char dateBuf[16];
+    snprintf(dateBuf, sizeof(dateBuf), "%04d-%02d-%02d", civil.tm_year + 1900, civil.tm_mon + 1, civil.tm_mday);
+    renderer.drawCenteredText(UI_12_FONT_ID, metaY, dateBuf);
+    metaY += metaLineH + 16;
+  }
+  if (haveEnv) {
+    drawCelsiusHumidity(renderer, UI_12_FONT_ID, metaY, tempC, humidityPct);
   }
 
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);

@@ -85,5 +85,7 @@ and app at `0x10000` without overwriting NVS.
   Wi-Fi cycles. The removed M4-only touch task must be absent, I²C handles must
   be allocated only at startup, and no metric may show a continuing decline.
 
-AHT20, SC7A20, runtime panel-batch settings, remote OTA/catalog publication and
-complex SD fallback remain outside this experimental target.
+SC7A20, runtime panel-batch settings, remote OTA/catalog publication and
+complex SD fallback remain outside this experimental target. AHT20 on I²C1
+`0x38` (shared with FT6336U / RX8010) is used for lock-screen and standby
+temperature/humidity.

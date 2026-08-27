@@ -5,7 +5,6 @@
 #include <HalGPIO.h>
 #include <HalTiltSensor.h>
 #include <Logging.h>
-#include <components/bars/tap-zones.h>
 
 #include "MappedInputManager.h"
 #include "activities/ActivityManager.h"
@@ -17,11 +16,6 @@ constexpr unsigned long GO_BACK_OR_HOME_MS = GO_HOME_MS;
 constexpr unsigned long SKIP_HOLD_MS = 700;
 constexpr unsigned long BOOKMARK_HOLD_MS = 400;
 constexpr unsigned long BOOKMARK_MESSAGE_DURATION_MS = 2500;
-
-enum ReaderTouchAction : freeink::ui::ActionId {
-  READER_TOUCH_PREV = 1,
-  READER_TOUCH_NEXT = 3,
-};
 
 inline void applyOrientation(GfxRenderer& renderer, const uint8_t orientation) {
   switch (orientation) {
@@ -98,24 +92,18 @@ inline TouchPageTurn detectTouchPageTurn(GfxRenderer& renderer, const MappedInpu
     return result;
   }
 
-  const int16_t width = static_cast<int16_t>(renderer.getScreenWidth());
-  const int16_t height = static_cast<int16_t>(renderer.getScreenHeight());
-  // Outer thirds only: the center column contains the reader-menu tap target
-  // (isTouchMenuTap below), so it must not double as a page turn.
-  const int16_t zoneWidth = width / 3;
-  const bool inverted = SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_INVERTED_TAP;
-  const freeink::ui::TapZone zones[] = {
-      {freeink::ui::Rect{0, 0, zoneWidth, height}, inverted ? READER_TOUCH_NEXT : READER_TOUCH_PREV},
-      {freeink::ui::Rect{static_cast<int16_t>(width - zoneWidth), 0, zoneWidth, height},
-       inverted ? READER_TOUCH_PREV : READER_TOUCH_NEXT},
-  };
-
-  for (const auto& zone : zones) {
-    if (!zone.enabled || !zone.rect.contains(static_cast<int16_t>(x), static_cast<int16_t>(y))) continue;
-    result.prev = zone.action == READER_TOUCH_PREV;
-    result.next = zone.action == READER_TOUCH_NEXT;
-    break;
+  const int width = renderer.getScreenWidth();
+  const int height = renderer.getScreenHeight();
+  uint8_t action = SETTINGS.readerTapActionAt(CrossPointSettings::readerTapZoneIndex(x, y, width, height));
+  if (SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_INVERTED_TAP) {
+    if (action == CrossPointSettings::TAP_PREV) {
+      action = CrossPointSettings::TAP_NEXT;
+    } else if (action == CrossPointSettings::TAP_NEXT) {
+      action = CrossPointSettings::TAP_PREV;
+    }
   }
+  result.prev = action == CrossPointSettings::TAP_PREV;
+  result.next = action == CrossPointSettings::TAP_NEXT;
   result.heldMs = gpio.lastTouchHeldMs();
   return result;
 }
@@ -127,12 +115,17 @@ inline TouchPageTurn detectTouchPageTurn(GfxRenderer& renderer, const MappedInpu
 // through the key's long-press function.
 inline bool isTouchMenuTap(const GfxRenderer& renderer, const MappedInputManager& input) {
   if (!input.hasTouch()) return false;
-  if (!SETTINGS.tapForReaderMenu) return false;
   int x = 0;
   int y = 0;
   if (!input.wasScreenTapped(x, y)) return false;
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
+  if (SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_ON ||
+      SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_INVERTED_TAP) {
+    return SETTINGS.readerTapActionAt(CrossPointSettings::readerTapZoneIndex(x, y, width, height)) ==
+           CrossPointSettings::TAP_MENU;
+  }
+  if (!SETTINGS.tapForReaderMenu) return false;
   const int zoneWidth = width / 3;
   const int zoneHeight = height / 3;
   return x >= zoneWidth && x < width - zoneWidth && y >= zoneHeight && y < height - zoneHeight;
@@ -197,7 +190,7 @@ inline void displayBaseWithRefreshCycle(const GfxRenderer& renderer, int& pagesU
 // and other overlays should be drawn before calling this.
 // Kept as a template to avoid std::function overhead; instantiated once per reader type.
 template <typename RenderFn>
-void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn) {
+void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool absoluteFourLevel = false) {
   if (!renderer.storeBwBuffer()) {
     LOG_ERR("READER", "Failed to store BW buffer for anti-aliasing");
     // A combined-base panel may still hold a deferred B/W activation; flush it
@@ -206,6 +199,7 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn) {
     return;
   }
 
+  renderer.setAbsoluteGrayPlanes(absoluteFourLevel);
   renderer.clearScreen(0x00);
   renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
   renderFn();
@@ -216,10 +210,32 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn) {
   renderFn();
   renderer.copyGrayscaleMsbBuffers();
 
-  renderer.displayGrayBuffer();
+  if (absoluteFourLevel) {
+    renderer.displayGrayBufferAbsolute();
+  } else {
+    renderer.displayGrayBuffer();
+  }
   renderer.setRenderMode(GfxRenderer::BW);
+  renderer.setAbsoluteGrayPlanes(false);
 
   renderer.restoreBwBuffer();
+}
+
+inline bool usesCombinedAa() {
+#if FREEINK_DEVICE_MURPHY_M4
+  // Overlay on this panel is FAST (full-screen flash) then a gray LUT whose
+  // 00 group is idle, so previous-page ghosts stay. Both AA modes therefore
+  // use one absolute 4-level waveform.
+  //
+  // Night mode skips grayscale (FreeInkDisplay::displayGrayBuffer returns).
+  // Combined AA also skips the 1-bit paint, so invert + AA would never send a
+  // frame — the panel keeps the previous activity (usually the reader menu).
+  if (SETTINGS.screenInverted) return false;
+  return SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_OVERLAY ||
+         SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_COMBINED;
+#else
+  return false;
+#endif
 }
 
 struct BackNavCallback {

@@ -34,7 +34,8 @@ namespace AppMetricCard {
 void draw(const GfxRenderer& renderer, const Rect& rect, const char* label, const std::string& value,
           const Options& options) {
   if (UITheme::getInstance().hasMainTabs()) {
-    drawDottedCard(renderer, rect);
+    renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, 14, Color::LightGray);
+    renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, 14, true);
   } else {
     renderer.fillRectDither(rect.x, rect.y, rect.width, rect.height, Color::LightGray);
     renderer.drawRect(rect.x, rect.y, rect.width, rect.height);

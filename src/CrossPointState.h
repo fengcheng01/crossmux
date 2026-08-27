@@ -23,6 +23,9 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   uint8_t readerActivityLoadCount = 0;
   bool lastSleepFromReader = false;
   bool showBootScreen = true;
+  // True while the CLOCK sleep screen is showing; timer wake redraws it, power
+  // wake clears this and resumes the previous activity.
+  bool clockSleepActive = false;
   // Most recent epoch timestamp the device trusted as valid. Used by the
   // Reading Analytics suite to bucket reading time into days when the live
   // clock is temporarily unavailable (RTC-less boots before NTP sync).

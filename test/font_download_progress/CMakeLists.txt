@@ -1,0 +1,4 @@
+add_executable(font_download_progress_test ProgressRepaintTest.cpp)
+target_include_directories(font_download_progress_test PRIVATE ${REPO_ROOT}/src)
+target_link_libraries(font_download_progress_test PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(font_download_progress_test)

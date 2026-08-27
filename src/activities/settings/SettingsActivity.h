@@ -29,6 +29,7 @@ enum class SettingAction {
   DownloadFonts,
   ManageDictionaries,
   TextSettings,
+  ReaderTapZones,
   About,
 };
 

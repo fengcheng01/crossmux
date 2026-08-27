@@ -57,9 +57,8 @@ class SdCardFontSystem {
   }
 
  private:
-  // In global builds, load size-matched SD CJK fallbacks for the built-in UI
-  // fonts. CN builds already embed their UI glyphs and keep only the reader
-  // size resident to preserve contiguous heap.
+  // Load size-matched SD CJK fallbacks for built-in UI fonts. CN without PSRAM
+  // keeps only the reader size resident.
   void setupUiFallbacks(GfxRenderer& renderer);
 
   SdCardFontRegistry registry_;

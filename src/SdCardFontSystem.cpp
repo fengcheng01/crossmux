@@ -22,10 +22,9 @@ void snapFontPointSizeTo(const uint8_t availablePointSize) {
   SETTINGS.saveToFile();
 }
 
-#ifndef ENABLE_CHINESE_VERSION
 // Global-build UI fonts and their physical point sizes (at 150 DPI, matching
-// the SD-font converter). CN builds already embed Simplified-Chinese UI fonts
-// and deliberately avoid keeping three additional SD font sizes resident.
+// the SD-font converter). CN + PSRAM also uses these so rare CJK in book titles
+// (outside the 3500-char builtin) can fall back to the SD family.
 struct UiFontSize {
   int fontId;
   uint8_t pointSize;
@@ -35,7 +34,6 @@ constexpr UiFontSize kUiFontSizes[] = {
     {UI_10_FONT_ID, 10},
     {UI_12_FONT_ID, 12},
 };
-#endif
 
 }  // namespace
 
@@ -162,25 +160,27 @@ bool SdCardFontSystem::adoptCompleteChineseNotoSans() {
 
 void SdCardFontSystem::setupUiFallbacks(GfxRenderer& renderer) {
 #ifdef ENABLE_CHINESE_VERSION
-  // The CN firmware's built-in 8/10/12pt UI fonts cover its Simplified-Chinese
-  // interface. Keep only the selected reader-size SD font resident: loading
-  // three more broad-CJK sizes leaves too little contiguous heap for EPUB image
-  // decoding and glyph prewarm.
+#if !defined(BOARD_HAS_PSRAM)
+  // C3 CN: builtin 3500-char UI fonts stay resident; extra SD UI sizes fragment
+  // the image-decode heap. Book titles missing rare CJK stay blank there.
   (void)renderer;
   return;
-#else
+#endif
+#endif
   const std::string& familyName = manager_.currentFamilyName();
   if (familyName.empty()) return;  // no SD family loaded — nothing to fall back to
 
   const auto* family = registry_.findFamily(familyName);
   if (!family) return;
 
-  // Probe before paying for the UI sizes. Skip Latin-only families and, in the
-  // CN build, avoid loading duplicate SD sizes when the built-in UI fonts
-  // already cover the same script.
   const auto readerIt = renderer.getFontMap().find(manager_.getFontId(familyName));
   if (readerIt == renderer.getFontMap().end()) return;
-  // One representative codepoint per script: Han, Hiragana, Katakana, Hangul.
+
+#ifdef ENABLE_CHINESE_VERSION
+  // Builtin CN UI fonts already contain 一/common Han, so the global "does the
+  // UI font miss CJK?" probe would skip fallbacks. Rare title glyphs (涅槃)
+  // are outside that 3500-char set and still need the SD family.
+#else
   static constexpr uint32_t kCjkProbes[] = {0x4E00, 0x3042, 0x30A2, 0xAC00};
   bool needsFallback = false;
   for (const uint32_t cp : kCjkProbes) {
@@ -198,14 +198,33 @@ void SdCardFontSystem::setupUiFallbacks(GfxRenderer& renderer) {
     LOG_DBG("SDFS", "%s adds no CJK UI coverage - skipping fallback sizes", familyName.c_str());
     return;
   }
+#endif
 
+  int extraByPt[19] = {};
   for (const auto& ui : kUiFontSizes) {
     const int sdFontId = manager_.loadFamilyExtraSize(*family, renderer, ui.pointSize);
     if (sdFontId != 0) {
+      extraByPt[ui.pointSize] = sdFontId;
       renderer.setFallbackFont(ui.fontId, sdFontId);
     } else {
       LOG_DBG("SDFS", "No %u pt SD glyphs for UI fallback in %s", ui.pointSize, familyName.c_str());
     }
+  }
+
+#ifdef ENABLE_CHINESE_VERSION
+  const int extra12 = extraByPt[12] != 0 ? extraByPt[12] : manager_.getFontId(familyName);
+  const int extra14 = manager_.loadFamilyExtraSize(*family, renderer, 14);
+  if (extra12 != 0) {
+    renderer.setFallbackFont(NOTOSANS_12_FONT_ID, extra12);
+    renderer.setFallbackFont(NOTOSERIF_12_FONT_ID, extra12);
+    if (extraByPt[12] == 0) {
+      renderer.setFallbackFont(UI_12_FONT_ID, extra12);
+      if (extraByPt[10] == 0) renderer.setFallbackFont(UI_10_FONT_ID, extra12);
+    }
+  }
+  if (extra14 != 0) {
+    renderer.setFallbackFont(NOTOSANS_14_FONT_ID, extra14);
+    renderer.setFallbackFont(NOTOSERIF_14_FONT_ID, extra14);
   }
 #endif
 }

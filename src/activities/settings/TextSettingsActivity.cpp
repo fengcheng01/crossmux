@@ -45,6 +45,9 @@ constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING,
                                         StrId::STR_EMBEDDED_STYLE,
                                         StrId::STR_FAKE_BOLD,
                                         StrId::STR_TEXT_AA};
+#if FREEINK_DEVICE_MURPHY_M4
+constexpr StrId AA_MODE_IDS[] = {StrId::STR_STATE_OFF, StrId::STR_AA_OVERLAY, StrId::STR_AA_COMBINED};
+#endif
 
 constexpr StrId LINE_SPACING_IDS[] = {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE, StrId::STR_EXTRA_WIDE};
 constexpr StrId SYNTHETIC_BOLD_IDS[] = {StrId::STR_STATE_OFF, StrId::STR_FAKE_BOLD_STANDARD,
@@ -685,8 +688,18 @@ void TextSettingsActivity::confirmStyleRow(int row) {
       requestUpdate();
       return;
     case StyleRow::AntiAliasing:
+#if FREEINK_DEVICE_MURPHY_M4
+      optionPopup_.show(StrId::STR_TEXT_AA, AA_MODE_IDS, static_cast<int>(std::size(AA_MODE_IDS)),
+                        SETTINGS.textAntiAliasing, [](int idx) {
+                          SETTINGS.textAntiAliasing = static_cast<uint8_t>(idx);
+                          SETTINGS.saveToFile();
+                        });
+      requestUpdate();
+      return;
+#else
       SETTINGS.textAntiAliasing = !SETTINGS.textAntiAliasing;
       break;
+#endif
 
     default:
       return;
@@ -717,7 +730,14 @@ std::string TextSettingsActivity::styleValueText(int row) const {
       return value < std::size(SYNTHETIC_BOLD_IDS) ? I18N.get(SYNTHETIC_BOLD_IDS[value]) : tr(STR_STATE_OFF);
     }
     case StyleRow::AntiAliasing:
+#if FREEINK_DEVICE_MURPHY_M4
+    {
+      const uint8_t mode = SETTINGS.textAntiAliasing;
+      return mode < std::size(AA_MODE_IDS) ? I18N.get(AA_MODE_IDS[mode]) : tr(STR_STATE_OFF);
+    }
+#else
       return SETTINGS.textAntiAliasing ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+#endif
 
     default:
       return "";

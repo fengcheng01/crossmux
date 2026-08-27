@@ -767,11 +767,22 @@ void TxtReaderActivity::renderPage() {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
 #else
-  // Other devices keep the upstream behavior: show the BW frame first, then
-  // the gray pass.
-  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
-  if (SETTINGS.textAntiAliasing) {
-    ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
+  if (ReaderUtils::usesCombinedAa()) {
+    (void)ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
+    ReaderUtils::renderAntiAliased(
+        renderer,
+        [this, &renderLines]() {
+          renderLines();
+          renderStatusBar();
+        },
+        true);
+  } else {
+    // Other devices keep the upstream behavior: show the BW frame first, then
+    // the gray pass.
+    ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+    if (SETTINGS.textAntiAliasing) {
+      ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
+    }
   }
 #endif
   const auto tDisplay = millis();

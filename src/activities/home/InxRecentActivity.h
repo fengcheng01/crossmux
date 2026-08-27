@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "Bitmap.h"
 #include "InxRecentLayout.h"
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
@@ -47,6 +48,7 @@ class InxRecentActivity final : public Activity {
 #endif
   int selected = 0;
   int thumbnailHeight = 0;
+  mutable Rect heroCoverRect_{};
 
   InxRecentLayout layout() const;
   const ReadingBookStats* statsAt(int index) const;
@@ -78,5 +80,8 @@ class InxRecentActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   MainTab mainTab() const override { return MainTab::Recent; }
+  // INX home tab. Without this, a bottom-edge up swipe is stolen as Home and
+  // re-enters this activity (selected resets to 0) instead of changing books.
+  bool isHomeActivity() const override { return true; }
   void selectMainTabContentEdge(MainTabContentEdge edge) override;
 };

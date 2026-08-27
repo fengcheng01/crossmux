@@ -58,9 +58,9 @@ void ActivityManager::begin() {
 #else
   constexpr BaseType_t renderTaskCore = 0;
 #endif
-  // A4 prewarms fonts, decodes covers and runs Bidi in this task; keep its
-  // measured stack allowance local to that experimental target.
-#if FREEINK_DEVICE_EEGO_A4
+  // A4/M4 prewarm CJK SD fonts and run layout on this task; the 8KB default
+  // overflows once a complete NotoSansSC family is selected.
+#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_MURPHY_M4
   constexpr uint32_t kRenderTaskStackBytes = 16384;
 #else
   constexpr uint32_t kRenderTaskStackBytes = 8192;

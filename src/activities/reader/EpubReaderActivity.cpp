@@ -1669,7 +1669,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const bool manualRefreshPending = forcedRefreshPending;
   forcedRefreshPending = false;
   const bool cleanImageBasePending = manualRefreshPending || pagesUntilFullRefresh <= 1;
-  const bool needsTextGrayscale = SETTINGS.textAntiAliasing;
+  const bool needsTextGrayscale = SETTINGS.textAntiAliasing != 0;
+  const bool combinedAa = ReaderUtils::usesCombinedAa();
   const bool needsAnyGrayscale = needsTextGrayscale || pageHasImages;
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
   // Paper Mono only (no other panel combines): defer the B/W base activation so
@@ -1738,6 +1739,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     // the scheduled/manual HALF refresh.
     renderer.displayBuffer(cleanImageBasePending ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
     pagesUntilFullRefresh = 1;
+  } else if (combinedAa) {
+    // Combined AA: do not show the 1-bit frame. Gray planes + one absolute
+    // waveform replace both FAST and the overlay pass. Night mode skips the
+    // gray pass, so usesCombinedAa() is already false while inverted.
+    LOG_INF("ERS", "Combined AA: single absolute 4-level refresh");
+    (void)ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
   } else if (combinedGrayscaleBase) {
     // Stash the base without activating; displayGrayBuffer() below commits
     // base + grays as one waveform.
@@ -1757,6 +1764,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tDisplay = millis();
 
   if (tiledGrayscale) {
+    if (combinedAa) renderer.setAbsoluteGrayPlanes(true);
+    struct ClearAbsoluteGray {
+      GfxRenderer& r;
+      ~ClearAbsoluteGray() { r.setAbsoluteGrayPlanes(false); }
+    } clearAbsoluteGray{renderer};
     constexpr int STRIP_ROWS = 80;
     const int gh = renderer.getDisplayHeight();
     const int gwBytes = renderer.getDisplayWidthBytes();
@@ -1818,7 +1830,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       const auto tGrayWrite = millis();
 
       renderer.setRenderMode(GfxRenderer::BW);
-      renderer.displayGrayBuffer();
+      if (combinedAa) {
+        renderer.displayGrayBufferAbsolute();
+        renderer.setAbsoluteGrayPlanes(false);
+      } else {
+        renderer.displayGrayBuffer();
+      }
       const auto tGrayDisplay = millis();
 
       renderer.cleanupGrayscaleWithFrameBuffer();
@@ -1877,7 +1894,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         const auto tGrayMsb = millis();
 
         renderer.setRenderMode(GfxRenderer::BW);
-        renderer.displayGrayBuffer();
+        if (combinedAa) {
+          renderer.displayGrayBufferAbsolute();
+          renderer.setAbsoluteGrayPlanes(false);
+        } else {
+          renderer.displayGrayBuffer();
+        }
         const auto tGrayDisplay = millis();
 
         renderer.cleanupGrayscaleWithFrameBuffer();
@@ -1898,6 +1920,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         return;
       }
       const auto tBwStore = millis();
+      if (combinedAa) renderer.setAbsoluteGrayPlanes(true);
+      struct ClearAbsoluteGray {
+        GfxRenderer& r;
+        ~ClearAbsoluteGray() { r.setAbsoluteGrayPlanes(false); }
+      } clearAbsoluteGray{renderer};
 
       renderer.clearScreen(0x00);
       renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
@@ -1921,12 +1948,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       // Abort before the expensive grayscale display if a push/pop is pending
       if (activityManager.isSwitchPending()) {
         renderer.setRenderMode(GfxRenderer::BW);
+        renderer.setAbsoluteGrayPlanes(false);
         renderer.restoreBwBuffer();
         return;
       }
-      renderer.displayGrayBuffer();
+      if (combinedAa) {
+        renderer.displayGrayBufferAbsolute();
+      } else {
+        renderer.displayGrayBuffer();
+      }
       const auto tGrayDisplay = millis();
       renderer.setRenderMode(GfxRenderer::BW);
+      renderer.setAbsoluteGrayPlanes(false);
       renderer.restoreBwBuffer();
       const auto tBwRestore = millis();
 

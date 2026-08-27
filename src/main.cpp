@@ -6,6 +6,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
+#include <HalEnvironment.h>
 #include <HalFrontlight.h>
 #include <HalGPIO.h>
 #include <HalOtaSlot.h>
@@ -35,12 +36,15 @@
 #include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#include "activities/boot_sleep/SleepActivity.h"
+#include "activities/reader/ReaderUtils.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
+#include "util/TimeUtils.h"
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -251,6 +255,7 @@ enum class BootResume : uint8_t {
   Splash,       // cold boot, flash, panic, or plain reboot
   Silent,       // heap-defrag ESP.restart() (RTC flag; lost on power loss)
   QuickResume,  // wake from a quick-resume deep sleep (SD flag; survives power loss)
+  ClockUnlock,  // power-wake from the CLOCK sleep screen
 };
 
 // Latched true once enterDeepSleep() commits to sleeping, before it tears down
@@ -325,7 +330,9 @@ void enterDeepSleep(bool fromTimeout = false) {
       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
       (fromTimeout &&
        SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
+  const bool clockSleep = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK;
   APP_STATE.showBootScreen = !isQuickResumeSleep;
+  APP_STATE.clockSleepActive = clockSleep;
 
   APP_STATE.saveToFile();
 
@@ -357,10 +364,16 @@ void enterDeepSleep(bool fromTimeout = false) {
   display.deepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  powerManager.startDeepSleep(gpio);
+  powerManager.startDeepSleep(gpio, clockSleep
+                                       ? static_cast<uint64_t>(TimeUtils::secondsUntilNextLocalMinute()) * 1000000ULL
+                                       : 0);
 }
 
-bool setupDisplayAndFonts(bool seamless = false) {
+uint64_t clockSleepTimerUs() {
+  return static_cast<uint64_t>(TimeUtils::secondsUntilNextLocalMinute()) * 1000000ULL;
+}
+
+bool setupDisplayAndFonts(bool seamless = false, bool skipSdFonts = false) {
 #if FREEINK_DEVICE_X4PRO
   // X4 Pro batches use SSD1677 or UC81xx. Resolve the controller before
   // display.begin(); C3 X3/X4 already do this once in HalGPIO::begin().
@@ -408,8 +421,7 @@ bool setupDisplayAndFonts(bool seamless = false) {
   renderer.insertFont(CHINESE_CHESS_FONT_ID, chineseChessPieceFontFamily);
 #endif
 
-  // Discover and load SD card fonts
-  sdFontSystem.begin(renderer);
+  if (!skipSdFonts) sdFontSystem.begin(renderer);
 
   LOG_DBG("MAIN", "Fonts setup");
   return fontDecompressorReady;
@@ -448,6 +460,7 @@ void setup() {
   powerManager.begin();
   halTiltSensor.begin();
   halClock.begin();
+  halEnvironment.begin();
 
   LOG_INF("MAIN", "Hardware detect: %s", BoardConfig::ACTIVE.name);
 
@@ -484,18 +497,38 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   const auto wakeupReason = gpio.getWakeupReason();
+  bool clockUnlock = false;
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
       LOG_DBG("MAIN", "Verifying power button press duration");
       if (!gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
                                         SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP)) {
-        powerManager.startDeepSleep(gpio);
+        powerManager.startDeepSleep(gpio, APP_STATE.clockSleepActive ? clockSleepTimerUs() : 0);
+      }
+      if (APP_STATE.clockSleepActive) {
+        APP_STATE.clockSleepActive = false;
+        APP_STATE.saveToFile();
+        clockUnlock = true;
       }
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
-      powerManager.startDeepSleep(gpio);
+      powerManager.startDeepSleep(gpio, APP_STATE.clockSleepActive ? clockSleepTimerUs() : 0);
+      break;
+    case HalGPIO::WakeupReason::Timer:
+      if (APP_STATE.clockSleepActive && SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK) {
+        LOG_DBG("MAIN", "Clock sleep tick");
+        setupDisplayAndFonts(true, true);
+        if (APP_STATE.lastSleepFromReader) {
+          ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+        }
+        SleepActivity::paintClock(renderer);
+        halTiltSensor.deepSleep();
+        Frontlight.setOn(false);
+        display.deepSleep();
+        powerManager.startDeepSleep(gpio, clockSleepTimerUs());
+      }
       break;
     case HalGPIO::WakeupReason::AfterFlash:
       // After flashing, just proceed to boot
@@ -531,6 +564,7 @@ void setup() {
   // HalDisplay::begin), so the first paint is FAST_REFRESH (~500ms) over the
   // retained frame and input dispatches against a visible UI.
   const BootResume resume = isSilentReboot              ? BootResume::Silent
+                            : clockUnlock               ? BootResume::ClockUnlock
                             : !APP_STATE.showBootScreen ? BootResume::QuickResume
                                                         : BootResume::Splash;
   bool allowFastInitialReaderRefresh = false;
@@ -570,6 +604,9 @@ void setup() {
           activityManager.goToBoot();  // frame file missing, fall back to the splash
         }
         break;
+      case BootResume::ClockUnlock:
+        // Keep the last clock frame until the first activity paints.
+        break;
       case BootResume::Splash:
         activityManager.goToBoot();
         break;
@@ -606,7 +643,7 @@ void setup() {
     activityManager.goToReader(path, allowFastInitialReaderRefresh);
   }
 
-  if (resume == BootResume::Silent) {
+  if (resume == BootResume::Silent || resume == BootResume::ClockUnlock) {
     if (postOtaBoot) {
       // Apply the queued Home replacement before waiting for its first physical paint.
       activityManager.loop();

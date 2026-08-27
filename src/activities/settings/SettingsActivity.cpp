@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 
 #include "AppVisibilitySettingsActivity.h"
 #include "ButtonRemapActivity.h"
@@ -25,6 +26,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"
+#include "ReaderTapZonesActivity.h"
 #include "ReadingStatsSettingsActivity.h"
 #include "SdCardFontSystem.h"
 #include "SdFirmwareUpdateActivity.h"
@@ -238,6 +240,16 @@ void SettingsActivity::rebuildSettingsLists() {
   if (!BoardConfig::hasTouch()) {
     controlsSettings.insert(controlsSettings.begin(),
                             SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
+  } else {
+    const auto tapZones = SettingInfo::Action(StrId::STR_READER_TAP_ZONES, SettingAction::ReaderTapZones);
+    const auto afterTouch = std::find_if(controlsSettings.begin(), controlsSettings.end(), [](const SettingInfo& s) {
+      return s.valuePtr == &CrossPointSettings::touchReaderControls;
+    });
+    if (afterTouch != controlsSettings.end()) {
+      controlsSettings.insert(std::next(afterTouch), tapZones);
+    } else {
+      controlsSettings.push_back(tapZones);
+    }
   }
   systemSettings.push_back(SettingInfo::Action(StrId::STR_APP_VISIBILITY, SettingAction::AppVisibility));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
@@ -686,6 +698,9 @@ void SettingsActivity::toggleCurrentSetting() {
               requestUpdate();
             },
             &sdFontSystem.registry(), TextSettingsActivity::Tab::Family);
+        break;
+      case SettingAction::ReaderTapZones:
+        startActivityForResultWith<ReaderTapZonesActivity>(resultHandler);
         break;
       case SettingAction::Language:
         // Row labels are translated once in rebuildRowItems() and don't

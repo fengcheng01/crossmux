@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../Activity.h"
+#include "Bitmap.h"
 #include "util/ButtonNavigator.h"
 
 struct ReadingBookStats;
@@ -15,7 +16,9 @@ class ReadingStatsActivity final : public Activity {
   bool renderedCoverMissing = false;
   int renderedCoverView = -1;
   int attemptedCoverView = -1;
+  Rect coverHitRect_{};
   void openSelectedEntry();
+  void openCoverBook();
   void confirmRemoveSelectedBook();
   void guardBackReturn();
   void prepareVisibleCover();

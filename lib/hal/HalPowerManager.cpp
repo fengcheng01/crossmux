@@ -77,7 +77,7 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 #endif
 }
 
-void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
+void HalPowerManager::startDeepSleep(HalGPIO& gpio, uint64_t timerWakeUs) const {
 #if FREEINK_DEVICE_WAVESHARE_EPAPER_397
   Waveshare397Power::waitForPowerButtonRelease();
 #endif
@@ -138,7 +138,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
 #if !FREEINK_DEVICE_WAVESHARE_EPAPER_397
   // Waits for the power button to be physically released (so holding it doesn't
   // immediately wake the device again), then arms the wake source and sleeps.
-  freeink::PowerManager::deepSleepUntilPowerButton();
+  freeink::PowerManager::deepSleepUntilPowerButton(timerWakeUs);
 #endif
 }
 

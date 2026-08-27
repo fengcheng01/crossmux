@@ -37,6 +37,7 @@ class EpubReaderMenuActivity final : public UiListActivity {
                                   const bool hasFootnotes, bool hasBookmarks);
 
   void render(RenderLock&&) override;
+  bool appliesNightMode() const override { return true; }
   bool handleHomeGesture() override;
 #if FREEINK_DEVICE_EEGO_A4
   bool skipLoopDelay() override { return true; }  // Keep CPU at full speed for responsive touch

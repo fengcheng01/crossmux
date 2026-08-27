@@ -227,6 +227,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
     doc["sdFontFamilyName"] = sdFontFamilyName;
   }
   doc["sdFontFlashPreload"] = sdFontFlashPreload;
+  doc["readerTapZones"] = readerTapZones;
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, save manually
   if (dictionaryName[0] != '\0') {
     doc["dictionaryName"] = dictionaryName;
@@ -365,6 +366,8 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   sdFontFamilyName[sizeof(sdFontFamilyName) - 1] = '\0';
   sdFontFlashPreload =
       clamp(static_cast<uint8_t>(doc["sdFontFlashPreload"] | 0), static_cast<uint8_t>(2), static_cast<uint8_t>(0));
+  readerTapZones = doc["readerTapZones"].isNull() ? DEFAULT_READER_TAP_ZONES : doc["readerTapZones"].as<uint32_t>();
+  if ((readerTapZones & ~0x3FFFFu) != 0) readerTapZones = DEFAULT_READER_TAP_ZONES;
   if (storedFontFamily == LEGACY_OPENDYSLEXIC && sdFontFamilyName[0] == '\0') {
     fontFamily = NOTOSERIF;
     strncpy(sdFontFamilyName, "OpenDyslexic", sizeof(sdFontFamilyName) - 1);
@@ -398,6 +401,15 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
     language = defaultLanguageIndex();
   }
   if (!skuMatches) needsResave = true;
+
+#if FREEINK_DEVICE_MURPHY_M4
+  // Pre-clock firmware saved DARK. CLOCK is last in the sleep-screen list so
+  // testers never found it; promote DARK to CLOCK once.
+  if (sleepScreen == DARK) {
+    sleepScreen = CLOCK;
+    needsResave = true;
+  }
+#endif
 
   if (needsResave) {
     LOG_DBG("CPS", "Resaving settings to update format");
@@ -517,6 +529,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
   screenMargin = value(13, screenMargin);
   sleepScreenCoverMode = validated(14, sleepScreenCoverMode, SLEEP_SCREEN_COVER_MODE_COUNT);
   textAntiAliasing = value(15, textAntiAliasing);
+  if (textAntiAliasing >= TEXT_AA_COUNT) textAntiAliasing = TEXT_AA_OVERLAY;
   hideBatteryPercentage = validated(16, hideBatteryPercentage, HIDE_BATTERY_PERCENTAGE_COUNT);
   longPressButtonBehavior = validated(17, longPressButtonBehavior, LONG_PRESS_BUTTON_BEHAVIOR_COUNT);
   hyphenationEnabled = value(18, hyphenationEnabled);

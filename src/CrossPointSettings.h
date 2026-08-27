@@ -41,6 +41,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     COVER_CUSTOM = 5,
     QUICK_RESUME = 6,
     TRANSPARENT = 7,
+    CLOCK = 8,
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
@@ -221,6 +222,18 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     TOUCH_READER_CONTROLS_COUNT
   };
 
+  static constexpr uint8_t READER_TAP_ZONE_COUNT = 9;
+  enum READER_TAP_ACTION : uint8_t {
+    TAP_NONE = 0,
+    TAP_PREV = 1,
+    TAP_NEXT = 2,
+    TAP_MENU = 3,
+    TAP_ACTION_COUNT = 4
+  };
+  // 3x3: left column prev, center menu, right next.
+  static constexpr uint32_t DEFAULT_READER_TAP_ZONES = 1u | (3u << 2) | (2u << 4) | (1u << 6) | (3u << 8) | (2u << 10) |
+                                                       (1u << 12) | (3u << 14) | (2u << 16);
+
   enum QUICK_RESUME_SLEEP_SCREEN {
     QUICK_RESUME_NEVER = 0,
     QUICK_RESUME_AFTER_TIMEOUT = 1,
@@ -238,7 +251,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
 
   // Sleep screen settings
+#ifdef FREEINK_DEVICE_MURPHY_M4
+  uint8_t sleepScreen = CLOCK;
+#else
   uint8_t sleepScreen = DARK;
+#endif
   // Night mode: inverted output polarity on reading surfaces only.
   uint8_t screenInverted = 0;
   // Sleep screen cover mode settings
@@ -270,7 +287,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t clockAutoSync = 1;
   // Text rendering settings
   uint8_t extraParagraphSpacing = 0;
-  uint8_t textAntiAliasing = 1;
+  // 0 = off, 1 = two-pass overlay (default), 2 = M4 combined single waveform.
+  enum TEXT_AA : uint8_t { TEXT_AA_OFF = 0, TEXT_AA_OVERLAY = 1, TEXT_AA_COMBINED = 2, TEXT_AA_COUNT = 3 };
+  uint8_t textAntiAliasing = TEXT_AA_OVERLAY;
   uint8_t fakeBold = SYNTHETIC_BOLD_STANDARD;
   uint8_t readingBackgroundEnabled = 0;
   uint8_t readingGuideLineEnabled = 0;
@@ -376,6 +395,27 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t tiltPageTurn = TILT_OFF;
   // Touch screen reader zones/gestures on boards with a touch controller.
   uint8_t touchReaderControls = TOUCH_READER_ON;
+  // Packed 3x3 reader tap actions, 2 bits each. See readerTapActionAt().
+  uint32_t readerTapZones = DEFAULT_READER_TAP_ZONES;
+  uint8_t readerTapActionAt(uint8_t index) const {
+    if (index >= READER_TAP_ZONE_COUNT) return TAP_NONE;
+    return static_cast<uint8_t>((readerTapZones >> (index * 2)) & 0x3u);
+  }
+  void setReaderTapActionAt(uint8_t index, uint8_t action) {
+    if (index >= READER_TAP_ZONE_COUNT || action >= TAP_ACTION_COUNT) return;
+    const uint32_t shift = static_cast<uint32_t>(index) * 2;
+    readerTapZones = (readerTapZones & ~(0x3u << shift)) | (static_cast<uint32_t>(action) << shift);
+  }
+  static uint8_t readerTapZoneIndex(int x, int y, int width, int height) {
+    if (width <= 0 || height <= 0) return 4;
+    int col = x * 3 / width;
+    int row = y * 3 / height;
+    if (col < 0) col = 0;
+    if (col > 2) col = 2;
+    if (row < 0) row = 0;
+    if (row > 2) row = 2;
+    return static_cast<uint8_t>(row * 3 + col);
+  }
   // Center-third tap opens the reader menu. Only configurable when a Home key
   // keeps the menu reachable after disabling the gesture.
   uint8_t tapForReaderMenu = 1;

@@ -47,5 +47,6 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
+  bool appliesNightMode() const override { return true; }
   bool handleHomeGesture() override;
 };

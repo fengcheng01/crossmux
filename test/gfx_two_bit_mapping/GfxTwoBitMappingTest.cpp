@@ -42,6 +42,18 @@ TEST(GfxTwoBitMapping, A4DirectGlyphAndBitmapProduceTheSameFramebufferBit) {
   }
 }
 
+TEST(GfxTwoBitMapping, AbsoluteFourLevelDistinguishesBlackAndWhite) {
+  constexpr bool kAbsolute = true;
+  const auto blackLsb = GfxRenderer::mapTwoBitPixel(GfxRenderer::GRAYSCALE_LSB, 0, kAbsolute);
+  const auto whiteLsb = GfxRenderer::mapTwoBitPixel(GfxRenderer::GRAYSCALE_LSB, 3, kAbsolute);
+  const auto blackMsb = GfxRenderer::mapTwoBitPixel(GfxRenderer::GRAYSCALE_MSB, 0, kAbsolute);
+  const auto whiteMsb = GfxRenderer::mapTwoBitPixel(GfxRenderer::GRAYSCALE_MSB, 3, kAbsolute);
+  EXPECT_TRUE(blackLsb.draw);
+  EXPECT_FALSE(whiteLsb.draw);
+  EXPECT_TRUE(blackMsb.draw);
+  EXPECT_FALSE(whiteMsb.draw);
+}
+
 TEST(GfxTwoBitMapping, BwKeepsLogicalPixelState) {
   for (uint8_t value = 0; value < 4; ++value) {
     const auto pixel = GfxRenderer::mapTwoBitPixel(GfxRenderer::BW, value);

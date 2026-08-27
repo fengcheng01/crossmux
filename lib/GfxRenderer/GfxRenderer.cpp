@@ -376,7 +376,8 @@ static uint8_t get2BitCoverage(const uint8_t* bitmap, const int pixelPosition) {
 
 static void draw2BitGlyphPixel(const GfxRenderer& renderer, const GfxRenderer::RenderMode renderMode, const int x,
                                const int y, const bool pixelState, const uint8_t coverage) {
-  const auto pixel = GfxRenderer::mapTwoBitGlyphCoverage(renderMode, coverage);
+  const auto pixel =
+      GfxRenderer::mapTwoBitGlyphCoverage(renderMode, coverage, renderer.usesAbsoluteGrayPlanes());
   if (!pixel.draw) return;
   renderer.drawPixel(x, y, renderMode == GfxRenderer::BW ? pixelState : pixel.state);
 }
@@ -615,7 +616,7 @@ void GfxRenderer::drawPixel(const int x, const int y, const bool state) const {
   const uint32_t byteIndex = rowY * panelWidthBytes + (phyX / 8);
   const uint8_t bitPosition = 7 - (phyX % 8);  // MSB first
 
-  const bool eff = framebufferState(renderMode, state);
+  const bool eff = framebufferState(renderMode, state, absoluteGrayPlanes);
   if (eff) {
     target[byteIndex] &= ~(1 << bitPosition);  // Clear bit
   } else {
@@ -957,7 +958,7 @@ void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, con
 }
 
 void GfxRenderer::fillRect(const int x, const int y, const int width, const int height, const bool state) const {
-  const bool eff = framebufferState(renderMode, state);
+  const bool eff = framebufferState(renderMode, state, absoluteGrayPlanes);
   if (eff) {
     fillRectImpl<Color::Black>(x, y, width, height);
   } else {
@@ -1413,7 +1414,7 @@ bool GfxRenderer::drawBitmapCropToFill(const Bitmap& bitmap, const int x, const 
   uint8_t* const rowBytes = outputRow + outputRowSize;
 
   const GfxRenderer::RenderMode mode = getRenderMode();
-  const auto runPixel = mapTwoBitPixel(mode, 0);
+  const auto runPixel = mapTwoBitPixel(mode, 0, absoluteGrayPlanes);
   for (int sourceRow = 0; sourceRow < sourceHeight; ++sourceRow) {
     if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
       LOG_ERR("GFX", "Failed to read crop-fill row %d", sourceRow);
@@ -1432,7 +1433,7 @@ bool GfxRenderer::drawBitmapCropToFill(const Bitmap& bitmap, const int x, const 
       bool draw = false;
       if (sourceX < sourceWidth) {
         const uint8_t value = outputRow[sourceX / 4] >> (6 - ((sourceX * 2) % 8)) & 0x3;
-        draw = mapTwoBitPixel(mode, value).draw;
+        draw = mapTwoBitPixel(mode, value, absoluteGrayPlanes).draw;
       }
       if (draw && runStart < 0) {
         runStart = sourceX;
@@ -1548,7 +1549,7 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
       if (useTransparency && !opacityRow[bmpX]) {
         continue;
       }
-      auto pixel = mapTwoBitPixel(renderMode, val);
+      auto pixel = mapTwoBitPixel(renderMode, val, absoluteGrayPlanes);
       if (renderMode == BW && useTransparency && val >= 3) pixel = {true, false};
       if (pixel.draw) drawPixel(screenX, screenY, pixel.state);
     }
@@ -2363,6 +2364,8 @@ void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuff
 void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
 
 void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(fadingFix); }
+
+void GfxRenderer::displayGrayBufferAbsolute() const { display.displayGrayBufferAbsolute(fadingFix); }
 
 void GfxRenderer::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* scratch, int yStart, int numRows) const {
   // Guard the uint16_t casts below: a negative would wrap to a huge length.

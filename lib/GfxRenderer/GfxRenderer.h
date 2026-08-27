@@ -37,8 +37,16 @@ class GfxRenderer {
 
   // Map 0=black, 1=dark gray, 2=light gray, 3=white into the active
   // framebuffer plane. Keep every 2-bit renderer on this single table.
-  static constexpr TwoBitPixel mapTwoBitPixel(const RenderMode mode, const uint8_t value) {
+  // absoluteFourLevel uses four distinct RAM classes so a single grayscale
+  // waveform can drive black and white separately (overlay encoding maps both
+  // to 00 because the B/W pass already placed them).
+  static constexpr TwoBitPixel mapTwoBitPixel(const RenderMode mode, const uint8_t value,
+                                              const bool absoluteFourLevel = false) {
     if (mode == BW) return {value < 3, true};
+    if (absoluteFourLevel) {
+      if (mode == GRAYSCALE_MSB) return {value == 0 || value == 1, true};
+      return {value == 0 || value == 2, true};
+    }
 #if FREEINK_DEVICE_EEGO_A4
     if (mode == GRAYSCALE_MSB) return {value == 0 || value == 1, true};
     return {value == 0 || value == 2, true};
@@ -48,12 +56,15 @@ class GfxRenderer {
 #endif
   }
 
-  static constexpr TwoBitPixel mapTwoBitGlyphCoverage(const RenderMode mode, const uint8_t coverage) {
+  static constexpr TwoBitPixel mapTwoBitGlyphCoverage(const RenderMode mode, const uint8_t coverage,
+                                                      const bool absoluteFourLevel = false) {
     // Font coverage is 0=white..3=black; bitmap pixels use 0=black..3=white.
-    return mapTwoBitPixel(mode, 3 - coverage);
+    return mapTwoBitPixel(mode, 3 - coverage, absoluteFourLevel);
   }
 
-  static constexpr bool framebufferState(const RenderMode mode, const bool state) {
+  static constexpr bool framebufferState(const RenderMode mode, const bool state,
+                                         const bool absoluteFourLevel = false) {
+    if (absoluteFourLevel) return mode == BW ? state : !state;
 #if FREEINK_DEVICE_EEGO_A4
     return mode == BW ? state : !state;
 #else
@@ -78,6 +89,7 @@ class GfxRenderer {
   RenderMode renderMode;
   Orientation orientation;
   bool fadingFix;
+  bool absoluteGrayPlanes;
   mutable uint8_t syntheticBoldPixels = 0;
   uint8_t* frameBuffer = nullptr;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
@@ -160,7 +172,7 @@ class GfxRenderer {
 
  public:
   explicit GfxRenderer(HalDisplay& halDisplay)
-      : display(halDisplay), renderMode(BW), orientation(Portrait), fadingFix(false) {}
+      : display(halDisplay), renderMode(BW), orientation(Portrait), fadingFix(false), absoluteGrayPlanes(false) {}
   ~GfxRenderer() { freeBwBufferChunks(); }
   GfxRenderer(const GfxRenderer&) = delete;
   GfxRenderer& operator=(const GfxRenderer&) = delete;
@@ -222,6 +234,9 @@ class GfxRenderer {
 
   // Fading fix control
   void setFadingFix(const bool enabled) { fadingFix = enabled; }
+  // Combined AA: encode four distinct RAM classes (black≠white) for one waveform.
+  void setAbsoluteGrayPlanes(const bool enabled) { absoluteGrayPlanes = enabled; }
+  bool usesAbsoluteGrayPlanes() const { return absoluteGrayPlanes; }
 
   // Screen ops
   int getScreenWidth() const;
@@ -405,6 +420,7 @@ class GfxRenderer {
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
   void displayGrayBuffer() const;
+  void displayGrayBufferAbsolute() const;
 
   // Tiled grayscale (X4): stream one band of a plane straight to controller RAM
   // from `scratch` (panelWidthBytes * numRows, physical rows [yStart, yStart+

@@ -18,6 +18,7 @@
 #include "NetworkStartup.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
+#include "util/ProgressRepaint.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/settings/TextSettingsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
@@ -473,7 +474,13 @@ FontDownloadActivity::DownloadResult FontDownloadActivity::downloadFile(const Ma
           goHomeRequested_ = true;
         }
         UiAppHost::routeTouch(mappedInput);
-        requestUpdate(true);
+        const unsigned percent = total > 0 ? static_cast<unsigned>(downloaded * 100 / total) : 0;
+        const uint32_t now = millis();
+        if (shouldRepaintProgress(lastDownloadPaintPercent_, percent, lastDownloadPaintMs_, now)) {
+          lastDownloadPaintPercent_ = percent;
+          lastDownloadPaintMs_ = now;
+          requestUpdate(true);
+        }
       },
       &cancelRequested_);
 
@@ -539,6 +546,8 @@ FontDownloadActivity::DownloadResult FontDownloadActivity::downloadFamily(Manife
     downloadingFamilyIndex_ = static_cast<int>(&family - families_.data());
     fileProgress_ = 0;
     fileTotal_ = 0;
+    lastDownloadPaintPercent_ = 0;
+    lastDownloadPaintMs_ = 0;
     cancelRequested_ = false;
     goHomeRequested_ = false;
   }
@@ -558,6 +567,8 @@ FontDownloadActivity::DownloadResult FontDownloadActivity::downloadFamily(Manife
       RenderLock lock(*this);
       fileProgress_ = 0;
       fileTotal_ = file.size;
+      lastDownloadPaintPercent_ = 0;
+      lastDownloadPaintMs_ = 0;
     }
     requestUpdateAndWait();
 

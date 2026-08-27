@@ -66,4 +66,10 @@ class StandbyActivity final : public Activity {
   // wantsGrayscale, e.g. the 老黄历 calendar). The face's render() must be
   // idempotent across the three passes.
   void applyGrayscalePass(const Rect& viewport);
+  void refreshEnvironment();
+
+  bool envOk_ = false;
+  float envTempC_ = 0;
+  float envHumidityPct_ = 0;
+  uint32_t envLastMs_ = 0;
 };

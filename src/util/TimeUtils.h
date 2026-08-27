@@ -37,6 +37,8 @@ bool formatTime(uint32_t epochSeconds, uint8_t utcOffsetQuarterHoursBiased, bool
                 size_t bufferSize);
 bool formatCurrentTime(char* buffer, size_t bufferSize, bool use12Hour);
 bool formatCurrentDateTime(char* buffer, size_t bufferSize, bool use12Hour);
+// 1..120 seconds until the next local minute; 60 if the clock is untrusted.
+uint32_t secondsUntilNextLocalMinute();
 void formatUtcOffset(uint8_t utcOffsetQuarterHoursBiased, char* buffer, size_t bufferSize);
 
 // Local day number (days since 1970-01-01 in local time), or 0 if the clock is invalid.
