@@ -568,7 +568,9 @@ void SettingsActivity::toggleCurrentSetting() {
 
   const auto& setting = (*currentSettings)[selectedSetting];
   const auto changedValuePtr = setting.valuePtr;
-  const bool sleepScreenChanged = setting.valuePtr == &CrossPointSettings::sleepScreen;
+  // The M4 sleep screen is a DynamicEnum (no valuePtr), so match it by key.
+  const bool sleepScreenChanged = setting.valuePtr == &CrossPointSettings::sleepScreen ||
+                                  (setting.key != nullptr && strcmp(setting.key, "sleepScreen") == 0);
   const bool quickResumeTimeoutChanged = setting.valuePtr == &CrossPointSettings::quickResumeSleepScreen;
 
   if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {

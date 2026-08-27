@@ -322,6 +322,22 @@ static bool loadSleepFrameBuffer() {
 }
 
 // Enter deep sleep mode
+uint64_t clockSleepTimerUs() { return static_cast<uint64_t>(TimeUtils::secondsUntilNextLocalMinute()) * 1000000ULL; }
+
+// A clock-less device would wake every minute just to paint a blank face;
+// fall back to an hourly re-check until the clock becomes valid.
+uint64_t clockSleepWakeUs() { return TimeUtils::isClockValid() ? clockSleepTimerUs() : 60ULL * 60 * 1000000ULL; }
+
+// The desktop shim models deep sleep without the M4 clock-timer argument.
+void startDeepSleepWithTimer(HalPowerManager& pm, HalGPIO& gpio, const uint64_t timerUs) {
+#if defined(SIMULATOR)
+  (void)timerUs;
+  pm.startDeepSleep(gpio);
+#else
+  pm.startDeepSleep(gpio, timerUs);
+#endif
+}
+
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
@@ -364,13 +380,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   display.deepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  powerManager.startDeepSleep(gpio, clockSleep
-                                       ? static_cast<uint64_t>(TimeUtils::secondsUntilNextLocalMinute()) * 1000000ULL
-                                       : 0);
-}
-
-uint64_t clockSleepTimerUs() {
-  return static_cast<uint64_t>(TimeUtils::secondsUntilNextLocalMinute()) * 1000000ULL;
+  startDeepSleepWithTimer(powerManager, gpio, clockSleep ? clockSleepWakeUs() : 0);
 }
 
 bool setupDisplayAndFonts(bool seamless = false, bool skipSdFonts = false) {
@@ -385,7 +395,9 @@ bool setupDisplayAndFonts(bool seamless = false, bool skipSdFonts = false) {
 #endif
 
   display.begin(seamless);
-#if FREEINK_DEVICE_MURPHY_M4
+#if FREEINK_DEVICE_MURPHY_M4 && !defined(SIMULATOR)
+  // The FT6336U shares the panel's reset line; re-validate it after the
+  // display begin toggled it. The simulator shim has no touch controller.
   if (!gpio.restoreTouchAfterDisplayReset()) {
     LOG_ERR("MAIN", "Failed to restore Murphy M4 touch after display reset");
   }
@@ -484,9 +496,20 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
-  Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, SETTINGS.frontlightOn != 0);
-  halClock.setAutoSyncEnabled(SETTINGS.clockAutoSync != 0);
   APP_STATE.loadFromFile();
+  const auto wakeupReason = gpio.getWakeupReason();
+  // A clock tick repaints and goes straight back to sleep; keep the frontlight
+  // off for it so it does not flash once during the repaint boot.
+  const bool clockTickWake =
+#if !defined(SIMULATOR)
+      wakeupReason == HalGPIO::WakeupReason::Timer && APP_STATE.clockSleepActive &&
+      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK;
+#else
+      false;
+#endif
+  Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth,
+                   SETTINGS.frontlightOn != 0 && !clockTickWake);
+  halClock.setAutoSyncEnabled(SETTINGS.clockAutoSync != 0);
   RECENT_BOOKS.loadFromFile();
   READING_STATS.loadFromFile();
   ACHIEVEMENTS.loadFromFile();
@@ -496,14 +519,13 @@ void setup() {
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
-  const auto wakeupReason = gpio.getWakeupReason();
   bool clockUnlock = false;
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
       LOG_DBG("MAIN", "Verifying power button press duration");
       if (!gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
                                         SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP)) {
-        powerManager.startDeepSleep(gpio, APP_STATE.clockSleepActive ? clockSleepTimerUs() : 0);
+        startDeepSleepWithTimer(powerManager, gpio, APP_STATE.clockSleepActive ? clockSleepWakeUs() : 0);
       }
       if (APP_STATE.clockSleepActive) {
         APP_STATE.clockSleepActive = false;
@@ -514,8 +536,9 @@ void setup() {
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
-      powerManager.startDeepSleep(gpio, APP_STATE.clockSleepActive ? clockSleepTimerUs() : 0);
+      startDeepSleepWithTimer(powerManager, gpio, APP_STATE.clockSleepActive ? clockSleepWakeUs() : 0);
       break;
+#if !defined(SIMULATOR)
     case HalGPIO::WakeupReason::Timer:
       if (APP_STATE.clockSleepActive && SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK) {
         LOG_DBG("MAIN", "Clock sleep tick");
@@ -527,9 +550,10 @@ void setup() {
         halTiltSensor.deepSleep();
         Frontlight.setOn(false);
         display.deepSleep();
-        powerManager.startDeepSleep(gpio, clockSleepTimerUs());
+        startDeepSleepWithTimer(powerManager, gpio, clockSleepWakeUs());
       }
       break;
+#endif
     case HalGPIO::WakeupReason::AfterFlash:
       // After flashing, just proceed to boot
     case HalGPIO::WakeupReason::Other:

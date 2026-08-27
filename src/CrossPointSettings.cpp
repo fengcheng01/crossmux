@@ -228,6 +228,11 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   }
   doc["sdFontFlashPreload"] = sdFontFlashPreload;
   doc["readerTapZones"] = readerTapZones;
+#if FREEINK_DEVICE_MURPHY_M4
+  // M4 sleep screen uses a DynamicEnum (display-first order, no valuePtr), so
+  // the generic loop above skips it; persist the raw SLEEP_SCREEN_MODE.
+  doc["sleepScreen"] = sleepScreen;
+#endif
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, save manually
   if (dictionaryName[0] != '\0') {
     doc["dictionaryName"] = dictionaryName;
@@ -403,11 +408,13 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   if (!skuMatches) needsResave = true;
 
 #if FREEINK_DEVICE_MURPHY_M4
-  // Pre-clock firmware saved DARK. CLOCK is last in the sleep-screen list so
-  // testers never found it; promote DARK to CLOCK once.
-  if (sleepScreen == DARK) {
-    sleepScreen = CLOCK;
-    needsResave = true;
+  // M4 sleep screen is a DynamicEnum, so the generic loop skips it (see
+  // toJson). A stored DARK is the user's explicit choice now that the key is
+  // persisted — do not promote it to CLOCK; files without the key keep the
+  // compiled CLOCK default.
+  if (!doc["sleepScreen"].isNull()) {
+    sleepScreen = clamp(doc["sleepScreen"].as<uint8_t>(), static_cast<uint8_t>(SLEEP_SCREEN_MODE_COUNT),
+                        static_cast<uint8_t>(CLOCK));
   }
 #endif
 
