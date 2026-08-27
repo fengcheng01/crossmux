@@ -376,8 +376,7 @@ static uint8_t get2BitCoverage(const uint8_t* bitmap, const int pixelPosition) {
 
 static void draw2BitGlyphPixel(const GfxRenderer& renderer, const GfxRenderer::RenderMode renderMode, const int x,
                                const int y, const bool pixelState, const uint8_t coverage) {
-  const auto pixel =
-      GfxRenderer::mapTwoBitGlyphCoverage(renderMode, coverage, renderer.usesAbsoluteGrayPlanes());
+  const auto pixel = GfxRenderer::mapTwoBitGlyphCoverage(renderMode, coverage, renderer.usesAbsoluteGrayPlanes());
   if (!pixel.draw) return;
   renderer.drawPixel(x, y, renderMode == GfxRenderer::BW ? pixelState : pixel.state);
 }
@@ -2365,7 +2364,15 @@ void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuff
 
 void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(fadingFix); }
 
-void GfxRenderer::displayGrayBufferAbsolute() const { display.displayGrayBufferAbsolute(fadingFix); }
+void GfxRenderer::displayGrayBufferAbsolute() const {
+#if defined(SIMULATOR)
+  // The desktop shim has no absolute-waveform variant; the gray preview
+  // compositor is close enough for UI development.
+  display.displayGrayBuffer(fadingFix);
+#else
+  display.displayGrayBufferAbsolute(fadingFix);
+#endif
+}
 
 void GfxRenderer::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* scratch, int yStart, int numRows) const {
   // Guard the uint16_t casts below: a negative would wrap to a huge length.

@@ -24,12 +24,18 @@ uses the normal 50 ms main-loop delay. Touch initialization reads back the
 volatile mode, threshold, and report-rate registers before accepting input;
 invalid status/event/coordinate frames are discarded without latching contact.
 
-The desktop target models the 800x480 panel, `murphy_m4` identity, touch and
-rotation, RTC, buttons, dual-channel frontlight state, and Power-only wake. Use
-the mouse for touch, arrows for Up/Down, `P` for Power, and `S` for sleep; M4
-has no Home key, so `H` is ignored. It does not replace hardware tests for
-display batches/ghosting, FT6336U IRQ/reset behavior, SDMMC contention, PWM
-curves, PSRAM, or standby current.
+The desktop target (`simulator_murphy_m4`) defines both
+`SIMULATOR_DEVICE_MOFEI_M4` — the pinned simulator fork still uses the
+pre-rename board name for its 800x480 profile with touch, rotation, RTC,
+buttons, and dual-channel frontlight state — and `FREEINK_DEVICE_MURPHY_M4`,
+so all firmware-side M4 gates (combined AA, M4 settings, board tag) run on the
+host. Use the mouse for touch, arrows for Up/Down, `P` for Power, and `S` for
+sleep; M4 has no Home key, so `H` is ignored. The host shim cannot model the
+clock-sleep timer wake (`WakeupReason::Timer`, the two-argument
+`startDeepSleep`) and has no environment sensor (`HalEnvironment` reports
+absent), and the shim's gray preview stands in for the absolute waveform. It
+does not replace hardware tests for display batches/ghosting, FT6336U
+IRQ/reset behavior, SDMMC contention, PWM curves, PSRAM, or standby current.
 
 The default SSD1677 configuration targets the second production batch with
 R13 fitted and uses the verified `0x50` pseudo-temperature. To build for the
