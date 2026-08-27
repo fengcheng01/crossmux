@@ -420,7 +420,9 @@ class GfxRenderer {
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
   void displayGrayBuffer() const;
-  void displayGrayBufferAbsolute() const;
+  // cleanWhite=false: fast AA tier — the white LUT group stays idle so page
+  // turns drive only ink pixels (ghosts cleared by the periodic clean pass).
+  void displayGrayBufferAbsolute(bool cleanWhite = true) const;
 
   // Tiled grayscale (X4): stream one band of a plane straight to controller RAM
   // from `scratch` (panelWidthBytes * numRows, physical rows [yStart, yStart+

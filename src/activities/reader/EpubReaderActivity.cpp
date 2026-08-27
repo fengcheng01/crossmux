@@ -1674,6 +1674,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // white, which would drop the reading background that only exists in the
   // 1-bit frame; background pages keep the two-pass path instead.
   const bool combinedAa = ReaderUtils::usesCombinedAa() && !SETTINGS.readingBackgroundEnabled;
+  // FAST tier (00 idle, smooth) vs the periodic HALF clean tier; decided when
+  // the refresh cadence is consumed in the combinedAa branch below.
+  bool combinedCleanGray = true;
   const bool needsAnyGrayscale = needsTextGrayscale || pageHasImages;
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
   // Paper Mono only (no other panel combines): defer the B/W base activation so
@@ -1747,8 +1750,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     // Combined AA: do not show the 1-bit frame. Gray planes + one absolute
     // waveform replace both FAST and the overlay pass. Night mode skips the
     // gray pass, so usesCombinedAa() is already false while inverted.
-    LOG_INF("ERS", "Combined AA: single absolute 4-level refresh");
-    (void)ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
+    // The FAST/HALF cadence selects the waveform tier: smooth turns drive
+    // only ink pixels (00 idle); the periodic HALF pass clears the ghosts.
+    const auto combinedMode = ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
+    combinedCleanGray = combinedMode == HalDisplay::HALF_REFRESH;
+    LOG_INF("ERS", "Combined AA: absolute 4-level refresh (%s)", combinedCleanGray ? "clean" : "fast");
   } else if (combinedGrayscaleBase) {
     // Stash the base without activating; displayGrayBuffer() below commits
     // base + grays as one waveform.
@@ -1835,7 +1841,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
       renderer.setRenderMode(GfxRenderer::BW);
       if (combinedAa) {
-        renderer.displayGrayBufferAbsolute();
+        renderer.displayGrayBufferAbsolute(combinedCleanGray);
         renderer.setAbsoluteGrayPlanes(false);
       } else {
         renderer.displayGrayBuffer();
@@ -1901,7 +1907,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
         renderer.setRenderMode(GfxRenderer::BW);
         if (combinedAa) {
-          renderer.displayGrayBufferAbsolute();
+          renderer.displayGrayBufferAbsolute(combinedCleanGray);
           renderer.setAbsoluteGrayPlanes(false);
         } else {
           renderer.displayGrayBuffer();
@@ -1964,7 +1970,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         return;
       }
       if (combinedAa) {
-        renderer.displayGrayBufferAbsolute();
+        renderer.displayGrayBufferAbsolute(combinedCleanGray);
       } else {
         renderer.displayGrayBuffer();
       }

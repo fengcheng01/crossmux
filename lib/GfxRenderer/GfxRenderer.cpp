@@ -2364,13 +2364,14 @@ void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuff
 
 void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(fadingFix); }
 
-void GfxRenderer::displayGrayBufferAbsolute() const {
+void GfxRenderer::displayGrayBufferAbsolute(const bool cleanWhite) const {
 #if defined(SIMULATOR)
   // The desktop shim has no absolute-waveform variant; the gray preview
   // compositor is close enough for UI development.
+  (void)cleanWhite;
   display.displayGrayBuffer(fadingFix);
 #else
-  display.displayGrayBufferAbsolute(fadingFix);
+  display.displayGrayBufferAbsolute(fadingFix, cleanWhite);
 #endif
 }
 

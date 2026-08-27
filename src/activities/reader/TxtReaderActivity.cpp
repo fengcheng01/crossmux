@@ -768,14 +768,16 @@ void TxtReaderActivity::renderPage() {
   }
 #else
   if (ReaderUtils::usesCombinedAa()) {
-    (void)ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
+    // FAST/HALF cadence picks the waveform tier: smooth turns (00 idle) with
+    // the periodic HALF pass clearing accumulated ghosts.
+    const auto mode = ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
     ReaderUtils::renderAntiAliased(
         renderer,
         [this, &renderLines]() {
           renderLines();
           renderStatusBar();
         },
-        true);
+        true, mode == HalDisplay::HALF_REFRESH);
   } else {
     // Other devices keep the upstream behavior: show the BW frame first, then
     // the gray pass.

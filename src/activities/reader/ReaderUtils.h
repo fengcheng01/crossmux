@@ -189,8 +189,11 @@ inline void displayBaseWithRefreshCycle(const GfxRenderer& renderer, int& pagesU
 // the grayscale buffer. Only the content callback is re-rendered — status bars
 // and other overlays should be drawn before calling this.
 // Kept as a template to avoid std::function overhead; instantiated once per reader type.
+// cleanWhite (absoluteFourLevel path): false selects the fast AA tier whose
+// white LUT group stays idle (smooth turns); the periodic true pass clears ghosts.
 template <typename RenderFn>
-void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool absoluteFourLevel = false) {
+void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool absoluteFourLevel = false,
+                       const bool cleanWhite = true) {
   if (!renderer.storeBwBuffer()) {
     LOG_ERR("READER", "Failed to store BW buffer for anti-aliasing");
     // A combined-base panel may still hold a deferred B/W activation; flush it
@@ -216,7 +219,7 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool ab
   renderer.copyGrayscaleMsbBuffers();
 
   if (absoluteFourLevel) {
-    renderer.displayGrayBufferAbsolute();
+    renderer.displayGrayBufferAbsolute(cleanWhite);
   } else {
     renderer.displayGrayBuffer();
   }

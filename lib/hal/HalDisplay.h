@@ -92,7 +92,9 @@ class HalDisplay {
 
   void displayGrayBuffer(bool turnOffScreen = false);
   // Absolute 4-level waveform (no B/W overlay pass). Murphy M4 combined AA.
-  void displayGrayBufferAbsolute(bool turnOffScreen = false);
+  // cleanWhite=false picks the fast tier (00/white LUT group idle — smooth
+  // turn, ghosts cleared by the periodic cleanWhite=true pass).
+  void displayGrayBufferAbsolute(bool turnOffScreen = false, bool cleanWhite = true);
 
   // Tiled grayscale: stream one band of a plane (lsbPlane selects LSB/MSB RAM)
   // straight to the controller; supportsStripGrayscale() gates the path. See
