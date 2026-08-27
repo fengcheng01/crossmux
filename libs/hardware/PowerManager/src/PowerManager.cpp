@@ -101,9 +101,10 @@ void PowerManager::deepSleep() {
   }  // esp_deep_sleep_start() does not return; satisfy [[noreturn]]
 }
 
-void PowerManager::deepSleepUntilPowerButton() {
+void PowerManager::deepSleepUntilPowerButton(uint64_t timerWakeUs) {
   waitForPowerButtonRelease();
   armPowerButtonWakeup();
+  if (timerWakeUs > 0) esp_sleep_enable_timer_wakeup(timerWakeUs);
   deepSleep();
 }
 

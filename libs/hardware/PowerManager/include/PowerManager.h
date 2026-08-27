@@ -54,7 +54,8 @@ class PowerManager {
   [[noreturn]] static void deepSleep();
 
   // Convenience: wait for release, arm the power-button wakeup, then deep sleep.
-  [[noreturn]] static void deepSleepUntilPowerButton();
+  // timerWakeUs > 0 also arms a timer so a lock-screen clock can refresh.
+  [[noreturn]] static void deepSleepUntilPowerButton(uint64_t timerWakeUs = 0);
 };
 
 }  // namespace freeink

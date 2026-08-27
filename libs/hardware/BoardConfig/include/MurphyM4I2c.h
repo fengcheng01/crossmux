@@ -11,13 +11,15 @@
 namespace freeink::murphy_m4_i2c {
 
 // The IDF owns the small handle allocations. They are created once and kept
-// until reset so touch/RTC traffic never allocates in the polling path.
+// until reset so touch/RTC/AHT20 traffic never allocates in the polling path.
 inline i2c_master_bus_handle_t bus = nullptr;
 inline i2c_master_dev_handle_t touch = nullptr;
 inline i2c_master_dev_handle_t rtc = nullptr;
+inline i2c_master_dev_handle_t env = nullptr;
 inline bool busAttempted = false;
 inline bool touchAttempted = false;
 inline bool rtcAttempted = false;
+inline bool envAttempted = false;
 
 inline bool beginBus(const int sda, const int scl) {
   if (busAttempted)
@@ -74,6 +76,11 @@ inline i2c_master_dev_handle_t rtcDevice(const int sda, const int scl,
   return addDevice(rtc, rtcAttempted, "RTC", sda, scl, address, 400000);
 }
 
+inline i2c_master_dev_handle_t envDevice(const int sda, const int scl,
+                                         const uint8_t address) {
+  return addDevice(env, envAttempted, "AHT20", sda, scl, address, 100000);
+}
+
 inline bool write(i2c_master_dev_handle_t device, const uint8_t *data,
                   const size_t length) {
   return device != nullptr &&
@@ -84,6 +91,12 @@ inline bool read(i2c_master_dev_handle_t device, const uint8_t reg,
                  uint8_t *data, const size_t length) {
   return device != nullptr && i2c_master_transmit_receive(device, &reg, 1, data,
                                                           length, 20) == ESP_OK;
+}
+
+inline bool receive(i2c_master_dev_handle_t device, uint8_t *data,
+                    const size_t length) {
+  return device != nullptr &&
+         i2c_master_receive(device, data, length, 50) == ESP_OK;
 }
 
 } // namespace freeink::murphy_m4_i2c

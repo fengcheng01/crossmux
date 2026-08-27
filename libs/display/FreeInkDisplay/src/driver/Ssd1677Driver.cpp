@@ -113,6 +113,8 @@ static const Ssd1677Config& ssd1677MurphyM4Config() {
     value.halfRefreshTemp = 0x50;  // batch 2: 80°C
 #endif
     value.halfSeqOverride = 0xD4;
+    value.combinedGrayLut = lut_m4_combined_aa;
+    value.keepPoweredAfterAbsoluteGray = true;
     return value;
   }();
   return cfg;
@@ -642,21 +644,25 @@ void Ssd1677Driver::displayGray(EpdBus& bus, const uint8_t* fb, bool turnOff, co
 
   const unsigned char* selectedLut = lut;
   if (selectedLut == nullptr) {
-    selectedLut = factoryMode ? lut_factory_quality : _cfg.grayLut;
+    selectedLut = factoryMode ? (_cfg.combinedGrayLut ? _cfg.combinedGrayLut : lut_factory_quality) : _cfg.grayLut;
   }
   setCustomLut(bus, true, selectedLut);
 
   if (factoryMode) {
-    // Explicit, self-contained power cycle for 4-level absolute grayscale.
-    // Reset CTRL1 to normal — a prior HALF leaves BYPASS_RED set, which would
-    // ignore RED RAM and break 4-level grayscale.
+    // Absolute 4-level gray. 0xC7 (analog on + display + analog off) flashes
+    // the panel black on GDEQ0426T82. Keep rails up and run the same 0xCC
+    // external-LUT activation as the overlay gray pass.
     bus.cmd(CMD_DISPLAY_UPDATE_CTRL1);
     bus.data(CTRL1_NORMAL);
+    if (_cfg.grayPowerUpFirst || !_isScreenOn) powerOn(bus);
+    bus.cmd(CMD_BORDER_WAVEFORM);
+    bus.data(_cfg.borderWaveformGray != 0 ? _cfg.borderWaveformGray : static_cast<uint8_t>(0x80));
     bus.cmd(CMD_DISPLAY_UPDATE_CTRL2);
-    bus.data(0xC7);  // CLOCK_ON|ANALOG_ON|DISPLAY_START|ANALOG_OFF|CLOCK_OFF
+    bus.data(0xCC);
     bus.cmd(CMD_MASTER_ACTIVATION);
-    bus.waitBusy("factory_gray");
-    _isScreenOn = false;  // 0xC7 always powers down after the update
+    bus.waitBusy("abs_gray");
+    _isScreenOn = true;
+    if (turnOff) powerOffController(bus);
   } else {
     // Settled rails before the gray waveform (no-op where the panel is already
     // on, i.e. the X4's fast path). refresh() then runs the 0xCC external-LUT

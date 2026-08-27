@@ -21,5 +21,6 @@ must call `InputManager::reinitializeTouchAfterSharedReset()` after
 report-rate registers.
 
 Batch 2 with R13 is the default display configuration. Define
-`FREEINK_MURPHY_M4_BATCH1=1` for the first no-R13 batch. AHT20 and SC7A20 are
-not part of the initial reader profile.
+`FREEINK_MURPHY_M4_BATCH1=1` for the first no-R13 batch. AHT20 at `0x38` on
+native I²C1 is read for lock-screen and standby temperature/humidity. SC7A20
+is not part of the reader profile.

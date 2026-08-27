@@ -54,6 +54,10 @@ struct Ssd1677Config {
   // refreshes, so it never needs this and keeps stock behavior.
   bool grayPowerUpFirst = false;
   uint8_t deepSleepMode = 0x03;
+  // When set, displayGray(..., factoryMode=true) uses this LUT instead of
+  // lut_factory_quality. Murphy M4 combined AA points this at lut_m4_combined_aa.
+  const unsigned char* combinedGrayLut = nullptr;
+  bool keepPoweredAfterAbsoluteGray = false;
 };
 
 // Standard config (Xteink X4 / GDEQ0426T82). Panel mounting (mirror/180°) is NOT

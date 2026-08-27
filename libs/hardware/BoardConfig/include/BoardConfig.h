@@ -275,7 +275,7 @@
    FREEINK_DEVICE_WAVESHARE_EPAPER_397)
 #endif
 #ifndef FREEINK_CAP_TEMP_HUMIDITY
-#define FREEINK_CAP_TEMP_HUMIDITY (FREEINK_DEVICE_STICKY)
+#define FREEINK_CAP_TEMP_HUMIDITY (FREEINK_DEVICE_STICKY || FREEINK_DEVICE_MURPHY_M4)
 #endif
 #ifndef FREEINK_CAP_IMU
 #define FREEINK_CAP_IMU (FREEINK_DEVICE_X3 || FREEINK_DEVICE_STICKY)
@@ -618,7 +618,7 @@ struct SensorsConfig {
   int8_t i2cScl;
   uint32_t i2cHz;
   uint8_t rtcAddr;           // PCF8563 = 0x51, DS3231 = 0x68; 0 = none
-  uint8_t tempHumidityAddr;  // SHT40 = 0x44; 0 = none
+  uint8_t tempHumidityAddr;  // SHT40 = 0x44, AHT20 = 0x38; 0 = none
   uint8_t imuAddr;           // LSM6DS3TR-C = 0x6A, QMI8658 = 0x6B/0x6A; 0 = none
   uint8_t i2cBus = 0;        // 0 = Wire, 1 = Wire1 on multi-bus SoCs
   RtcType rtcType = RtcType::None;
@@ -1535,7 +1535,7 @@ constexpr BoardProfile MURPHY_M4 = {
     {16, 15, 17, 18, 11, 14, 4},
     NO_GAUGE,
     NO_MIC,
-    {13, 12, 400000, 0x32, 0, 0, 1, RtcType::Rx8010, ImuType::None},
+    {13, 12, 400000, 0x32, 0x38, 0, 1, RtcType::Rx8010, ImuType::None},
     1.2f,
     {}};
 
