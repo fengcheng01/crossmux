@@ -212,16 +212,16 @@ void SdCardFontSystem::setupUiFallbacks(GfxRenderer& renderer) {
   }
 
 #ifdef ENABLE_CHINESE_VERSION
-  const int extra12 = extraByPt[12] != 0 ? extraByPt[12] : manager_.getFontId(familyName);
-  const int extra14 = manager_.loadFamilyExtraSize(*family, renderer, 14);
+  // setFallbackFont promises an SD font of the SAME size; pointing the 12 pt UI
+  // slots at the reader-size font renders rare CJK glyphs ~2x tall and breaks
+  // line metrics. Only wire size-matched SD files — a missing size shows tofu
+  // instead of an oversized glyph.
+  const int extra12 = extraByPt[12];
   if (extra12 != 0) {
     renderer.setFallbackFont(NOTOSANS_12_FONT_ID, extra12);
     renderer.setFallbackFont(NOTOSERIF_12_FONT_ID, extra12);
-    if (extraByPt[12] == 0) {
-      renderer.setFallbackFont(UI_12_FONT_ID, extra12);
-      if (extraByPt[10] == 0) renderer.setFallbackFont(UI_10_FONT_ID, extra12);
-    }
   }
+  const int extra14 = manager_.loadFamilyExtraSize(*family, renderer, 14);
   if (extra14 != 0) {
     renderer.setFallbackFont(NOTOSANS_14_FONT_ID, extra14);
     renderer.setFallbackFont(NOTOSERIF_14_FONT_ID, extra14);
