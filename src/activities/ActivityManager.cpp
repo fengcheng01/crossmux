@@ -220,7 +220,14 @@ void ActivityManager::loop() {
     }
   }
 
-  if (pendingAction.load() == PendingAction::None && requestedUpdate.exchange(false)) {
+  // Forward a pending render request regardless of pendingAction: while a
+  // Push/Pop is stalling on the render lock, this loop returns before reaching
+  // this point, and a requestUpdate() issued in that window (e.g. a menu-exit
+  // result handler) would otherwise never wake the render task — the display
+  // keeps the old frame (menu ghosted over the page) until the next input.
+  // The render task itself skips painting while a Push/Pop is pending, so an
+  // early notify only costs one idle wake.
+  if (requestedUpdate.exchange(false)) {
     // Using direct notification to signal the render task to update
     // Increment counter so multiple rapid calls won't be lost
     if (renderTaskHandle) {
