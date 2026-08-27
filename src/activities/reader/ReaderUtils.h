@@ -194,8 +194,13 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool ab
   if (!renderer.storeBwBuffer()) {
     LOG_ERR("READER", "Failed to store BW buffer for anti-aliasing");
     // A combined-base panel may still hold a deferred B/W activation; flush it
-    // so the page reaches the panel even without its grays.
-    if (renderer.combinesGrayscaleBase()) renderer.cleanupGrayscaleWithFrameBuffer();
+    // so the page reaches the panel even without its grays. Combined AA never
+    // displayed the 1-bit frame either, so push the intact BW framebuffer.
+    if (renderer.combinesGrayscaleBase()) {
+      renderer.cleanupGrayscaleWithFrameBuffer();
+    } else if (absoluteFourLevel) {
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    }
     return;
   }
 

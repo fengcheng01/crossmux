@@ -260,7 +260,9 @@ void EpubReaderMenuActivity::render(RenderLock&&) {
   renderUi();
 
   drawFooter();
-#if FREEINK_DEVICE_EEGO_A4
+#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_MURPHY_M4
+  // A4/M4 render single-pass grayscale reader pages; the menu's first frame
+  // needs a HALF refresh or it ghosts over the gray text.
   renderer.displayBuffer(firstRender ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
   firstRender = false;
 #else

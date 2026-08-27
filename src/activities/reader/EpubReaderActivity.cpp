@@ -191,8 +191,8 @@ void EpubReaderActivity::onExit() {
   ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
   showPendingAchievementPopups(renderer);
   ReaderActivity::onExit();
-#if FREEINK_DEVICE_EEGO_A4
-  // EEGO uses a single-pass grayscale page; force a clean first frame after exit.
+#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_MURPHY_M4
+  // A4/M4 use a single-pass grayscale page; force a clean first frame after exit.
   renderer.requestNextFullRefresh();
 #endif
 }
@@ -330,8 +330,8 @@ void EpubReaderActivity::openReaderMenu() {
           applyOrientation(menu.orientation);
         }
         toggleAutoPageTurn(menu.pageTurnRate);
-#if FREEINK_DEVICE_EEGO_A4
-        // EEGO's single-pass grayscale page must clear the menu first.
+#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_MURPHY_M4
+        // A4/M4's single-pass grayscale page must clear the menu first.
         pagesUntilFullRefresh = 1;
         forcedRefreshPending = true;
 #endif
@@ -1670,7 +1670,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   forcedRefreshPending = false;
   const bool cleanImageBasePending = manualRefreshPending || pagesUntilFullRefresh <= 1;
   const bool needsTextGrayscale = SETTINGS.textAntiAliasing != 0;
-  const bool combinedAa = ReaderUtils::usesCombinedAa();
+  // Combined AA sends one absolute 4-level waveform whose undrawn pixels go
+  // white, which would drop the reading background that only exists in the
+  // 1-bit frame; background pages keep the two-pass path instead.
+  const bool combinedAa = ReaderUtils::usesCombinedAa() && !SETTINGS.readingBackgroundEnabled;
   const bool needsAnyGrayscale = needsTextGrayscale || pageHasImages;
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
   // Paper Mono only (no other panel combines): defer the B/W base activation so
@@ -1712,10 +1715,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     } else {
       page->renderImages(renderer, fontId, orientedMarginLeft, orientedMarginTop);
     }
-#if FREEINK_DEVICE_EEGO_A4
-    // A4: include the status bar in the gray pass so the final anti-aliased
-    // frame keeps the bottom UI. Without this the gray pass only re-renders
-    // the body and wipes the status bar that the earlier BW frame drew.
+#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_MURPHY_M4
+    // A4/M4: include the status bar in the gray pass so the final frame keeps
+    // the bottom UI. Both panels display the gray pass as an absolute frame
+    // whose undrawn pixels go white; without this the pass only re-renders the
+    // body and wipes the status bar that the earlier BW frame drew.
     // (Other devices keep the upstream gray-pass contents.)
     renderStatusBar();
 #endif
@@ -1851,13 +1855,15 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       renderer.waitRefreshComplete();
       if (!scratch) {
         LOG_ERR("ERS", "OOM: grayscale strip scratch (%d bytes); skipping AA this page", gwBytes * STRIP_ROWS);
-        if (overlapRefresh || combinedGrayscaleBase) {
+        if (overlapRefresh || combinedGrayscaleBase || combinedAa) {
           // The BW refresh ran the shadow-free async path, so controller RAM's
           // differential baseline was never rebuilt. Even with AA skipped it must
           // be re-synced from the intact BW framebuffer, or the next differential
           // update diffs against stale contents. On the combined-base path the
           // base activation is still deferred; this cleanup commits it so the
-          // page reaches the panel even without its grays.
+          // page reaches the panel even without its grays. Combined AA likewise
+          // never displayed the 1-bit frame, so this is its only path to the
+          // panel.
           renderer.cleanupGrayscaleWithFrameBuffer();
         }
       } else {
@@ -1917,6 +1923,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     if (needsAnyGrayscale) {
       if (!renderer.storeBwBuffer()) {
         LOG_ERR("ERS", "Failed to store BW buffer for grayscale render; skipping grayscale this page");
+        if (combinedAa) {
+          // Combined AA never displayed the 1-bit frame; push the intact BW
+          // framebuffer so the page still reaches the panel without its grays.
+          renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+        }
         return;
       }
       const auto tBwStore = millis();
