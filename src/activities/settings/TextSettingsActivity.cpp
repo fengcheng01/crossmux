@@ -61,6 +61,10 @@ constexpr int MARGIN_MIN = CrossPointSettings::SCREEN_MARGIN_MIN;
 constexpr int MARGIN_MAX = CrossPointSettings::SCREEN_MARGIN_MAX;
 constexpr int MARGIN_STEP = CrossPointSettings::SCREEN_MARGIN_STEP;
 constexpr StrId OK_OPTION[] = {StrId::STR_OK_BUTTON};
+
+// SD families show their raw family name; tag them so users recognize the
+// storage-card fonts they downloaded (see the Family tab list).
+std::string sdFontLabel(const std::string& name) { return name + " · " + tr(STR_SD_FONT_TAG); }
 }  // namespace
 
 TextSettingsActivity::TextSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -146,7 +150,14 @@ void TextSettingsActivity::rebuildRowItems() {
     fui::ListItem item;
     switch (tab_) {
       case Tab::Family:
-        item.label = fonts_[i].name.c_str();
+        // SD families list under their raw English family name (e.g.
+        // "NotoSansSC"); tag them so users recognize the storage-card fonts
+        // they downloaded instead of looking for a Chinese label.
+        if (fonts_[i].isBuiltin) {
+          item.label = fonts_[i].name.c_str();
+        } else {
+          item.label = sdFontLabel(fonts_[i].name).c_str();
+        }
         break;
       case Tab::Size:
         item.label = sizes_[i].name.c_str();
