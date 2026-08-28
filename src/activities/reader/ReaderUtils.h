@@ -207,7 +207,15 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool ab
     return;
   }
 
-  renderer.setAbsoluteGrayPlanes(absoluteFourLevel);
+  if (absoluteFourLevel) {
+    renderer.setAbsoluteGrayPlanes(true);
+    // Refresh the gray baseline from the intact B/W frame before the gray
+    // passes replace it: combined AA never displays the 1-bit frame, so on
+    // the desktop shim the compositor base still holds the last B/W overlay
+    // (menu, prompt) and its ink would bleed through. Hardware RED gets the
+    // MSB plane copy right after, so the end state is unchanged.
+    renderer.cleanupGrayscaleWithFrameBuffer();
+  }
   renderer.clearScreen(0x00);
   renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
   renderFn();

@@ -1778,7 +1778,17 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tDisplay = millis();
 
   if (tiledGrayscale) {
-    if (combinedAa) renderer.setAbsoluteGrayPlanes(true);
+    if (combinedAa) {
+      renderer.setAbsoluteGrayPlanes(true);
+      // Refresh the gray baseline from the current B/W frame before the
+      // planes are streamed. The combined path skips the 1-bit display, so
+      // whatever B/W frame was last shown (reader menu, chapter list, font
+      // prompt) is still the compositor base on the desktop shim — without
+      // this, its ink bleeds through the first combined page after any
+      // overlay. On hardware the RED write is immediately overwritten by the
+      // MSB plane strip, so the end state is unchanged.
+      renderer.cleanupGrayscaleWithFrameBuffer();
+    }
     struct ClearAbsoluteGray {
       GfxRenderer& r;
       ~ClearAbsoluteGray() { r.setAbsoluteGrayPlanes(false); }
@@ -1941,7 +1951,14 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         return;
       }
       const auto tBwStore = millis();
-      if (combinedAa) renderer.setAbsoluteGrayPlanes(true);
+      if (combinedAa) {
+        renderer.setAbsoluteGrayPlanes(true);
+        // Refresh the gray baseline from the intact B/W frame (the combined
+        // path never displays it, so the compositor base still holds the last
+        // B/W overlay — menu, chapter list — on the desktop shim). Hardware
+        // RED is overwritten by the MSB copy right after.
+        renderer.cleanupGrayscaleWithFrameBuffer();
+      }
       struct ClearAbsoluteGray {
         GfxRenderer& r;
         ~ClearAbsoluteGray() { r.setAbsoluteGrayPlanes(false); }
