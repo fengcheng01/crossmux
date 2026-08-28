@@ -24,12 +24,14 @@ uses the normal 50 ms main-loop delay. Touch initialization reads back the
 volatile mode, threshold, and report-rate registers before accepting input;
 invalid status/event/coordinate frames are discarded without latching contact.
 
-Combined AA runs a two-tier waveform cadence mirroring the BW FAST/HALF
-rhythm: normal page turns load `lut_m4_aa_fast` (the 00/white LUT group stays
-idle, so only ink pixels are driven — smooth, ghost-tolerant turns), while the
-periodic HALF pass loads `lut_m4_combined_aa` (00 actively driven to VSH) to
-clear accumulated ghosts. Night mode skips the gray pass entirely (the
-combined waveform is never sent while inverted).
+Combined AA uses one absolute 4-level waveform per page turn
+(`lut_m4_combined_aa` — no full-screen black phase, the 00/white group is
+actively driven so previous-page ink clears every turn). A smoother fast tier
+(`lut_m4_aa_fast`, 00 idle) exists behind `FREEINK_M4_AA_FAST_TIER` but is off:
+on hardware its idle 00 group accumulated ink from every page, because the
+combined path never displays the B/W base frame that used to clear white in
+the two-pass overlay. Night mode skips the gray pass entirely (the combined
+waveform is never sent while inverted).
 
 The desktop target (`simulator_murphy_m4`) defines both
 `SIMULATOR_DEVICE_MOFEI_M4` — the pinned simulator fork still uses the

@@ -1758,7 +1758,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     // only ink pixels (00 idle); the periodic HALF pass clears the ghosts.
     const auto combinedMode = ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
     combinedCleanGray = combinedMode == HalDisplay::HALF_REFRESH;
-    LOG_INF("ERS", "Combined AA: absolute 4-level refresh (%s)", combinedCleanGray ? "clean" : "fast");
+    // The tier name is the request; the board config decides whether a fast
+    // LUT exists (FREEINK_M4_AA_FAST_TIER, default off — falls back to clean).
+    LOG_INF("ERS", "Combined AA: absolute 4-level refresh (tier: %s)", combinedCleanGray ? "clean" : "fast");
   } else if (combinedGrayscaleBase) {
     // Stash the base without activating; displayGrayBuffer() below commits
     // base + grays as one waveform.

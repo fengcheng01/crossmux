@@ -134,7 +134,8 @@ const ReadingBookStats* InxRecentActivity::statsAt(const int index) const {
 
 void InxRecentActivity::onEnter() {
   Activity::onEnter();
-  renderer.requestNextRefresh(HalDisplay::HALF_REFRESH);
+  // No refresh override: enter on the default FAST like the Settings tab —
+  // the forced HALF here read as a jarring full flash on every entry.
   sdFontSystem.ensureLoaded(renderer);
   if (RECENT_BOOKS.pruneMissing()) RECENT_BOOKS.saveToFile();
   books = &RECENT_BOOKS.getBooks();

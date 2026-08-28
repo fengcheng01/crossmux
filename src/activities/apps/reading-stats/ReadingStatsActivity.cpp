@@ -290,7 +290,8 @@ void ReadingStatsActivity::selectMainTabContentEdge(const MainTabContentEdge edg
 void ReadingStatsActivity::onEnter() {
   Activity::onEnter();
   sdFontSystem.ensureLoaded(renderer);
-  renderer.requestNextRefresh(HalDisplay::HALF_REFRESH);
+  // No refresh override: enter on the default FAST like the Settings tab —
+  // the forced HALF here read as a jarring full flash on every entry.
   selectedIndex = usesInxLayout() ? 0 : (READING_STATS.getBooks().empty() ? 0 : 1);
   waitForConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   waitForBackRelease = false;
