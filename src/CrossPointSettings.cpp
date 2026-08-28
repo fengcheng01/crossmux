@@ -228,6 +228,11 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   }
   doc["sdFontFlashPreload"] = sdFontFlashPreload;
   doc["readerTapZones"] = readerTapZones;
+#ifdef ENABLE_CHINESE_VERSION
+  // Marker for the one-time 14pt→12pt clamp in fromJson (see below).
+  doc["cnFontClampV1"] = 1;
+  doc["cnFontPromptDismissed"] = cnFontPromptDismissed;
+#endif
 #if FREEINK_DEVICE_MURPHY_M4
   // M4 sleep screen uses a DynamicEnum (display-first order, no valuePtr), so
   // the generic loop above skips it; persist the raw SLEEP_SCREEN_MODE.
@@ -373,6 +378,18 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
       clamp(static_cast<uint8_t>(doc["sdFontFlashPreload"] | 0), static_cast<uint8_t>(2), static_cast<uint8_t>(0));
   readerTapZones = doc["readerTapZones"].isNull() ? DEFAULT_READER_TAP_ZONES : doc["readerTapZones"].as<uint32_t>();
   if ((readerTapZones & ~0x3FFFFu) != 0) readerTapZones = DEFAULT_READER_TAP_ZONES;
+#ifdef ENABLE_CHINESE_VERSION
+  cnFontPromptDismissed = static_cast<uint8_t>(doc["cnFontPromptDismissed"] | 0);
+  // One-time clamp: files saved before the 12pt default keep a 14/16/18pt
+  // size, which without an SD font renders as tofu and nags with the download
+  // prompt. Drop to the full-coverage 12pt once; the cnFontClampV1 marker in
+  // toJson keeps later explicit size choices untouched.
+  if (doc["cnFontClampV1"].isNull() && sdFontFamilyName[0] == '\0' && fontPointSize > 12) {
+    LOG_INF("CPS", "One-time CN size clamp: %u -> 12pt (built-in font coverage)", fontPointSize);
+    fontPointSize = 12;
+    needsResave = true;
+  }
+#endif
   if (storedFontFamily == LEGACY_OPENDYSLEXIC && sdFontFamilyName[0] == '\0') {
     fontFamily = NOTOSERIF;
     strncpy(sdFontFamilyName, "OpenDyslexic", sizeof(sdFontFamilyName) - 1);

@@ -161,6 +161,9 @@ void ActivityManager::loop() {
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
         LOG_DBG("ACT", "Popped from activity stack, new size = %zu", stackActivities.size());
+        // The overlay's frame is what the panel still shows; let the resumed
+        // activity react before its result handler requests the next render.
+        currentActivity->onResumedFromOverlay();
         // Handle result if necessary
         if (currentActivity->resultHandler) {
           LOG_DBG("ACT", "Handling result for popped activity");

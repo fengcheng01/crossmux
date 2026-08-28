@@ -136,6 +136,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // font. A fresh flash has no SD font, so the default must be the size that
   // renders ordinary books without the missing-glyph download prompt.
   static constexpr uint8_t DEFAULT_FONT_POINT_SIZE = 12;
+  // Set once the user has seen (and left) the missing-glyph font-download
+  // prompt: don't interrupt reading again — Manage Fonts stays available in
+  // Settings. Persisted manually in toJson/fromJson.
+  uint8_t cnFontPromptDismissed = 0;
 #else
   static constexpr uint8_t DEFAULT_FONT_POINT_SIZE = 14;
 #endif

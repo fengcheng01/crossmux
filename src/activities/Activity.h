@@ -34,6 +34,10 @@ class Activity {
   virtual ~Activity() = default;
   virtual void onEnter();
   virtual void onExit();
+  // Called when a pushed activity pops and this activity becomes current
+  // again. Runs before the result handler and before the deferred render
+  // request is forwarded, so overrides can still influence the next frame.
+  virtual void onResumedFromOverlay() {}
   virtual void loop() {}
 
   virtual void render(RenderLock&&) {}

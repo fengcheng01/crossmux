@@ -384,7 +384,7 @@ void EpubReaderActivity::openDictionaryWordSelect() {
 
 #ifdef ENABLE_CHINESE_VERSION
 bool EpubReaderActivity::maybeOfferCompleteChineseFont() {
-  if (SETTINGS.sdFontFamilyName[0] != '\0') {
+  if (SETTINGS.sdFontFamilyName[0] != '\0' || SETTINGS.cnFontPromptDismissed) {
     pendingMissingChineseCodepoint_.store(0, std::memory_order_relaxed);
     return false;
   }
@@ -401,6 +401,10 @@ bool EpubReaderActivity::maybeOfferCompleteChineseFont() {
   }
   startActivityForResult(std::move(downloader), [this](const ActivityResult&) {
     READING_STATS.resumeSession();
+    // The user has now seen the flow — never interrupt reading with it again;
+    // Manage Fonts stays reachable from Settings.
+    SETTINGS.cnFontPromptDismissed = 1;
+    SETTINGS.saveToFile();
     requestUpdate();
   });
   return true;

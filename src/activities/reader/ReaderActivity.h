@@ -31,6 +31,17 @@ class ReaderActivity : public Activity {
   virtual bool isAtEndOfBook() const = 0;
   virtual void onReturnFromEndOfBook() {}
 
+  // Called by ActivityManager when a pushed activity pops and the reader
+  // becomes current again. The last frame on the panel was that overlay's
+  // B/W content; on M4 the fast combined-AA tier leaves the 00/white group
+  // idle and would keep the overlay's ink, so force one clean-tier refresh.
+  void onResumedFromOverlay() override {
+#if FREEINK_DEVICE_MURPHY_M4
+    pagesUntilFullRefresh = 1;
+    forcedRefreshPending = true;
+#endif
+  }
+
   virtual void renderBook() = 0;
   virtual void applyInitialOrientation();
   virtual void onEndOfBookRendered() {}
