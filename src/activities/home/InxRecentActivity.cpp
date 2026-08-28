@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <string>
 
+#include "BookTitleFont.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "ReadingStatsStore.h"
@@ -93,8 +94,9 @@ void drawMetric(const GfxRenderer& renderer, const int x, const int y, const cha
 }
 
 int titleFontId() {
-  const int id = SETTINGS.getReaderFontId();
-  return id != 0 ? id : UI_12_FONT_ID;
+  // Reader font when it covers common CJK; otherwise the full 12pt subset
+  // (built-in 14/16/18 hold UI-string glyphs only). See BookTitleFont.h.
+  return bookTitleFontId();
 }
 
 int drawBookText(const GfxRenderer& renderer, const RecentBook& book, const int x, const int y, const int width,

@@ -15,6 +15,7 @@
 #include <string>
 
 #include "AppMetricCard.h"
+#include "BookTitleFont.h"
 #include "CrossPointSettings.h"
 #include "InxItemLayout.h"
 #include "ReadingStatsDetailActivity.h"
@@ -47,8 +48,9 @@ constexpr float kPi = 3.14159265358979323846f;
 std::string getBookTitle(const ReadingBookStats& book) { return book.title.empty() ? book.path : book.title; }
 
 int titleFontId() {
-  const int id = SETTINGS.getReaderFontId();
-  return id != 0 ? id : UI_12_FONT_ID;
+  // Reader font when it covers common CJK; otherwise the full 12pt subset
+  // (built-in 14/16/18 hold UI-string glyphs only). See BookTitleFont.h.
+  return bookTitleFontId();
 }
 
 std::string getBookSubtitle(const ReadingBookStats& book) {

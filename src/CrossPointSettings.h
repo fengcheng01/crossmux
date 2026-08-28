@@ -130,7 +130,15 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Legacy 1.4-and-earlier files stored a 0..3 SMALL/MEDIUM/LARGE/EXTRA_LARGE
   // slot; fromJson() folds that range up (see LEGACY_FONT_SIZE_MAX).
   static constexpr uint8_t LEGACY_FONT_SIZE_MAX = 3;
+#ifdef ENABLE_CHINESE_VERSION
+  // The built-in 12pt CJK header carries the full common-character subset
+  // (3517 chars); 14/16/18 hold only UI-string glyphs (~750) and expect an SD
+  // font. A fresh flash has no SD font, so the default must be the size that
+  // renders ordinary books without the missing-glyph download prompt.
+  static constexpr uint8_t DEFAULT_FONT_POINT_SIZE = 12;
+#else
   static constexpr uint8_t DEFAULT_FONT_POINT_SIZE = 14;
+#endif
   enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, EXTRA_WIDE = 3, LINE_COMPRESSION_COUNT };
   enum SYNTHETIC_BOLD {
     SYNTHETIC_BOLD_OFF = 0,
@@ -223,16 +231,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
 
   static constexpr uint8_t READER_TAP_ZONE_COUNT = 9;
-  enum READER_TAP_ACTION : uint8_t {
-    TAP_NONE = 0,
-    TAP_PREV = 1,
-    TAP_NEXT = 2,
-    TAP_MENU = 3,
-    TAP_ACTION_COUNT = 4
-  };
+  enum READER_TAP_ACTION : uint8_t { TAP_NONE = 0, TAP_PREV = 1, TAP_NEXT = 2, TAP_MENU = 3, TAP_ACTION_COUNT = 4 };
   // 3x3: left column prev, center menu, right next.
-  static constexpr uint32_t DEFAULT_READER_TAP_ZONES = 1u | (3u << 2) | (2u << 4) | (1u << 6) | (3u << 8) | (2u << 10) |
-                                                       (1u << 12) | (3u << 14) | (2u << 16);
+  static constexpr uint32_t DEFAULT_READER_TAP_ZONES =
+      1u | (3u << 2) | (2u << 4) | (1u << 6) | (3u << 8) | (2u << 10) | (1u << 12) | (3u << 14) | (2u << 16);
 
   enum QUICK_RESUME_SLEEP_SCREEN {
     QUICK_RESUME_NEVER = 0,
