@@ -134,8 +134,10 @@ const ReadingBookStats* InxRecentActivity::statsAt(const int index) const {
 
 void InxRecentActivity::onEnter() {
   Activity::onEnter();
-  // No refresh override: enter on the default FAST like the Settings tab —
-  // the forced HALF here read as a jarring full flash on every entry.
+  // Entering swaps the whole screen from another tab; a FAST differential
+  // refresh leaves the previous tab's ink ghosted (faint tab icons, card
+  // fills). Enter clean (HALF); later in-place repaints stay FAST.
+  renderer.requestNextRefresh(HalDisplay::HALF_REFRESH);
   sdFontSystem.ensureLoaded(renderer);
   if (RECENT_BOOKS.pruneMissing()) RECENT_BOOKS.saveToFile();
   books = &RECENT_BOOKS.getBooks();

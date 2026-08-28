@@ -290,8 +290,10 @@ void ReadingStatsActivity::selectMainTabContentEdge(const MainTabContentEdge edg
 void ReadingStatsActivity::onEnter() {
   Activity::onEnter();
   sdFontSystem.ensureLoaded(renderer);
-  // No refresh override: enter on the default FAST like the Settings tab —
-  // the forced HALF here read as a jarring full flash on every entry.
+  // Entering swaps the whole screen from another tab; a FAST differential
+  // refresh leaves the previous tab's heavy fills ghosted (dithered cards,
+  // icons). Enter clean (HALF) — returning from a child stays FAST (below).
+  renderer.requestNextRefresh(HalDisplay::HALF_REFRESH);
   selectedIndex = usesInxLayout() ? 0 : (READING_STATS.getBooks().empty() ? 0 : 1);
   waitForConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   waitForBackRelease = false;
