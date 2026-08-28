@@ -290,10 +290,9 @@ void ReadingStatsActivity::selectMainTabContentEdge(const MainTabContentEdge edg
 void ReadingStatsActivity::onEnter() {
   Activity::onEnter();
   sdFontSystem.ensureLoaded(renderer);
-  // Entering swaps the whole screen from another tab; a FAST differential
-  // refresh leaves the previous tab's heavy fills ghosted (dithered cards,
-  // icons). Enter clean (HALF) — returning from a child stays FAST (below).
-  renderer.requestNextRefresh(HalDisplay::HALF_REFRESH);
+  // Enter on the default FAST exactly like the other tabs. The M4's HALF
+  // sequence (0xD4) black-flashes hard and leaves the page washed out
+  // (faint tab bar and metric text) — strictly worse on this panel.
   selectedIndex = usesInxLayout() ? 0 : (READING_STATS.getBooks().empty() ? 0 : 1);
   waitForConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   waitForBackRelease = false;

@@ -134,10 +134,10 @@ const ReadingBookStats* InxRecentActivity::statsAt(const int index) const {
 
 void InxRecentActivity::onEnter() {
   Activity::onEnter();
-  // Entering swaps the whole screen from another tab; a FAST differential
-  // refresh leaves the previous tab's ink ghosted (faint tab icons, card
-  // fills). Enter clean (HALF); later in-place repaints stay FAST.
-  renderer.requestNextRefresh(HalDisplay::HALF_REFRESH);
+  // Enter on the default FAST exactly like the other tabs. The M4's HALF
+  // sequence (0xD4) was tried here twice: it black-flashes hard and leaves
+  // the whole page (tab bar included) washed out — worse than any FAST
+  // artifact. Do not reintroduce it without re-validating the sequence.
   sdFontSystem.ensureLoaded(renderer);
   if (RECENT_BOOKS.pruneMissing()) RECENT_BOOKS.saveToFile();
   books = &RECENT_BOOKS.getBooks();
