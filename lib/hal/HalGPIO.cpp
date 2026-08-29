@@ -156,7 +156,7 @@ NvsMurphyM4Batch readNvsMurphyM4Batch() {
   return static_cast<NvsMurphyM4Batch>(raw);
 }
 
-freeink::MurphyM4BatchProbe probeMurphyM4Batch(uint32_t* medianOut) {
+[[maybe_unused]] freeink::MurphyM4BatchProbe probeMurphyM4Batch(uint32_t* medianOut) {
   const int8_t pin = BoardConfig::ACTIVE.input.up;
   if (pin < 0) return freeink::MurphyM4BatchProbe::Inconclusive;
 
@@ -193,6 +193,12 @@ freeink::MurphyM4BatchProbe probeMurphyM4Batch(uint32_t* medianOut) {
 }
 
 freeink::MurphyM4Batch detectMurphyM4Batch() {
+// SAFETY: the ADC rise-time probe this function used to run drives the UP-key
+// GPIO as an output and strips its pull-up — on a user-held button that is an
+// output short to ground, and the probe ran before any peripheral rail was up.
+// A bricked unit (frozen with USB alive, power key dead even on stock
+// firmware) is on record. The probe is retired; batch comes from NVS (values
+// the probe wrote before) or the build default, nothing touches the pin.
 #if defined(FREEINK_MURPHY_M4_BATCH1) && FREEINK_MURPHY_M4_BATCH1
   LOG_INF("HW", "Murphy M4 batch forced to first by build flag");
   return freeink::MurphyM4Batch::First;
@@ -209,21 +215,7 @@ freeink::MurphyM4Batch detectMurphyM4Batch() {
     case NvsMurphyM4Batch::Unknown:
       break;
   }
-
-  uint32_t medianUs = 0;
-  switch (probeMurphyM4Batch(&medianUs)) {
-    case freeink::MurphyM4BatchProbe::First:
-      writeNvsUChar(NVS_KEY_M4_BATCH, static_cast<uint8_t>(NvsMurphyM4Batch::First));
-      LOG_INF("HW", "Murphy M4 batch probe: first (median=%lu us)", static_cast<unsigned long>(medianUs));
-      return freeink::MurphyM4Batch::First;
-    case freeink::MurphyM4BatchProbe::Second:
-      writeNvsUChar(NVS_KEY_M4_BATCH, static_cast<uint8_t>(NvsMurphyM4Batch::Second));
-      LOG_INF("HW", "Murphy M4 batch probe: second (median=%lu us)", static_cast<unsigned long>(medianUs));
-      return freeink::MurphyM4Batch::Second;
-    case freeink::MurphyM4BatchProbe::Inconclusive:
-      LOG_ERR("HW", "Murphy M4 batch probe inconclusive; using batch 2 fallback");
-      return freeink::MurphyM4Batch::Second;
-  }
+  LOG_INF("HW", "Murphy M4 batch unknown; using batch 2 default (compile with FREEINK_MURPHY_M4_BATCH1 for batch 1)");
   return freeink::MurphyM4Batch::Second;
 #endif
 }
