@@ -79,6 +79,9 @@ const char* TextSettingsActivity::tabLabel(const int index) const { return I18N.
 
 void TextSettingsActivity::onEnter() {
   UiTabListActivity::onEnter();
+#if FREEINK_DEVICE_MURPHY_M4
+  renderer.cleanupGrayscaleWithFrameBuffer();
+#endif
 
   if (sdFontSystem.adoptCompleteChineseNotoSans()) initialFontState_ = InitialFontState::Changed;
   {

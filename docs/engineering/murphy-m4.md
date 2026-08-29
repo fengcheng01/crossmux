@@ -24,15 +24,17 @@ uses the normal 50 ms main-loop delay. Touch initialization reads back the
 volatile mode, threshold, and report-rate registers before accepting input;
 invalid status/event/coordinate frames are discarded without latching contact.
 
-Combined AA uses one absolute 4-level waveform per page turn. The custom
-`lut_m4_combined_aa`/`lut_m4_aa_fast` tables drove the panel dark on the real
-device (black background, ink accumulating — never hardware-verified before
-shipping), so the board config falls back to the OEM `lut_factory_quality`,
-which renders correctly at the cost of its global VSL black flash per turn.
-Retuning the custom tables requires the device: start from the factory 00
-group's level pattern rather than the X4 overlay's, and keep the X4 voltage
-tail. Night mode skips the gray pass entirely (the combined waveform is never
-sent while inverted).
+Reader anti-aliasing on this panel:
+
+- Overlay (叠加): FAST 1-bit then gray `lut_grayscale` (two refreshes).
+- Combined (合成): one FAST 1-bit refresh. Absolute 4-level (factory or
+  VSL-only 00) left gray shadows on white and a slow full refresh. Overlay
+  is the gray-edge mode.
+
+Opening the reader menu/settings over an AA page used HALF (0xD4), which
+black-flashes. That path now resyncs grayscale RAM then FAST. Home from
+the reader is FAST. Clock lock: one HALF to bleach the white field, then
+windowed FAST on the digit band only so the background is not re-driven.
 
 The desktop target (`simulator_murphy_m4`) defines both
 `SIMULATOR_DEVICE_MOFEI_M4` — the pinned simulator fork still uses the

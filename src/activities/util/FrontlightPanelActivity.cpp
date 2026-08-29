@@ -44,10 +44,10 @@ void FrontlightPanelActivity::onEnter() {
   warmth = Frontlight.warmth();
   lightOn = Frontlight.isOn();
   lightOnChanged = false;
-#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_MURPHY_M4
-  // The first frame draws over the reader's gray AA page; a HALF refresh keeps
-  // the overlay clean instead of ghosting. Other boards keep the standard
-  // FAST_REFRESH first frame (X4 Pro reference behavior).
+#if FREEINK_DEVICE_MURPHY_M4
+  renderer.cleanupGrayscaleWithFrameBuffer();
+  renderer.requestNextRefresh(HalDisplay::FAST_REFRESH);
+#elif FREEINK_DEVICE_EEGO_A4
   renderer.requestNextRefresh(HalDisplay::HALF_REFRESH);
 #endif
 
@@ -76,7 +76,12 @@ void FrontlightPanelActivity::onExit() {
     SETTINGS.saveToFile();
   }
   Activity::onExit();
-#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_MURPHY_M4
+#if FREEINK_DEVICE_MURPHY_M4
+  // HALF/FULL on this panel is a full-screen black flash. Resync then FAST
+  // like the reader menu / text settings overlays.
+  renderer.cleanupGrayscaleWithFrameBuffer();
+  renderer.requestNextRefresh(HalDisplay::FAST_REFRESH);
+#elif FREEINK_DEVICE_EEGO_A4
   // The overlay pops back to the reader's gray AA page; force a clean first
   // frame so the panel's white region does not ghost over the text.
   renderer.requestNextFullRefresh();

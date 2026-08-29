@@ -43,3 +43,4 @@ boot_app0-m4.bin
 /dependencies.lock
 /sdkconfig.*
 flake.*
+dist/

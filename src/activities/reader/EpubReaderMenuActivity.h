@@ -87,6 +87,8 @@ class EpubReaderMenuActivity final : public UiListActivity {
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;
+  // buildScreen() fills this and points ListItem::value at it (const char*).
+  char frontlightValue[20]{};
 #if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_MURPHY_M4
   bool firstRender = true;
 #endif

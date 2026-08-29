@@ -90,6 +90,8 @@ class GfxRenderer {
   Orientation orientation;
   bool fadingFix;
   bool absoluteGrayPlanes;
+  bool solidGlyphs = false;
+  bool glyphDither = false;
   mutable uint8_t syntheticBoldPixels = 0;
   uint8_t* frameBuffer = nullptr;
   uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
@@ -237,12 +239,22 @@ class GfxRenderer {
   // Combined AA: encode four distinct RAM classes (black≠white) for one waveform.
   void setAbsoluteGrayPlanes(const bool enabled) { absoluteGrayPlanes = enabled; }
   bool usesAbsoluteGrayPlanes() const { return absoluteGrayPlanes; }
+  // Snap 2-bit glyph coverage to full ink. Status-bar / UI text in a gray
+  // pass must not pick up AA midtones (chapter titles go faint on M4).
+  void setSolidGlyphs(const bool enabled) { solidGlyphs = enabled; }
+  bool usesSolidGlyphs() const { return solidGlyphs; }
+  // Combined AA on M4: one FAST 1-bit refresh. Keep coverage 1 (AA-off ink
+  // weight) and fill 2x2 diagonal stairs. Bayer and dropping coverage 1 both
+  // looked more jagged than AA-off.
+  void setGlyphDither(const bool enabled) { glyphDither = enabled; }
+  bool usesGlyphDither() const { return glyphDither; }
 
   // Screen ops
   int getScreenWidth() const;
   int getScreenHeight() const;
   void tapToLogical(float nx, float ny, int& outX, int& outY) const;
   void displayBuffer(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
+  void displayBufferDriveAll(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
   // Force the next displayBuffer() to use `mode`, overriding its argument once.
   void requestNextRefresh(const HalDisplay::RefreshMode mode) const {
     nextRefreshOverride = mode;
@@ -261,8 +273,9 @@ class GfxRenderer {
   // fadingFix isn't forcing the blocking path. Callers can skip overlap
   // scaffolding (e.g. whole-plane grayscale buffers) when false.
   bool supportsAsyncRefresh() const;
-  // EXPERIMENTAL: Windowed update - display only a rectangular region
-  // void displayWindow(int x, int y, int width, int height) const;
+  // Windowed FAST in screen coordinates (rotated/aligned internally). RED must
+  // already hold the previous full frame (cleanupGrayscaleWithFrameBuffer).
+  void displayWindow(int x, int y, int width, int height) const;
   void invertScreen() const;
   void clearScreen(uint8_t color = 0xFF) const;
   void getOrientedViewableTRBL(int* outTop, int* outRight, int* outBottom, int* outLeft) const;
@@ -393,9 +406,11 @@ class GfxRenderer {
   int getLineHeight(int fontId, float compression) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
-  /// Word-wrap \p text into at most \p maxLines lines, each no wider than
-  /// \p maxWidth pixels. Overflowing words and excess lines are UTF-8-safely
-  /// truncated with an ellipsis (U+2026).
+  /// Wrap \p text into at most \p maxLines lines, each no wider than
+  /// \p maxWidth pixels. Latin tokens break on spaces; CJK (and other
+  /// `utf8IsCjkBreakable`) runs break per codepoint so a title without spaces
+  /// can use every line. Overflowing Latin words and leftover text on the last
+  /// line are UTF-8-safely truncated with an ellipsis (U+2026).
   std::vector<std::string> wrappedText(int fontId, const char* text, int maxWidth, int maxLines,
                                        EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 

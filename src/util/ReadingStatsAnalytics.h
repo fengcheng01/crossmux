@@ -22,6 +22,9 @@ struct TimelineDayEntry {
 };
 
 std::string formatDurationHm(uint64_t totalMs);
+// Number + whether it is hours (true) or minutes (false). Stack buffer for
+// render paths; avoids std::string on the hot UI frame.
+void formatDurationParts(uint64_t totalMs, char* number, size_t numberSize, bool& hours);
 std::string formatDayOrdinalLabel(uint32_t dayOrdinal);
 std::string formatMonthLabel(int year, unsigned month);
 int getReferenceYear();

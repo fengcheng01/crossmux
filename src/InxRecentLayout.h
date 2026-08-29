@@ -9,6 +9,7 @@ namespace InxRecentGeometry {
 constexpr int itemsPerPage(const InxRecentLayout layout) {
   switch (layout) {
     case InxRecentLayout::Flow:
+      return 4;
     case InxRecentLayout::Cover:
       return 1;
     case InxRecentLayout::Grid:

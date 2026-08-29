@@ -5,7 +5,10 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <XteinkDetect.h>
+#include <driver/gpio.h>
 #include <esp_sleep.h>
+
+#include <array>
 
 #include "Waveshare397Power.h"
 
@@ -51,6 +54,13 @@ namespace {
 constexpr char HW_NAMESPACE[] = "cphw";
 constexpr char NVS_KEY_DEV_OVERRIDE[] = "dev_ovr";  // 0=auto, 1=x4, 2=x3
 constexpr char NVS_KEY_DEV_CACHED[] = "dev_det";    // 0=unknown, 1=x4, 2=x3
+#if FREEINK_DEVICE_MURPHY_M4
+constexpr char NVS_KEY_M4_BATCH[] = "m4_batch_v1";
+constexpr uint16_t M4_CHARGED_ADC_MIN = 3000;
+constexpr uint32_t M4_CHARGE_SETTLE_MS = 50;
+constexpr uint32_t M4_DISCHARGE_US = 2000;
+constexpr uint32_t M4_RISE_TIMEOUT_US = 15000;
+#endif
 
 #if FREEINK_DEVICE_WAVESHARE_EPAPER_397
 uint8_t wavesharePowerButtonHook() {
@@ -122,6 +132,103 @@ HalGPIO::DeviceType detectDeviceTypeWithFingerprint() {
   return HalGPIO::DeviceType::X4;
 }
 
+#if FREEINK_DEVICE_MURPHY_M4
+uint8_t readNvsUChar(const char* key, const uint8_t defaultValue) {
+  Preferences prefs;
+  if (!prefs.begin(HW_NAMESPACE, true)) return defaultValue;
+  const uint8_t value = prefs.getUChar(key, defaultValue);
+  prefs.end();
+  return value;
+}
+
+void writeNvsUChar(const char* key, const uint8_t value) {
+  Preferences prefs;
+  if (!prefs.begin(HW_NAMESPACE, false)) return;
+  prefs.putUChar(key, value);
+  prefs.end();
+}
+
+enum class NvsMurphyM4Batch : uint8_t { Unknown = 0, First = 1, Second = 2 };
+
+NvsMurphyM4Batch readNvsMurphyM4Batch() {
+  const uint8_t raw = readNvsUChar(NVS_KEY_M4_BATCH, static_cast<uint8_t>(NvsMurphyM4Batch::Unknown));
+  if (raw > static_cast<uint8_t>(NvsMurphyM4Batch::Second)) return NvsMurphyM4Batch::Unknown;
+  return static_cast<NvsMurphyM4Batch>(raw);
+}
+
+freeink::MurphyM4BatchProbe probeMurphyM4Batch(uint32_t* medianOut) {
+  const int8_t pin = BoardConfig::ACTIVE.input.up;
+  if (pin < 0) return freeink::MurphyM4BatchProbe::Inconclusive;
+
+  analogSetPinAttenuation(static_cast<uint8_t>(pin), ADC_11db);
+  const gpio_num_t gpioPin = static_cast<gpio_num_t>(pin);
+  gpio_set_pull_mode(gpioPin, GPIO_FLOATING);
+  gpio_set_direction(gpioPin, GPIO_MODE_INPUT);
+  delay(M4_CHARGE_SETTLE_MS);
+
+  const uint16_t chargedAdc = analogRead(pin);
+  if (chargedAdc < M4_CHARGED_ADC_MIN) return freeink::MurphyM4BatchProbe::Inconclusive;
+
+  std::array<uint32_t, freeink::MURPHY_M4_BATCH_SAMPLE_COUNT> riseTimes{};
+  for (auto& riseTime : riseTimes) {
+    gpio_set_level(gpioPin, 0);
+    gpio_set_direction(gpioPin, GPIO_MODE_OUTPUT);
+    delayMicroseconds(M4_DISCHARGE_US);
+    if (analogRead(pin) > chargedAdc / 10) {
+      gpio_set_direction(gpioPin, GPIO_MODE_INPUT);
+      return freeink::MurphyM4BatchProbe::Inconclusive;
+    }
+
+    gpio_set_direction(gpioPin, GPIO_MODE_INPUT);
+    const uint32_t startedAt = micros();
+    while (analogRead(pin) < chargedAdc / 2) {
+      if (micros() - startedAt > M4_RISE_TIMEOUT_US) return freeink::MurphyM4BatchProbe::Inconclusive;
+    }
+    riseTime = micros() - startedAt;
+  }
+
+  const uint32_t median = freeink::medianMurphyM4RiseTime(riseTimes);
+  if (medianOut) *medianOut = median;
+  return freeink::classifyMurphyM4RiseTime(median);
+}
+
+freeink::MurphyM4Batch detectMurphyM4Batch() {
+#if defined(FREEINK_MURPHY_M4_BATCH1) && FREEINK_MURPHY_M4_BATCH1
+  LOG_INF("HW", "Murphy M4 batch forced to first by build flag");
+  return freeink::MurphyM4Batch::First;
+#elif defined(SIMULATOR)
+  return freeink::defaultMurphyM4Batch();
+#else
+  switch (readNvsMurphyM4Batch()) {
+    case NvsMurphyM4Batch::First:
+      LOG_INF("HW", "Murphy M4 batch 1 from NVS cache");
+      return freeink::MurphyM4Batch::First;
+    case NvsMurphyM4Batch::Second:
+      LOG_INF("HW", "Murphy M4 batch 2 from NVS cache");
+      return freeink::MurphyM4Batch::Second;
+    case NvsMurphyM4Batch::Unknown:
+      break;
+  }
+
+  uint32_t medianUs = 0;
+  switch (probeMurphyM4Batch(&medianUs)) {
+    case freeink::MurphyM4BatchProbe::First:
+      writeNvsUChar(NVS_KEY_M4_BATCH, static_cast<uint8_t>(NvsMurphyM4Batch::First));
+      LOG_INF("HW", "Murphy M4 batch probe: first (median=%lu us)", static_cast<unsigned long>(medianUs));
+      return freeink::MurphyM4Batch::First;
+    case freeink::MurphyM4BatchProbe::Second:
+      writeNvsUChar(NVS_KEY_M4_BATCH, static_cast<uint8_t>(NvsMurphyM4Batch::Second));
+      LOG_INF("HW", "Murphy M4 batch probe: second (median=%lu us)", static_cast<unsigned long>(medianUs));
+      return freeink::MurphyM4Batch::Second;
+    case freeink::MurphyM4BatchProbe::Inconclusive:
+      LOG_ERR("HW", "Murphy M4 batch probe inconclusive; using batch 2 fallback");
+      return freeink::MurphyM4Batch::Second;
+  }
+  return freeink::MurphyM4Batch::Second;
+#endif
+}
+#endif
+
 }  // namespace
 
 void HalGPIO::begin() {
@@ -149,6 +256,10 @@ void HalGPIO::begin() {
 #endif
 #if FREEINK_DEVICE_WAVESHARE_EPAPER_397
   InputManager::setButtonHook(wavesharePowerButtonHook);
+#endif
+#if FREEINK_DEVICE_MURPHY_M4
+  _murphyM4Batch = detectMurphyM4Batch();
+  inputMgr.setMurphyM4Batch(_murphyM4Batch);
 #endif
   inputMgr.begin();
 }
@@ -240,7 +351,7 @@ bool HalGPIO::isXteinkDevice() const {
 bool HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed) {
   // X4 Pro wakes on any power-button press; other boards retain the configured
   // hold-duration verification below.
-  if (BoardConfig::isX4Pro() || BoardConfig::ACTIVE.input.power < 0) {
+  if (BoardConfig::isX4Pro() || BoardConfig::isMurphyM4() || BoardConfig::ACTIVE.input.power < 0) {
     return true;
   }
 #if defined(FREEINK_DEVICE_M5PAPER) && FREEINK_DEVICE_M5PAPER
@@ -341,6 +452,17 @@ HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
   if (resetReason == ESP_RST_DEEPSLEEP && wakeupCause == ESP_SLEEP_WAKEUP_TIMER) {
     return WakeupReason::Timer;
   }
+#if FREEINK_DEVICE_MURPHY_M4
+  // USB-Serial/JTAG flash and RTS reset are not a power-button wake. Treating
+  // them as one sent the firmware straight back to deep sleep with a frozen
+  // panel and no input until a GPIO wake (which then also failed hold-verify).
+  if (resetReason == ESP_RST_USB || resetReason == ESP_RST_SW) {
+    return WakeupReason::AfterFlash;
+  }
+  if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON) {
+    return WakeupReason::AfterFlash;
+  }
+#endif
   if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON && !usbConnected) {
     return WakeupReason::PowerButton;
   }

@@ -191,8 +191,13 @@ void EpubReaderActivity::onExit() {
   ACHIEVEMENTS.recordSessionEnded(READING_STATS.getLastSessionSnapshot());
   showPendingAchievementPopups(renderer);
   ReaderActivity::onExit();
-#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_MURPHY_M4
-  // A4/M4 use a single-pass grayscale page; force a clean first frame after exit.
+#if FREEINK_DEVICE_MURPHY_M4
+  // FULL 0xF7 inverts black several times (looks like 3 flashes). Resync then
+  // FAST so home from the reader is one non-inverting update.
+  renderer.cleanupGrayscaleWithFrameBuffer();
+  renderer.requestNextRefresh(HalDisplay::FAST_REFRESH);
+#elif FREEINK_DEVICE_EEGO_A4
+  // A4's single-pass grayscale path needs a clean first frame after exit.
   renderer.requestNextFullRefresh();
 #endif
 }
@@ -1674,13 +1679,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   forcedRefreshPending = false;
   const bool cleanImageBasePending = manualRefreshPending || pagesUntilFullRefresh <= 1;
   const bool needsTextGrayscale = SETTINGS.textAntiAliasing != 0;
-  // Combined AA sends one absolute 4-level waveform whose undrawn pixels go
-  // white, which would drop the reading background that only exists in the
-  // 1-bit frame; background pages keep the two-pass path instead.
+  // Combined AA is a FAST 1-bit paint. Background pages stay on the two-pass
+  // overlay path so the wallpaper is not wiped.
   const bool combinedAa = ReaderUtils::usesCombinedAa() && !SETTINGS.readingBackgroundEnabled;
-  // FAST tier (00 idle, smooth) vs the periodic HALF clean tier; decided when
-  // the refresh cadence is consumed in the combinedAa branch below.
-  bool combinedCleanGray = true;
   const bool needsAnyGrayscale = needsTextGrayscale || pageHasImages;
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
   // Paper Mono only (no other panel combines): defer the B/W base activation so
@@ -1751,16 +1752,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     renderer.displayBuffer(cleanImageBasePending ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
     pagesUntilFullRefresh = 1;
   } else if (combinedAa) {
-    // Combined AA: do not show the 1-bit frame. Gray planes + one absolute
-    // waveform replace both FAST and the overlay pass. Night mode skips the
-    // gray pass, so usesCombinedAa() is already false while inverted.
-    // The FAST/HALF cadence selects the waveform tier: smooth turns drive
-    // only ink pixels (00 idle); the periodic HALF pass clears the ghosts.
-    const auto combinedMode = ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
-    combinedCleanGray = combinedMode == HalDisplay::HALF_REFRESH;
-    // The tier name is the request; the board config decides whether a fast
-    // LUT exists (FREEINK_M4_AA_FAST_TIER, default off — falls back to clean).
-    LOG_INF("ERS", "Combined AA: absolute 4-level refresh (tier: %s)", combinedCleanGray ? "clean" : "fast");
+    // One FAST 1-bit paint. Absolute 4-level left gray shadows on white.
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    if (pagesUntilFullRefresh <= 1) {
+      pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+    } else {
+      pagesUntilFullRefresh--;
+    }
   } else if (combinedGrayscaleBase) {
     // Stash the base without activating; displayGrayBuffer() below commits
     // base + grays as one waveform.
@@ -1779,18 +1777,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
   const auto tDisplay = millis();
 
-  if (tiledGrayscale) {
-    if (combinedAa) {
-      renderer.setAbsoluteGrayPlanes(true);
-      // Refresh the gray baseline from the current B/W frame before the
-      // planes are streamed. The combined path skips the 1-bit display, so
-      // whatever B/W frame was last shown (reader menu, chapter list, font
-      // prompt) is still the compositor base on the desktop shim — without
-      // this, its ink bleeds through the first combined page after any
-      // overlay. On hardware the RED write is immediately overwritten by the
-      // MSB plane strip, so the end state is unchanged.
-      renderer.cleanupGrayscaleWithFrameBuffer();
-    }
+  if (tiledGrayscale && !combinedAa) {
     struct ClearAbsoluteGray {
       GfxRenderer& r;
       ~ClearAbsoluteGray() { r.setAbsoluteGrayPlanes(false); }
@@ -1856,12 +1843,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       const auto tGrayWrite = millis();
 
       renderer.setRenderMode(GfxRenderer::BW);
-      if (combinedAa) {
-        renderer.displayGrayBufferAbsolute(combinedCleanGray);
-        renderer.setAbsoluteGrayPlanes(false);
-      } else {
-        renderer.displayGrayBuffer();
-      }
+      renderer.displayGrayBuffer();
       const auto tGrayDisplay = millis();
 
       renderer.cleanupGrayscaleWithFrameBuffer();
@@ -1922,12 +1904,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         const auto tGrayMsb = millis();
 
         renderer.setRenderMode(GfxRenderer::BW);
-        if (combinedAa) {
-          renderer.displayGrayBufferAbsolute(combinedCleanGray);
-          renderer.setAbsoluteGrayPlanes(false);
-        } else {
-          renderer.displayGrayBuffer();
-        }
+        renderer.displayGrayBuffer();
         const auto tGrayDisplay = millis();
 
         renderer.cleanupGrayscaleWithFrameBuffer();
@@ -1942,25 +1919,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       }
     }
   } else {
-    if (needsAnyGrayscale) {
+    if (needsAnyGrayscale && !combinedAa) {
       if (!renderer.storeBwBuffer()) {
         LOG_ERR("ERS", "Failed to store BW buffer for grayscale render; skipping grayscale this page");
-        if (combinedAa) {
-          // Combined AA never displayed the 1-bit frame; push the intact BW
-          // framebuffer so the page still reaches the panel without its grays.
-          renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-        }
         return;
       }
       const auto tBwStore = millis();
-      if (combinedAa) {
-        renderer.setAbsoluteGrayPlanes(true);
-        // Refresh the gray baseline from the intact B/W frame (the combined
-        // path never displays it, so the compositor base still holds the last
-        // B/W overlay — menu, chapter list — on the desktop shim). Hardware
-        // RED is overwritten by the MSB copy right after.
-        renderer.cleanupGrayscaleWithFrameBuffer();
-      }
       struct ClearAbsoluteGray {
         GfxRenderer& r;
         ~ClearAbsoluteGray() { r.setAbsoluteGrayPlanes(false); }
@@ -1992,11 +1956,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         renderer.restoreBwBuffer();
         return;
       }
-      if (combinedAa) {
-        renderer.displayGrayBufferAbsolute(combinedCleanGray);
-      } else {
-        renderer.displayGrayBuffer();
-      }
+      renderer.displayGrayBuffer();
       const auto tGrayDisplay = millis();
       renderer.setRenderMode(GfxRenderer::BW);
       renderer.setAbsoluteGrayPlanes(false);

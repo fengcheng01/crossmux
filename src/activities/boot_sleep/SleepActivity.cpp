@@ -36,6 +36,16 @@
 
 namespace {
 
+HalDisplay::RefreshMode sleepCleanRefresh() {
+#if FREEINK_DEVICE_MURPHY_M4
+  // M4 HALF is 0xD4, which does not clear AA residue. LIGHT sleep then ghosts
+  // the previous page as the panel sits. FULL 0xF7 is one flash at sleep.
+  return HalDisplay::FULL_REFRESH;
+#else
+  return HalDisplay::HALF_REFRESH;
+#endif
+}
+
 // Kept separate from /sleep.bmp and /.sleep so alpha-overlay art does not mix with full-screen wallpapers.
 constexpr char TRANSPARENT_SLEEP_ROOT_BMP[] = "/sleep-overlay.bmp";
 constexpr char TRANSPARENT_SLEEP_ROOT_PNG[] = "/sleep-overlay.png";
@@ -535,7 +545,10 @@ void SleepActivity::onEnter() {
     } else {
       renderer.setOrientation(GfxRenderer::Orientation::Portrait);
     }
-    paintClock(renderer);
+#if FREEINK_DEVICE_MURPHY_M4
+    renderer.cleanupGrayscaleWithFrameBuffer();
+#endif
+    paintClock(renderer, false);
     return;
   }
 
@@ -621,10 +634,9 @@ void SleepActivity::renderCustomSleepScreen() const {
   renderDefaultSleepScreen();
 }
 
-// Sleep screens paint with a single HALF refresh (stock parity): the OEM X4
-// firmware's only clean refresh in normal operation is the single-pass 0xD7
-// sequence, used once for the sleep image. It never runs the multi-flash GC
-// waveform (0xF7) that FULL_REFRESH selects (#2471's blinking complaint).
+// Sleep screens paint with one clean refresh. X4 uses the OEM single-pass 0xD7
+// HALF; M4's HALF is 0xD4 and leaves AA residue on LIGHT screens, so that
+// target takes FULL 0xF7 once at sleep (see sleepCleanRefresh()).
 void SleepActivity::renderDefaultSleepScreen() const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -639,12 +651,12 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(sleepCleanRefresh());
 }
 
 void SleepActivity::renderClockSleepScreen() const { paintClock(renderer); }
 
-void SleepActivity::paintClock(GfxRenderer& renderer) {
+void SleepActivity::paintClock(GfxRenderer& renderer, const bool minuteTick) {
   const int pageWidth = renderer.getScreenWidth();
   const int pageHeight = renderer.getScreenHeight();
   renderer.clearScreen();
@@ -670,21 +682,27 @@ void SleepActivity::paintClock(GfxRenderer& renderer) {
   const int gap = std::max(8, pageWidth / 48);
   const int colonW = std::max(8, pageWidth / 36);
   const int digitW = std::max(36, (pageWidth - sidePad * 2 - gap * (digitSlots - 1) - colonW) / digitSlots);
-  const int digitH = std::max(72, std::min(pageHeight / 4, digitW * 18 / 10));
+  const int digitH = std::max(72, std::min(pageHeight / 5, digitW * 18 / 10));
   const int rowWidth = digitW * digitSlots + gap * (digitSlots - 1) + colonW;
 
   float tempC = 0;
   float humidityPct = 0;
-  const bool haveEnv = halEnvironment.read(tempC, humidityPct);
+  bool haveEnv = halEnvironment.read(tempC, humidityPct);
+  if (!haveEnv) {
+    halEnvironment.begin();
+    haveEnv = halEnvironment.read(tempC, humidityPct);
+  }
   const int metaLineH = renderer.getTextHeight(UI_12_FONT_ID);
   int metaH = 0;
-  if (haveTime && use12Hour) metaH += metaLineH + 12;
-  if (haveTime) metaH += metaLineH + 16;
-  if (haveEnv) metaH += metaLineH;
+  if (haveTime && use12Hour) metaH += metaLineH + 10;
+  if (haveTime) metaH += metaLineH + 18;
+  if (haveEnv) metaH += metaLineH + 4;
 
-  const int blockH = digitH + 28 + metaH;
-  const int y = std::max(8, (pageHeight - blockH) / 2);
-  int x = (pageWidth - rowWidth) / 2;
+  const int blockH = digitH + 36 + metaH;
+  const int digitTop = std::max(8, (pageHeight - blockH) / 2);
+  const int digitLeft = (pageWidth - rowWidth) / 2;
+  const int y = digitTop;
+  int x = digitLeft;
   if (drawHourTens) {
     drawSevenSegDigit(renderer, x, y, digitW, digitH, hourTens);
     x += digitW + gap;
@@ -699,22 +717,51 @@ void SleepActivity::paintClock(GfxRenderer& renderer) {
   x += digitW + gap;
   drawSevenSegDigit(renderer, x, y, digitW, digitH, minOnes);
 
-  int metaY = y + digitH + 28;
+  int metaY = y + digitH + 36;
+  int contentBottom = y + digitH;
   if (haveTime && use12Hour) {
     renderer.drawCenteredText(UI_12_FONT_ID, metaY, pm ? "PM" : "AM", true, EpdFontFamily::BOLD);
-    metaY += metaLineH + 12;
+    contentBottom = metaY + metaLineH;
+    metaY += metaLineH + 10;
   }
   if (haveTime) {
-    char dateBuf[16];
-    snprintf(dateBuf, sizeof(dateBuf), "%04d-%02d-%02d", civil.tm_year + 1900, civil.tm_mon + 1, civil.tm_mday);
-    renderer.drawCenteredText(UI_12_FONT_ID, metaY, dateBuf);
-    metaY += metaLineH + 16;
+    static constexpr StrId kWeekdayIds[7] = {
+        StrId::STR_CAL_WEEKDAY_SUN, StrId::STR_CAL_WEEKDAY_MON, StrId::STR_CAL_WEEKDAY_TUE, StrId::STR_CAL_WEEKDAY_WED,
+        StrId::STR_CAL_WEEKDAY_THU, StrId::STR_CAL_WEEKDAY_FRI, StrId::STR_CAL_WEEKDAY_SAT,
+    };
+    char dateBuf[32];
+    snprintf(dateBuf, sizeof(dateBuf), tr(STR_SLEEP_CLOCK_DATE_FMT), civil.tm_year + 1900, civil.tm_mon + 1,
+             civil.tm_mday);
+    const int wday = civil.tm_wday < 0 || civil.tm_wday > 6 ? 0 : civil.tm_wday;
+    char line[64];
+    snprintf(line, sizeof(line), "%s  %s", dateBuf, I18N.get(kWeekdayIds[wday]));
+    renderer.drawCenteredText(UI_12_FONT_ID, metaY, line, true, EpdFontFamily::BOLD);
+    contentBottom = metaY + metaLineH;
+    metaY += metaLineH + 18;
   }
   if (haveEnv) {
     drawCelsiusHumidity(renderer, UI_12_FONT_ID, metaY, tempC, humidityPct);
+    contentBottom = metaY + renderer.getLineHeight(UI_12_FONT_ID);
   }
 
+#if FREEINK_DEVICE_MURPHY_M4
+  // First lock: HALF (absolute) so the white field is actually clean. Full-screen
+  // FAST ticks re-drive that white and the residue slowly builds. Minute ticks
+  // FAST the time + date + humidity block only, not the whole page. After
+  // deep-sleep init the unused BW RAM is white, so anything outside this
+  // window would be driven to white against leftover RED clock pixels.
+  if (minuteTick) {
+    const int pad = 12;
+    const int winY = std::max(0, digitTop - pad);
+    const int winBottom = std::min(pageHeight, contentBottom + pad);
+    renderer.displayWindow(0, winY, pageWidth, winBottom - winY);
+  } else {
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  }
+#else
+  (void)minuteTick;
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+#endif
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool preserveBackground) const {
@@ -957,5 +1004,5 @@ void SleepActivity::renderLastScreenSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  renderer.displayBuffer(sleepCleanRefresh());
 }

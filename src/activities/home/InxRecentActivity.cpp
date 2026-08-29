@@ -9,8 +9,8 @@
 #include <cstdio>
 #include <string>
 
-#include "BookTitleFont.h"
 #include "CrossPointSettings.h"
+#include "InxItemLayout.h"
 #include "MappedInputManager.h"
 #include "ReadingStatsStore.h"
 #include "SdCardFontSystem.h"
@@ -22,6 +22,7 @@
 #include "util/BookCoverLoader.h"
 #include "util/PaginationDots.h"
 #include "util/ReadingStatsAnalytics.h"
+#include "util/TimeUtils.h"
 
 namespace {
 constexpr int kGap = 8;
@@ -34,8 +35,8 @@ constexpr int kHomeBatteryRightMargin = 12;
 Rect contentRect(const GfxRenderer& renderer) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  return Rect{0, top, renderer.getScreenWidth(),
-              renderer.getScreenHeight() - top - metrics.buttonHintsHeight - metrics.verticalSpacing};
+  const int hintH = GUI.buttonHintsVisible() ? metrics.buttonHintsHeight : 0;
+  return Rect{0, top, renderer.getScreenWidth(), renderer.getScreenHeight() - top - hintH - metrics.verticalSpacing};
 }
 
 const char* titleOf(const RecentBook& book) { return book.title.empty() ? book.path.c_str() : book.title.c_str(); }
@@ -94,15 +95,16 @@ void drawMetric(const GfxRenderer& renderer, const int x, const int y, const cha
 }
 
 int titleFontId() {
-  // Reader font when it covers common CJK; otherwise the full 12pt subset
-  // (built-in 14/16/18 hold UI-string glyphs only). See BookTitleFont.h.
-  return bookTitleFontId();
+  // Card titles stay at 12pt: the reader size can be 14/16/18, which only fits
+  // two or three CJK glyphs in the hero column and then ellipsizes. UI_12 is
+  // the full common-character subset on CN builds. See BookTitleFont.h.
+  return UI_12_FONT_ID;
 }
 
 int drawBookText(const GfxRenderer& renderer, const RecentBook& book, const int x, const int y, const int width,
                  const bool author) {
   const int titleFont = titleFontId();
-  const auto titleLines = renderer.wrappedText(titleFont, titleOf(book), width, 2, EpdFontFamily::BOLD);
+  const auto titleLines = renderer.wrappedText(titleFont, titleOf(book), width, 3, EpdFontFamily::BOLD);
   int cursorY = y;
   const int titleHeight = renderer.getLineHeight(titleFont);
   for (const auto& line : titleLines) {
@@ -323,40 +325,49 @@ bool InxRecentActivity::drawBookCover(const int bookIndex, const Rect& bounds) {
 
 bool InxRecentActivity::prepareNextMissingCover() {
   if (!books || thumbnailHeight <= 0) return false;
-  const size_t count = std::min(books->size(), RecentBooksStore::MAX_RECENT_BOOKS);
-  for (size_t index = 0; index < count; ++index) {
+  const int bookCount = static_cast<int>(std::min(books->size(), RecentBooksStore::MAX_RECENT_BOOKS));
+  const int start = InxRecentGeometry::pageStart(selected, bookCount, layout());
+  const int visible = std::min(InxRecentGeometry::itemsPerPage(layout()), std::max(0, bookCount - start));
+  bool needsGenerate = false;
+  for (int slot = 0; slot < visible; ++slot) {
+    const int index = start + slot;
     CoverCacheState& state = targetCoverStates[index];
     switch (state) {
       case CoverCacheState::Unchecked: {
         const std::string& templatePath = (*books)[index].coverBmpPath;
         if (templatePath.empty()) {
           state = CoverCacheState::Unavailable;
-          continue;
+          break;
         }
         state = Storage.exists(UITheme::getCoverThumbPath(templatePath, thumbnailHeight).c_str())
                     ? CoverCacheState::Ready
                     : CoverCacheState::Missing;
-        if (state == CoverCacheState::Ready) continue;
         break;
       }
       case CoverCacheState::Ready:
       case CoverCacheState::Unavailable:
-        continue;
       case CoverCacheState::Missing:
         break;
     }
-
-    renderer.displayBuffer();
-    {
-      GfxRenderer::FrameBufferLoan loan(renderer);
-      state = BookCoverLoader::ensureThumbnail((*books)[index].path, thumbnailHeight).empty()
-                  ? CoverCacheState::Unavailable
-                  : CoverCacheState::Ready;
-    }
-    requestUpdate();
-    return true;
+    if (state == CoverCacheState::Missing) needsGenerate = true;
   }
-  return false;
+  if (!needsGenerate) return false;
+
+  // Commit the placeholder list once, then build every visible thumb before the
+  // next paint. One-cover-per-refresh was flashing the whole page N times.
+  renderer.displayBuffer();
+  {
+    GfxRenderer::FrameBufferLoan loan(renderer);
+    for (int slot = 0; slot < visible; ++slot) {
+      const int index = start + slot;
+      if (targetCoverStates[index] != CoverCacheState::Missing) continue;
+      targetCoverStates[index] = BookCoverLoader::ensureThumbnail((*books)[index].path, thumbnailHeight).empty()
+                                     ? CoverCacheState::Unavailable
+                                     : CoverCacheState::Ready;
+    }
+  }
+  requestUpdate();
+  return true;
 }
 
 int InxRecentActivity::indexFromPoint(const int x, const int y) const {
@@ -380,12 +391,13 @@ int InxRecentActivity::indexFromPoint(const int x, const int y) const {
       columns = 3;
       rows = 3;
       break;
-    case InxRecentLayout::Flow:
-      if (x < heroCoverRect_.x || y < heroCoverRect_.y || x >= heroCoverRect_.x + heroCoverRect_.width ||
-          y >= heroCoverRect_.y + heroCoverRect_.height) {
-        return -1;
-      }
-      return selected;
+    case InxRecentLayout::Flow: {
+      if (flowRowStep_ <= 0 || flowVisible_ <= 0) return -1;
+      if (y < flowListTop_ || y >= flowListTop_ + flowRowStep_ * flowVisible_) return -1;
+      const int slot = (y - flowListTop_) / flowRowStep_;
+      const int index = start + slot;
+      return index < static_cast<int>(books->size()) ? index : -1;
+    }
     case InxRecentLayout::Cover:
       return selected;
     case InxRecentLayout::Count:
@@ -407,109 +419,175 @@ void InxRecentActivity::loop() {
   }
 
   const int count = static_cast<int>(books->size());
+  const bool showSelection = showMainTabContentSelection();
+  const auto currentLayout = layout();
   const auto swipe = mappedInput.wasSwipe();
+  const auto stepPage = [this, count, currentLayout](const int delta) {
+    const int pageItems = InxRecentGeometry::itemsPerPage(currentLayout);
+    const int start = InxRecentGeometry::pageStart(selected, count, currentLayout);
+    if (delta > 0) {
+      const int next = start + pageItems;
+      selected = next < count ? next : start;
+    } else {
+      selected = start <= 0 ? 0 : start - pageItems;
+    }
+  };
   if (mappedInput.wasReleased(MappedInputManager::Button::NavNext) || swipe == MappedInputManager::SwipeDir::Up ||
       swipe == MappedInputManager::SwipeDir::Left) {
     if (count > 1) {
-      selected = (selected + 1) % count;
-      requestUpdate();
+      const int previousStart = InxRecentGeometry::pageStart(selected, count, currentLayout);
+      if (showSelection) {
+        selected = (selected + 1) % count;
+      } else {
+        stepPage(1);
+      }
+      if (showSelection || InxRecentGeometry::pageStart(selected, count, currentLayout) != previousStart) {
+        requestUpdate();
+      }
     }
     return;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::NavPrevious) || swipe == MappedInputManager::SwipeDir::Down ||
       swipe == MappedInputManager::SwipeDir::Right) {
     if (count > 1) {
-      selected = (selected + count - 1) % count;
-      requestUpdate();
+      const int previousStart = InxRecentGeometry::pageStart(selected, count, currentLayout);
+      if (showSelection) {
+        selected = (selected + count - 1) % count;
+      } else {
+        stepPage(-1);
+      }
+      if (showSelection || InxRecentGeometry::pageStart(selected, count, currentLayout) != previousStart) {
+        requestUpdate();
+      }
     }
     return;
   }
 
   int x = 0;
   int y = 0;
-  if (mappedInput.wasScreenTouchDown(x, y)) {
-    const int touched = indexFromPoint(x, y);
-    if (touched >= 0 && touched != selected) {
-      selected = touched;
-      requestUpdate();
-    }
-    return;
-  }
   if (mappedInput.wasScreenTapped(x, y)) {
+    if (currentLayout == InxRecentLayout::Flow && x >= moreHitRect_.x && y >= moreHitRect_.y &&
+        x < moreHitRect_.x + moreHitRect_.width && y < moreHitRect_.y + moreHitRect_.height) {
+      activityManager.goToMainTab(MainTab::Statistics);
+      return;
+    }
     const int touched = indexFromPoint(x, y);
     if (touched >= 0) {
       selected = touched;
       openSelected();
     }
+    return;
+  }
+  if (mappedInput.wasScreenTouchDown(x, y)) {
+    if (!showSelection) return;
+    const int touched = indexFromPoint(x, y);
+    if (touched >= 0 && touched != selected) {
+      selected = touched;
+      requestUpdate();
+    }
   }
 }
 
 void InxRecentActivity::drawFlow(const Rect& content) {
-  const RecentBook& book = (*books)[selected];
-  const int pad = InxInkCards::kPagePad;
-  const int titleH = InxInkCards::pageTitleHeight(renderer);
-  InxInkCards::drawPageTitle(renderer, content.x + pad, content.y + 8, tr(STR_MENU_RECENT_BOOKS));
-
   const int bookCount = books ? static_cast<int>(books->size()) : 0;
-  const int dotH = bookCount > 1 ? 16 : 0;
-  // 2x2 metric cells must fit value+label at their real line heights.
-  const int gridH =
-      std::max(2 * InxInkCards::metricCardMinHeight(renderer) + InxInkCards::kGap, (content.height - dotH) * 34 / 100);
-  const Rect grid{content.x + pad, content.y + content.height - dotH - gridH, content.width - pad * 2, gridH};
-  const Rect hero{content.x + pad, content.y + 8 + titleH + 10, content.width - pad * 2,
-                  std::max(120, grid.y - InxInkCards::kGap - (content.y + 8 + titleH + 10))};
-  InxInkCards::drawCard(renderer, hero);
-
-  const int heroPad = 14;
-  const auto coverSize = InxCoverGeometry::fit(hero.width * 38 / 100, hero.height - heroPad * 2);
-  heroCoverRect_ =
-      Rect{hero.x + heroPad, hero.y + (hero.height - coverSize.height) / 2, coverSize.width, coverSize.height};
-  setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(heroCoverRect_.height));
-  drawBookCover(selected, heroCoverRect_);
-  renderer.drawRect(heroCoverRect_.x, heroCoverRect_.y, heroCoverRect_.width, heroCoverRect_.height);
-
-  const int textX = heroCoverRect_.x + heroCoverRect_.width + 16;
-  const int textW = hero.x + hero.width - heroPad - textX;
+  const int pad = 10;
   const int titleFont = titleFontId();
-  const auto titleLines = renderer.wrappedText(titleFont, titleOf(book), textW, 2, EpdFontFamily::BOLD);
-  int textY = hero.y + heroPad + 4;
   const int titleLineH = renderer.getLineHeight(titleFont);
-  for (const auto& line : titleLines) {
-    renderer.drawText(titleFont, textX, textY, line.c_str(), true, EpdFontFamily::BOLD);
-    textY += titleLineH;
-  }
-  if (!book.author.empty()) {
-    textY += 6;
-    const std::string author = renderer.truncatedText(UI_10_FONT_ID, book.author.c_str(), textW);
-    renderer.drawText(UI_10_FONT_ID, textX, textY, author.c_str());
-  }
+  const int chapterFont = UI_10_FONT_ID;
+  const int chapterH = renderer.getLineHeight(chapterFont);
+  const int headH = renderer.getLineHeight(UI_12_FONT_ID) + chapterH + 4;
 
-  const ReadingBookStats* stats = statsAt(selected);
-  const uint8_t progress = progressOf(stats);
-  char percent[8];
-  snprintf(percent, sizeof(percent), "%u%%", static_cast<unsigned>(progress));
-  const int pctW = renderer.getTextWidth(SMALL_FONT_ID, percent, EpdFontFamily::BOLD);
-  const int barY = hero.y + hero.height - heroPad - InxInkCards::kProgressHeight - 2;
-  InxInkCards::drawProgress(renderer, Rect{textX, barY, std::max(24, textW - pctW - 10), InxInkCards::kProgressHeight},
-                            progress);
-  renderer.drawText(SMALL_FONT_ID, textX + textW - pctW, barY - 2, percent, true, EpdFontFamily::BOLD);
+  char timeBuf[16] = {};
+  TimeUtils::formatCurrentTime(timeBuf, sizeof(timeBuf), SETTINGS.clockFormat == 1);
+  const int clockH = renderer.getLineHeight(SMALL_FONT_ID) + 8;
+  if (timeBuf[0] != '\0') renderer.drawText(SMALL_FONT_ID, content.x + 16, content.y + 2, timeBuf);
+  GUI.drawBatteryRight(renderer,
+                       Rect{content.x + content.width - kHomeBatteryRightMargin - kHomeBatteryWidth, content.y + 2,
+                            kHomeBatteryWidth, kHomeBatteryHeight},
+                       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
 
-  const std::string total = stats ? ReadingStatsAnalytics::formatDurationHm(stats->totalReadingMs) : "0m";
-  const std::string last = stats ? ReadingStatsAnalytics::formatDurationHm(stats->lastSessionMs) : "0m";
-  char sessions[16];
-  char chapter[8];
-  snprintf(sessions, sizeof(sessions), "%u", stats ? static_cast<unsigned>(stats->sessions) : 0U);
-  snprintf(chapter, sizeof(chapter), "%u%%", stats ? static_cast<unsigned>(stats->chapterProgressPercent) : 0U);
-  const char* values[] = {total.c_str(), sessions, last.c_str(), chapter};
-  const char* labels[] = {tr(STR_TOTAL_TIME), tr(STR_SESSIONS), tr(STR_LAST_SESSION), tr(STR_CHAPTER_PROGRESS)};
-  for (int i = 0; i < 4; ++i) {
-    Rect cell{};
-    InxInkCards::layoutGrid(grid, 2, 2, i, cell);
-    InxInkCards::drawMetricCard(renderer, cell, values[i], labels[i]);
-  }
+  const Rect panel{content.x + pad, content.y + clockH, content.width - pad * 2,
+                   std::max(80, content.height - clockH - 4)};
+  InxInkCards::drawCard(renderer, panel);
 
-  if (bookCount > 1) {
-    drawPaginationDots(renderer, renderer.getScreenWidth(), content.y + content.height - 10, bookCount, selected);
+  renderer.drawText(UI_12_FONT_ID, panel.x + 12, panel.y + 8, tr(STR_NOW_READING), true, EpdFontFamily::BOLD);
+  char countLine[32];
+  snprintf(countLine, sizeof(countLine), tr(STR_BOOKS_READING_FMT), bookCount);
+  renderer.drawText(SMALL_FONT_ID, panel.x + 12, panel.y + 8 + renderer.getLineHeight(UI_12_FONT_ID) + 1, countLine);
+
+  const char* more = tr(STR_MORE);
+  const int moreW = renderer.getTextWidth(UI_10_FONT_ID, more);
+  moreHitRect_ =
+      Rect{panel.x + panel.width - 14 - moreW, panel.y + 8, moreW + 10, renderer.getLineHeight(UI_10_FONT_ID) + 10};
+  renderer.drawText(UI_10_FONT_ID, moreHitRect_.x, panel.y + 10, more);
+
+  const int start = InxRecentGeometry::pageStart(selected, bookCount, InxRecentLayout::Flow);
+  const int visible = std::min(InxRecentGeometry::itemsPerPage(InxRecentLayout::Flow), std::max(0, bookCount - start));
+  const int listTop = panel.y + 6 + headH;
+  const int listH = std::max(1, panel.y + panel.height - 6 - listTop);
+  const int rowStep = listH / 4;
+  const int rowInset = 6;
+  const int maxCoverH = std::max(52, rowStep - rowInset * 2);
+  const int maxCoverW = std::min(panel.width * 32 / 100, maxCoverH);
+  const auto coverSize = InxCoverGeometry::fit(maxCoverW, maxCoverH);
+  const int coverW = coverSize.width;
+  const int coverH = coverSize.height;
+  flowListTop_ = listTop;
+  flowRowStep_ = rowStep;
+  flowVisible_ = visible;
+  setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(coverH));
+
+  for (int slot = 0; slot < visible; ++slot) {
+    const int index = start + slot;
+    const int y = listTop + slot * rowStep;
+    if (slot > 0) renderer.drawLine(panel.x + 12, y, panel.x + panel.width - 12, y);
+    const Rect cover{panel.x + 12, y + (rowStep - coverH) / 2, coverW, coverH};
+    if (index == selected && showMainTabContentSelection()) {
+      renderer.drawRect(panel.x + 8, y + 2, panel.width - 16, rowStep - 4);
+    }
+    drawBookCover(index, cover);
+    renderer.drawRect(cover.x, cover.y, cover.width, cover.height);
+
+    const int durCol = 62;
+    const int textX = cover.x + cover.width + 12;
+    const int textW = std::max(24, panel.x + panel.width - 12 - durCol - textX);
+    const int progressH = 7;
+    const int titleBudget = coverH - chapterH - progressH - 8;
+    const int titleLinesMax = titleBudget >= titleLineH * 2 ? 2 : 1;
+    const auto titleLines =
+        renderer.wrappedText(titleFont, titleOf((*books)[index]), textW, titleLinesMax, EpdFontFamily::BOLD);
+    int ty = cover.y + 2;
+    for (const auto& line : titleLines) {
+      renderer.drawText(titleFont, textX, ty, line.c_str(), true, EpdFontFamily::BOLD);
+      ty += titleLineH;
+    }
+
+    const ReadingBookStats* stats = statsAt(index);
+    char chLine[64] = {};
+    if (stats && stats->completed) {
+      snprintf(chLine, sizeof(chLine), "%s", tr(STR_DONE));
+    } else if (stats && !stats->chapterTitle.empty()) {
+      const std::string cut = renderer.truncatedText(chapterFont, stats->chapterTitle.c_str(), textW);
+      snprintf(chLine, sizeof(chLine), "%s", cut.c_str());
+    } else if (stats) {
+      snprintf(chLine, sizeof(chLine), "%u%%", static_cast<unsigned>(stats->lastProgressPercent));
+    }
+    const int progressY = cover.y + coverH - progressH - 2;
+    if (chLine[0] != '\0') {
+      const int chY = std::min(ty + 4, progressY - chapterH - 4);
+      renderer.drawText(chapterFont, textX, chY, chLine);
+    }
+    InxInkCards::drawHairProgress(renderer, Rect{textX, progressY, textW, progressH}, progressOf(stats));
+
+    char number[8];
+    bool hours = false;
+    ReadingStatsAnalytics::formatDurationParts(stats ? stats->totalReadingMs : 0, number, sizeof(number), hours);
+    const char* unit = hours ? tr(STR_HOURS_UNIT) : tr(STR_MINUTES_UNIT);
+    const int numW = renderer.getTextWidth(UI_12_FONT_ID, number, EpdFontFamily::BOLD);
+    const int unitW = renderer.getTextWidth(SMALL_FONT_ID, unit);
+    const int durRight = panel.x + panel.width - 12;
+    renderer.drawText(UI_12_FONT_ID, durRight - numW, cover.y + 2, number, true, EpdFontFamily::BOLD);
+    renderer.drawText(SMALL_FONT_ID, durRight - unitW, cover.y + 2 + renderer.getLineHeight(UI_12_FONT_ID) + 2, unit);
   }
 }
 
@@ -605,6 +683,13 @@ void InxRecentActivity::render(RenderLock&&) {
   const Rect content = contentRect(renderer);
 
   if (!books || books->empty()) {
+    char timeBuf[16] = {};
+    TimeUtils::formatCurrentTime(timeBuf, sizeof(timeBuf), SETTINGS.clockFormat == 1);
+    if (timeBuf[0] != '\0') renderer.drawText(SMALL_FONT_ID, content.x + 16, content.y + 4, timeBuf);
+    GUI.drawBatteryRight(
+        renderer,
+        Rect{width - kHomeBatteryRightMargin - kHomeBatteryWidth, content.y + 2, kHomeBatteryWidth, kHomeBatteryHeight},
+        SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
     UITheme::drawCenteredWrappedText(renderer, content, UI_12_FONT_ID, tr(STR_NO_RECENT_BOOKS), 2);
   } else {
     switch (layout()) {
@@ -631,10 +716,6 @@ void InxRecentActivity::render(RenderLock&&) {
   const auto labels = mainTabButtonLabels(SETTINGS.standbyShortcutEnabled ? tr(STR_STANDBY_TITLE) : "", tr(STR_OPEN),
                                           books && books->size() > 1, false);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  GUI.drawBatteryRight(renderer,
-                       Rect{renderer.getScreenWidth() - kHomeBatteryRightMargin - kHomeBatteryWidth,
-                            renderer.getScreenHeight() - 30, kHomeBatteryWidth, kHomeBatteryHeight},
-                       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
   if (prepareNextMissingCover()) return;
   renderer.displayBuffer();
 }

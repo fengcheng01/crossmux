@@ -307,7 +307,7 @@ static void saveSleepFrameBuffer() {
   file.close();
 }
 
-static bool loadSleepFrameBuffer() {
+static bool loadSleepFrameBuffer(const bool remove = true) {
   HalFile file;
   if (!Storage.openFileForRead("SLP", SLEEP_FRAME_FILE, file)) return false;
   const size_t bufferSize = display.getBufferSize();
@@ -317,7 +317,7 @@ static bool loadSleepFrameBuffer() {
     Storage.remove(SLEEP_FRAME_FILE);
     return false;
   }
-  Storage.remove(SLEEP_FRAME_FILE);
+  if (remove) Storage.remove(SLEEP_FRAME_FILE);
   return true;
 }
 
@@ -364,7 +364,7 @@ void enterDeepSleep(bool fromTimeout = false) {
     LOG_ERR("ACH", "Failed to save achievements before deep sleep");
   }
 
-  if (isQuickResumeSleep) {
+  if (isQuickResumeSleep || clockSleep) {
     saveSleepFrameBuffer();
   }
 
@@ -534,10 +534,17 @@ void setup() {
       }
       break;
     case HalGPIO::WakeupReason::AfterUSBPower:
+#if FREEINK_DEVICE_MURPHY_M4
+      // M4's USB-Serial/JTAG cable is the flash/debug link, not a charger that
+      // should dump the device back to sleep with a frozen panel.
+      LOG_DBG("MAIN", "Wakeup reason: After USB Power (M4 continues boot)");
+      break;
+#else
       // If USB power caused a cold boot, go back to sleep
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
       startDeepSleepWithTimer(powerManager, gpio, APP_STATE.clockSleepActive ? clockSleepWakeUs() : 0);
       break;
+#endif
 #if !defined(SIMULATOR)
     case HalGPIO::WakeupReason::Timer:
       if (APP_STATE.clockSleepActive && SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK) {
@@ -546,7 +553,11 @@ void setup() {
         if (APP_STATE.lastSleepFromReader) {
           ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
         }
-        SleepActivity::paintClock(renderer);
+        if (loadSleepFrameBuffer(false)) {
+          renderer.cleanupGrayscaleWithFrameBuffer();
+        }
+        SleepActivity::paintClock(renderer, true);
+        saveSleepFrameBuffer();
         halTiltSensor.deepSleep();
         Frontlight.setOn(false);
         display.deepSleep();
@@ -629,7 +640,12 @@ void setup() {
         }
         break;
       case BootResume::ClockUnlock:
-        // Keep the last clock frame until the first activity paints.
+        // Seed RED from the saved clock so the first FAST home/reader paint
+        // drives the old digits to white. Without this, FAST diffs against
+        // empty RAM and the time stays as a ghost.
+        if (loadSleepFrameBuffer()) {
+          renderer.cleanupGrayscaleWithFrameBuffer();
+        }
         break;
       case BootResume::Splash:
         activityManager.goToBoot();

@@ -35,6 +35,7 @@
 #include "TextSettingsActivity.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/util/FrontlightPanelActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
@@ -263,6 +264,11 @@ void SettingsActivity::rebuildSettingsLists() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_ABOUT, SettingAction::About));
+#if FREEINK_CAP_FRONTLIGHT
+  if (Frontlight.present()) {
+    displaySettings.push_back(SettingInfo::Action(StrId::STR_FRONTLIGHT, SettingAction::FrontlightPanel));
+  }
+#endif
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_TEXT_SETTINGS, SettingAction::TextSettings));
   readerSettings.insert(readerSettings.begin() + 1,
@@ -703,6 +709,9 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::ReaderTapZones:
         startActivityForResultWith<ReaderTapZonesActivity>(resultHandler);
+        break;
+      case SettingAction::FrontlightPanel:
+        startActivityForResultWith<FrontlightPanelActivity>(resultHandler);
         break;
       case SettingAction::Language:
         // Row labels are translated once in rebuildRowItems() and don't

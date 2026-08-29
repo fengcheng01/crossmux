@@ -1,0 +1,961 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>M4 阅读记录 / 阅读统计稿</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Avenir Next", Futura, "Trebuchet MS", sans-serif;
+      background: #111311;
+      color: #e8e9e2;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      background:
+        linear-gradient(rgba(255, 255, 255, .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px),
+        #111311;
+      background-size: 32px 32px;
+    }
+
+    button, select, input { font: inherit; }
+
+    .prototype-lab {
+      --accent: #e66f3a;
+      --screen-width: 480px;
+      --screen-height: 800px;
+      --safe-top: 9px;
+      --safe-right: 3px;
+      --safe-bottom: 3px;
+      --safe-left: 3px;
+      --shell: #171917;
+      --shell-edge: #343833;
+      --control: #090a09;
+      --control-edge: #555b53;
+      --ink: #161714;
+      --paper: #efeee7;
+      display: grid;
+      min-height: 100vh;
+      grid-template-rows: auto 1fr;
+    }
+
+    .prototype-lab[data-shell="white"] {
+      --shell: #deddd6;
+      --shell-edge: #f6f4eb;
+      --control: #b8b8b0;
+      --control-edge: #f5f3eb;
+    }
+
+    .lab-header {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 28px;
+      align-items: end;
+      padding: 22px 28px;
+      border-bottom: 1px solid #32352f;
+      background: rgba(17, 19, 17, .94);
+    }
+
+    .identity { display: flex; gap: 14px; align-items: center; }
+    .identity-mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #6f756c;
+      color: var(--accent);
+      font: 800 13px/1 Georgia, serif;
+      letter-spacing: -.08em;
+      transform: rotate(-2deg);
+    }
+    .identity p, .identity h1 { margin: 0; }
+    .identity p {
+      color: #888e84;
+      font-size: 10px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    .identity h1 {
+      margin-top: 4px;
+      font: 500 20px/1.1 "Avenir Next", Futura, sans-serif;
+      letter-spacing: .02em;
+    }
+
+    .controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+    .control { display: grid; gap: 5px; }
+    .control label {
+      color: #7f857b;
+      font-size: 9px;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    .control select {
+      min-height: 34px;
+      padding: 0 34px 0 11px;
+      border: 1px solid #44483f;
+      border-radius: 0;
+      background: #1c1f1b;
+      color: #f1f1eb;
+    }
+    .safe-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 11px;
+      border: 1px solid #44483f;
+      background: #1c1f1b;
+      color: #c8cbc2;
+      font-size: 12px;
+    }
+    .safe-toggle input { accent-color: var(--accent); }
+
+    .lab-body {
+      display: grid;
+      grid-template-columns: 250px minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    .readout {
+      padding: 24px 20px;
+      border-right: 1px solid #32352f;
+      background: rgba(20, 23, 20, .82);
+    }
+    .readout h2 {
+      margin: 0 0 22px;
+      color: #8d9388;
+      font-size: 10px;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+    }
+    .metric {
+      padding: 12px 0;
+      border-top: 1px solid #343830;
+    }
+    .metric span { display: block; }
+    .metric .label {
+      color: #70766d;
+      font-size: 9px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .metric .value {
+      margin-top: 5px;
+      color: #edece4;
+      font: 500 16px/1.25 "Avenir Next", Futura, sans-serif;
+    }
+    .metric .note {
+      margin-top: 5px;
+      color: #8a9086;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .button-map { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 10px; }
+    .button-map span {
+      padding: 6px 2px;
+      border: 1px solid #484c44;
+      color: #c6cac0;
+      font: 700 9px/1 "Avenir Next", sans-serif;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .warning {
+      margin: 18px 0 0;
+      padding-left: 10px;
+      border-left: 2px solid var(--accent);
+      color: #969c91;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .stage-viewport {
+      position: relative;
+      min-width: 0;
+      min-height: 620px;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      padding: 32px;
+    }
+    .stage-viewport::before {
+      content: "NATIVE PIXEL CANVAS / AUTO SCALE";
+      position: absolute;
+      top: 15px;
+      right: 19px;
+      color: #555b52;
+      font-size: 9px;
+      letter-spacing: .16em;
+    }
+    .device-sizer { position: relative; }
+    .device-frame {
+      position: absolute;
+      inset: 0 auto auto 0;
+      width: max-content;
+      height: max-content;
+      padding: 34px;
+      border: 1px solid var(--shell-edge);
+      border-radius: 22px;
+      background: var(--shell);
+      box-shadow: 0 26px 70px rgba(0, 0, 0, .48), inset 0 0 0 2px rgba(0, 0, 0, .28);
+      transform-origin: top left;
+      transition: background-color .18s ease, border-color .18s ease;
+    }
+    .prototype-lab[data-orientation="portrait"] .device-frame { padding-bottom: 78px; }
+    .prototype-lab[data-orientation="portrait-inverted"] .device-frame { padding-top: 78px; }
+    .prototype-lab[data-orientation="landscape-cw"] .device-frame { padding-left: 78px; }
+    .prototype-lab[data-orientation="landscape-ccw"] .device-frame { padding-right: 78px; }
+
+    #prototype-screen {
+      position: relative;
+      isolation: isolate;
+      width: var(--screen-width);
+      height: var(--screen-height);
+      overflow: hidden;
+      border: 2px solid #050605;
+      border-radius: 3px;
+      background: var(--paper);
+      color: var(--ink);
+      container-type: size;
+      font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+    }
+    #prototype-screen::after {
+      content: "";
+      position: absolute;
+      z-index: 20;
+      inset: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+      border: 1px dashed rgba(215, 76, 33, .78);
+      pointer-events: none;
+      opacity: 0;
+    }
+    .prototype-lab[data-show-safe="true"] #prototype-screen::after { opacity: 1; }
+
+    .screen-status {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 2px solid var(--ink);
+      font: 700 15px/1 "Avenir Next", Futura, sans-serif;
+      letter-spacing: .04em;
+    }
+    .battery { display: inline-flex; align-items: center; gap: 7px; }
+    .battery-shape {
+      width: 27px;
+      height: 12px;
+      padding: 2px;
+      border: 2px solid currentColor;
+    }
+    .battery-shape::before { content: ""; display: block; width: 74%; height: 100%; background: currentColor; }
+    .screen-layout { min-height: calc(100% - 42px); display: grid; grid-template-rows: auto 1fr auto; }
+    .screen-heading { padding: 30px 28px 18px; }
+    .screen-heading p, .screen-heading h2 { margin: 0; }
+    .screen-heading p {
+      font: 700 12px/1 "Avenir Next", Futura, sans-serif;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    .screen-heading h2 { margin-top: 9px; font-size: 34px; line-height: 1.05; }
+    .settings-list { padding: 0 28px; }
+    .setting-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      min-height: 74px;
+      border-top: 1px solid rgba(22, 23, 20, .34);
+    }
+    .setting-row:first-child { border-top: 2px solid var(--ink); }
+    .setting-row strong { display: block; font-size: 20px; }
+    .setting-row small { display: block; margin-top: 4px; font: 12px/1.3 "Avenir Next", sans-serif; color: #5c5e58; }
+    .setting-value {
+      min-width: 96px;
+      padding: 9px 12px;
+      border: 2px solid var(--ink);
+      font: 700 13px/1 "Avenir Next", sans-serif;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .screen-hints {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      padding: 16px 22px 20px;
+      font: 700 11px/1 "Avenir Next", Futura, sans-serif;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .screen-hints span { padding-top: 9px; border-top: 3px solid var(--ink); }
+
+    [data-orientation^="landscape"] .screen-layout {
+      grid-template-columns: .8fr 1.2fr;
+      grid-template-rows: 1fr auto;
+    }
+    [data-orientation^="landscape"] .screen-heading { padding: 26px 24px; border-right: 2px solid var(--ink); }
+    [data-orientation^="landscape"] .screen-heading h2 { font-size: 31px; }
+    [data-orientation^="landscape"] .settings-list { padding: 20px 24px 0; }
+    [data-orientation^="landscape"] .setting-row { min-height: 64px; }
+    [data-orientation^="landscape"] .screen-hints { grid-column: 1 / -1; padding: 12px 22px 16px; }
+
+    .front-controls { position: absolute; display: flex; gap: 12px; }
+    .front-key {
+      width: 76px;
+      height: 16px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--control-edge);
+      border-radius: 8px;
+      background: var(--control);
+      color: #8c9188;
+      font: 700 8px/1 "Avenir Next", sans-serif;
+    }
+    [data-orientation="portrait"] .front-controls { left: 50%; bottom: 24px; transform: translateX(-50%); }
+    [data-orientation="portrait-inverted"] .front-controls { left: 50%; top: 24px; flex-direction: row-reverse; transform: translateX(-50%); }
+    [data-orientation="landscape-cw"] .front-controls { left: 24px; top: 50%; flex-direction: column; transform: translateY(-50%); }
+    [data-orientation="landscape-ccw"] .front-controls { right: 24px; top: 50%; flex-direction: column-reverse; transform: translateY(-50%); }
+    [data-orientation^="landscape"] .front-key { width: 16px; height: 76px; }
+
+    .edge-control {
+      position: absolute;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--control-edge);
+      background: var(--control);
+      color: #9aa096;
+      font: 800 8px/1 "Avenir Next", sans-serif;
+    }
+    .x4-rocker { position: absolute; display: flex; gap: 2px; }
+    .x4-rocker .edge-control { position: static; width: 14px; height: 50px; }
+    [data-orientation="portrait"] .x4-rocker { right: -8px; top: 43%; flex-direction: column; }
+    [data-orientation="portrait-inverted"] .x4-rocker { left: -8px; top: 43%; flex-direction: column-reverse; }
+    [data-orientation="landscape-cw"] .x4-rocker { right: 36%; bottom: -8px; flex-direction: row-reverse; }
+    [data-orientation="landscape-ccw"] .x4-rocker { left: 36%; top: -8px; flex-direction: row; }
+    [data-orientation^="landscape"] .x4-rocker .edge-control { width: 50px; height: 14px; }
+
+    [data-orientation="portrait"] .x4-power { right: -7px; top: 18%; width: 13px; height: 31px; }
+    [data-orientation="portrait-inverted"] .x4-power { left: -7px; bottom: 18%; width: 13px; height: 31px; }
+    [data-orientation="landscape-cw"] .x4-power { right: 18%; bottom: -7px; width: 31px; height: 13px; }
+    [data-orientation="landscape-ccw"] .x4-power { left: 18%; top: -7px; width: 31px; height: 13px; }
+
+    [data-orientation="portrait"] .x3-up { left: -8px; top: 40%; width: 14px; height: 62px; }
+    [data-orientation="portrait"] .x3-down { right: -8px; top: 40%; width: 14px; height: 62px; }
+    [data-orientation="portrait"] .x3-power { left: 50%; top: -7px; width: 38px; height: 13px; transform: translateX(-50%); }
+    [data-orientation="portrait-inverted"] .x3-up { right: -8px; top: 40%; width: 14px; height: 62px; }
+    [data-orientation="portrait-inverted"] .x3-down { left: -8px; top: 40%; width: 14px; height: 62px; }
+    [data-orientation="portrait-inverted"] .x3-power { left: 50%; bottom: -7px; width: 38px; height: 13px; transform: translateX(-50%); }
+    [data-orientation="landscape-cw"] .x3-up { left: 40%; top: -8px; width: 62px; height: 14px; }
+    [data-orientation="landscape-cw"] .x3-down { left: 40%; bottom: -8px; width: 62px; height: 14px; }
+    [data-orientation="landscape-cw"] .x3-power { right: -7px; top: 50%; width: 13px; height: 38px; transform: translateY(-50%); }
+    [data-orientation="landscape-ccw"] .x3-up { left: 40%; bottom: -8px; width: 62px; height: 14px; }
+    [data-orientation="landscape-ccw"] .x3-down { left: 40%; top: -8px; width: 62px; height: 14px; }
+    [data-orientation="landscape-ccw"] .x3-power { left: -7px; top: 50%; width: 13px; height: 38px; transform: translateY(-50%); }
+
+    [data-device="x3"] .x4-only, [data-device="x4"] .x3-only { display: none; }
+
+    /* Paper list, after HoFei recents: quiet type, right-aligned duration, hairlines. */
+    #prototype-screen .view { display: none; width: 100%; height: 100%; }
+    #prototype-screen .view.is-on { display: flex; flex-direction: column; }
+    #prototype-screen {
+      --hair: rgba(22, 23, 20, .55);
+      --panel: #eae7df;
+      font-family: "Songti SC", "STSong", "SimSun", Palatino, Georgia, serif;
+    }
+    .inx-tabs {
+      height: 58px;
+      flex: none;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      border-bottom: 1px solid var(--ink);
+    }
+    .inx-tab {
+      display: grid;
+      place-items: end center;
+      padding: 0 0 9px;
+      background: none;
+      border: 0;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .inx-tab svg { width: 22px; height: 22px; opacity: .42; }
+    .inx-tab.is-on svg { opacity: 1; }
+    .inx-tab.is-on { box-shadow: inset 0 -2px 0 var(--ink); }
+    .inx-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .clockline {
+      flex: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 18px 0;
+      font: 500 13px/1 Georgia, "Iowan Old Style", serif;
+      letter-spacing: .04em;
+    }
+
+    .panel {
+      margin: 12px 14px 0;
+      padding: 14px 14px 6px;
+      background: var(--panel);
+      border: 1px solid var(--hair);
+      border-radius: 14px;
+    }
+    .sec-head {
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      gap: 8px;
+      align-items: start;
+      margin-bottom: 4px;
+    }
+    .sec-head svg { width: 22px; height: 22px; margin-top: 2px; }
+    .sec-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+    .sec-head p { margin: 3px 0 0; font-size: 11px; opacity: .7; }
+    .sec-head button {
+      background: none;
+      border: 0;
+      padding: 2px 0 0;
+      color: inherit;
+      font: 500 13px/1 Songti SC, STSong, serif;
+      cursor: pointer;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 52px 1fr 58px;
+      gap: 10px;
+      align-items: start;
+      padding: 12px 0;
+      border: 0;
+      background: none;
+      width: 100%;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .row + .row { border-top: 1px solid var(--hair); }
+    .thumb {
+      width: 52px;
+      height: 68px;
+      border: 1px solid var(--ink);
+      overflow: hidden;
+      position: relative;
+      flex: none;
+    }
+    .thumb span { position: absolute; inset: 0; }
+    .meta { min-width: 0; padding-top: 1px; }
+    .meta h3 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.28;
+    }
+    .meta .ch {
+      margin: 5px 0 7px;
+      font-size: 11px;
+      opacity: .62;
+    }
+    .rail {
+      height: 5px;
+      background: rgba(22, 23, 20, .12);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .rail i { display: block; height: 100%; background: var(--ink); }
+    .dur { text-align: right; padding-top: 2px; }
+    .dur b { display: block; font-size: 22px; line-height: 1; font-weight: 700; letter-spacing: -.03em; }
+    .dur small { display: block; margin-top: 4px; font-size: 10px; opacity: .55; }
+
+    .c-dusk { background: var(--ink); }
+    .c-dusk::after {
+      content: "";
+      position: absolute; inset: 8px 7px;
+      border: 1.5px solid var(--paper);
+    }
+    .c-lamp {
+      background:
+        repeating-linear-gradient(180deg, var(--paper) 0 7px, var(--ink) 7px 8px);
+    }
+    .c-stair { background: var(--paper); }
+    .c-stair::after {
+      content: "";
+      position: absolute; left: 10px; right: 10px; top: 10px; bottom: 10px;
+      border-left: 5px solid var(--ink);
+      border-bottom: 5px solid var(--ink);
+    }
+    .c-courage { background: var(--ink); }
+    .c-courage::after {
+      content: "";
+      position: absolute; left: 12px; right: 12px; top: 16px; bottom: 16px;
+      background: var(--paper);
+    }
+
+    .vol {
+      margin: 14px 14px 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      background: var(--panel);
+      border: 1px solid var(--hair);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .vol button, .vol div {
+      padding: 14px 8px 12px;
+      text-align: center;
+      background: none;
+      border: 0;
+      color: inherit;
+      font: inherit;
+    }
+    .vol > * + * { border-left: 1px solid var(--hair); }
+    .vol .ico { width: 22px; height: 18px; margin: 0 auto 8px; opacity: .85; }
+    .vol .lab { font-size: 11px; opacity: .62; }
+    .vol .num { margin-top: 6px; font-size: 26px; font-weight: 700; letter-spacing: -.03em; line-height: 1; }
+    .vol .unit { margin-top: 4px; font-size: 11px; opacity: .55; }
+
+    .stats-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .chart-wrap {
+      flex: 1;
+      min-height: 0;
+      margin: 0 14px 16px;
+      padding: 14px 14px 12px;
+      background: var(--panel);
+      border: 1px solid var(--hair);
+      border-radius: 14px;
+      display: flex;
+      flex-direction: column;
+    }
+    .chart-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .chart-head span { font-size: 15px; font-weight: 700; }
+    .chart-head button {
+      background: none;
+      border: 0;
+      padding: 0;
+      color: inherit;
+      font: 500 13px/1 Songti SC, STSong, serif;
+      cursor: pointer;
+    }
+    .bars {
+      flex: 1;
+      min-height: 180px;
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      align-items: end;
+      gap: 9px;
+      padding: 8px 4px 22px;
+    }
+    .bar { position: relative; height: 100%; display: flex; align-items: flex-end; }
+    .bar i {
+      display: block;
+      width: 100%;
+      background: var(--ink);
+      border-radius: 2px 2px 0 0;
+      min-height: 3px;
+    }
+    .bar em {
+      position: absolute;
+      left: 50%;
+      bottom: -18px;
+      transform: translateX(-50%);
+      font: 500 10px/1 Georgia, serif;
+      font-style: normal;
+      opacity: .55;
+    }
+    .bar strong {
+      position: absolute;
+      left: 50%;
+      bottom: 100%;
+      transform: translate(-50%, -4px);
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .detail-head {
+      flex: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 52px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--ink);
+    }
+    .detail-head button {
+      background: none;
+      border: 0;
+      padding: 0;
+      color: inherit;
+      font: 500 15px/1 Songti SC, STSong, serif;
+      cursor: pointer;
+    }
+    .detail-head strong { font-size: 15px; }
+    .detail-body { flex: 1; padding: 12px 14px 16px; }
+    .goal-line, .streak {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+    }
+    .goal-line { margin: 4px 2px 8px; }
+    .goal-track {
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(22, 23, 20, .12);
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+    .goal-track i { display: block; height: 100%; width: 100%; background: var(--ink); }
+    .streak { margin: 0 2px 8px; opacity: .8; }
+
+    [data-orientation^="landscape"] .view.is-on:has(.inx-tabs) { flex-direction: row; }
+    [data-orientation^="landscape"] .inx-tabs {
+      width: 58px;
+      height: 100%;
+      grid-template-columns: 1fr;
+      grid-template-rows: repeat(5, 1fr);
+      border-bottom: 0;
+      border-right: 1px solid var(--ink);
+    }
+    [data-orientation^="landscape"] .inx-tab { place-items: center; padding: 0; }
+    [data-orientation^="landscape"] .inx-body { flex: 1; }
+    [data-orientation^="landscape"] .vol { margin-bottom: 8px; }
+    [data-orientation^="landscape"] .bars { min-height: 110px; }
+    [data-orientation^="landscape"] .panel { margin-top: 8px; }
+
+    @media (max-width: 900px) {
+      .lab-header { grid-template-columns: 1fr; align-items: start; }
+      .controls { justify-content: flex-start; }
+      .lab-body { grid-template-columns: 1fr; }
+      .readout { border-right: 0; border-bottom: 1px solid #32352f; }
+      .stage-viewport { min-height: 560px; }
+    }
+    @media (max-width: 560px) {
+      .lab-header { padding: 18px; }
+      .controls { display: grid; grid-template-columns: 1fr 1fr; }
+      .control select, .safe-toggle { width: 100%; }
+      .stage-viewport { min-height: 500px; padding: 20px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .device-frame { transition: none; } }
+  </style>
+</head>
+<body>
+  <main class="prototype-lab" data-device="x4" data-orientation="portrait" data-shell="black" data-show-safe="true">
+    <header class="lab-header">
+      <div class="identity">
+        <div class="identity-mark" aria-hidden="true">XT</div>
+        <div>
+          <p>Murphy M4 · 800×480 同 X4 逻辑画布</p>
+          <h1>阅读记录 / 阅读统计</h1>
+        </div>
+      </div>
+      <div class="controls" aria-label="Prototype configuration">
+        <div class="control">
+          <label for="device-select">Device</label>
+          <select id="device-select">
+            <option value="x4">Xteink X4</option>
+            <option value="x3">Xteink X3</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="orientation-select">Orientation</label>
+          <select id="orientation-select">
+            <option value="portrait">Portrait</option>
+            <option value="landscape-cw">Landscape CW</option>
+            <option value="portrait-inverted">Portrait inverted</option>
+            <option value="landscape-ccw">Landscape CCW</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="shell-select">Shell</label>
+          <select id="shell-select">
+            <option value="black">Black</option>
+            <option value="white">White</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="view-select">画面</label>
+          <select id="view-select">
+            <option value="recents">阅读记录</option>
+            <option value="stats">阅读统计</option>
+            <option value="detail">更多详情</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="safe-toggle">Overlay</label>
+          <label class="safe-toggle"><input id="safe-toggle" type="checkbox" checked> Safe area</label>
+        </div>
+      </div>
+    </header>
+
+    <div class="lab-body">
+      <aside class="readout" aria-label="Device specification">
+        <h2>Active specification</h2>
+        <div class="metric"><span class="label">Target</span><span class="value" id="target-readout">Xteink X4</span><span class="note" id="product-readout">4.3 in · 5.98 mm · ≈75 g</span></div>
+        <div class="metric"><span class="label">Logical canvas</span><span class="value" id="canvas-readout">480 × 800</span><span class="note">1 CSS px = 1 logical device px before preview scaling.</span></div>
+        <div class="metric"><span class="label">Safe TRBL</span><span class="value" id="safe-readout">9 / 3 / 3 / 3</span></div>
+        <div class="metric">
+          <span class="label">Front defaults</span>
+          <div class="button-map" aria-label="Default front button mapping"><span>Back</span><span>OK</span><span>Left</span><span>Right</span></div>
+          <span class="note">User-remappable; treat these as defaults.</span>
+        </div>
+        <div class="metric"><span class="label">Side controls</span><span class="value" id="side-readout">Right rocker</span><span class="note" id="page-readout">Up = PageBack · Down = PageForward</span></div>
+        <p class="warning">阅读记录改按墨菲原机列表：封面认书、时长右齐、细进度。统计用「今日 / 七日 / 本月」三格加近 7 天，目标和分书进详情。点行 = Confirm。</p>
+      </aside>
+
+      <section class="stage-viewport" aria-label="Device preview">
+        <div class="device-sizer">
+          <div class="device-frame" id="device-frame">
+            <div id="prototype-screen">
+              <section class="view is-on" data-view="recents" aria-label="阅读记录">
+                <nav class="inx-tabs" aria-label="Main tabs">
+                  <button class="inx-tab is-on" data-go="recents" type="button" title="Recent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 11 12 4l8 7v9H14v-6H10v6H4z"/></svg></button>
+                  <button class="inx-tab" data-go="library" type="button" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="15"/><path d="M8 5v15M12 5v15"/></svg></button>
+                  <button class="inx-tab" data-go="apps" type="button" title="Apps"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><rect x="14" y="14" width="6" height="6"/></svg></button>
+                  <button class="inx-tab" data-go="settings" type="button" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.5 1.5M16.9 16.9l1.5 1.5M5.6 18.4l1.5-1.5M16.9 7.1l1.5-1.5"/></svg></button>
+                  <button class="inx-tab" data-go="stats" type="button" title="Statistics"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 18h3V10H5zm5.5 0h3V6h-3zM16 18h3v-5h-3z"/></svg></button>
+                </nav>
+                <div class="inx-body">
+                  <div class="clockline"><span>16:58</span><span>80%</span></div>
+                  <div class="panel">
+                    <div class="sec-head">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 5h6v15H7a2 2 0 0 1-2-2V5zm8 0h6v13a2 2 0 0 1-2 2h-4V5z"/></svg>
+                      <div><h2>正在阅读</h2><p>4 本在读</p></div>
+                      <button type="button" data-go="stats">更多 ›</button>
+                    </div>
+                    <button class="row" type="button">
+                      <div class="thumb"><span class="c-dusk"></span></div>
+                      <div class="meta"><h3>重生之大涅槃</h3><div class="ch">第 3/12 章</div><div class="rail"><i style="width:27%"></i></div></div>
+                      <div class="dur"><b>0.8</b><small>小时</small></div>
+                    </button>
+                    <button class="row" type="button">
+                      <div class="thumb"><span class="c-lamp"></span></div>
+                      <div class="meta"><h3>山间灯火</h3><div class="ch">第 6/13 章</div><div class="rail"><i style="width:62%"></i></div></div>
+                      <div class="dur"><b>0.4</b><small>小时</small></div>
+                    </button>
+                    <button class="row" type="button">
+                      <div class="thumb"><span class="c-stair"></span></div>
+                      <div class="meta"><h3>消失的13级台阶</h3><div class="ch">第 1/18 章</div><div class="rail"><i style="width:8%"></i></div></div>
+                      <div class="dur"><b>9</b><small>分钟</small></div>
+                    </button>
+                    <button class="row" type="button">
+                      <div class="thumb"><span class="c-courage"></span></div>
+                      <div class="meta"><h3>被讨厌的勇气</h3><div class="ch">已读完</div><div class="rail"><i style="width:100%"></i></div></div>
+                      <div class="dur"><b>6</b><small>分钟</small></div>
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="view" data-view="stats" aria-label="阅读统计">
+                <nav class="inx-tabs" aria-label="Main tabs">
+                  <button class="inx-tab" data-go="recents" type="button" title="Recent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 11 12 4l8 7v9H14v-6H10v6H4z"/></svg></button>
+                  <button class="inx-tab" data-go="library" type="button" title="Library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="15"/><path d="M8 5v15M12 5v15"/></svg></button>
+                  <button class="inx-tab" data-go="apps" type="button" title="Apps"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><rect x="14" y="14" width="6" height="6"/></svg></button>
+                  <button class="inx-tab" data-go="settings" type="button" title="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.5 1.5M16.9 16.9l1.5 1.5M5.6 18.4l1.5-1.5M16.9 7.1l1.5-1.5"/></svg></button>
+                  <button class="inx-tab is-on" data-go="stats" type="button" title="Statistics"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 18h3V10H5zm5.5 0h3V6h-3zM16 18h3v-5h-3z"/></svg></button>
+                </nav>
+                <div class="inx-body">
+                  <div class="clockline"><span>16:58</span><span>80%</span></div>
+                  <div class="stats-main">
+                    <div class="vol">
+                      <div>
+                        <svg class="ico" viewBox="0 0 24 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 3h7v13H6a2 2 0 0 1-2-2V3zm9 0h7v11a2 2 0 0 1-2 2h-5V3z"/></svg>
+                        <div class="lab">今日阅读</div>
+                        <div class="num">0.7</div>
+                        <div class="unit">小时</div>
+                      </div>
+                      <div>
+                        <svg class="ico" viewBox="0 0 24 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="13" rx="1"/><path d="M3 7h18M8 3v4M16 3v4"/></svg>
+                        <div class="lab">最近七天</div>
+                        <div class="num">1.4</div>
+                        <div class="unit">小时</div>
+                      </div>
+                      <div>
+                        <svg class="ico" viewBox="0 0 24 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 15V8l7-5 7 5v7H5z"/></svg>
+                        <div class="lab">本月阅读</div>
+                        <div class="num">1.4</div>
+                        <div class="unit">小时</div>
+                      </div>
+                    </div>
+                    <div class="chart-wrap">
+                      <div class="chart-head"><span>近 7 天</span><button type="button" data-go="detail">详情 ›</button></div>
+                      <div class="bars" aria-label="Daily reading minutes">
+                        <div class="bar"><i style="height:6%"></i><em>22</em></div>
+                        <div class="bar"><i style="height:6%"></i><em>23</em></div>
+                        <div class="bar"><i style="height:6%"></i><em>24</em></div>
+                        <div class="bar"><i style="height:6%"></i><em>25</em></div>
+                        <div class="bar"><i style="height:6%"></i><em>26</em></div>
+                        <div class="bar"><strong>43</strong><i style="height:100%"></i><em>27</em></div>
+                        <div class="bar"><strong>41</strong><i style="height:95%"></i><em>28</em></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="view" data-view="detail" aria-label="更多详情">
+                <header class="detail-head">
+                  <button type="button" data-go="stats">‹ 返回</button>
+                  <strong>详情</strong>
+                </header>
+                <div class="detail-body">
+                  <div class="panel" style="margin:0 0 12px">
+                    <div class="goal-line"><span>每日目标</span><span>41 / 30 分钟</span></div>
+                    <div class="goal-track"><i></i></div>
+                    <div class="streak"><span>连续 2 天</span><span>最长 2 天</span></div>
+                  </div>
+                  <div class="panel" style="margin:0">
+                    <button class="row" type="button">
+                      <div class="thumb"><span class="c-dusk"></span></div>
+                      <div class="meta"><h3>重生之大涅槃</h3><div class="ch">3 次 · 第 3/12 章</div><div class="rail"><i style="width:27%"></i></div></div>
+                      <div class="dur"><b>0.8</b><small>小时</small></div>
+                    </button>
+                    <button class="row" type="button">
+                      <div class="thumb"><span class="c-lamp"></span></div>
+                      <div class="meta"><h3>山间灯火</h3><div class="ch">1 次 · 第 6/13 章</div><div class="rail"><i style="width:62%"></i></div></div>
+                      <div class="dur"><b>0.4</b><small>小时</small></div>
+                    </button>
+                    <button class="row" type="button">
+                      <div class="thumb"><span class="c-stair"></span></div>
+                      <div class="meta"><h3>消失的13级台阶</h3><div class="ch">1 次 · 第 1/18 章</div><div class="rail"><i style="width:8%"></i></div></div>
+                      <div class="dur"><b>9</b><small>分钟</small></div>
+                    </button>
+                    <button class="row" type="button">
+                      <div class="thumb"><span class="c-courage"></span></div>
+                      <div class="meta"><h3>被讨厌的勇气</h3><div class="ch">已读完</div><div class="rail"><i style="width:100%"></i></div></div>
+                      <div class="dur"><b>6</b><small>分钟</small></div>
+                    </button>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div class="front-controls" aria-label="Four remappable front controls">
+              <span class="front-key" title="Default Back">1</span><span class="front-key" title="Default Confirm">2</span><span class="front-key" title="Default Left">3</span><span class="front-key" title="Default Right">4</span>
+            </div>
+            <div class="x4-only x4-rocker" aria-label="X4 right-side rocker"><span class="edge-control" title="Raw Up">U</span><span class="edge-control" title="Raw Down">D</span></div>
+            <span class="x4-only x4-power edge-control" title="Power">P</span>
+            <span class="x3-only x3-up edge-control" title="Raw Up: physical left in portrait">U</span>
+            <span class="x3-only x3-down edge-control" title="Raw Down: physical right in portrait">D</span>
+            <span class="x3-only x3-power edge-control" title="Power">P</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const DEVICE_PROFILES = Object.freeze({
+        x4: Object.freeze({ name: "Xteink X4", panel: [800, 480], product: "4.3 in · 5.98 mm · ≈75 g", side: "Right rocker" }),
+        x3: Object.freeze({ name: "Xteink X3", panel: [792, 528], product: "3.7 in · 4.98 mm · ≈58 g", side: "Left / right edges" })
+      });
+      const ORIENTATIONS = Object.freeze({
+        portrait: Object.freeze({ swap: true, safe: [9, 3, 3, 3] }),
+        "landscape-cw": Object.freeze({ swap: false, safe: [3, 9, 3, 3] }),
+        "portrait-inverted": Object.freeze({ swap: true, safe: [3, 3, 9, 3] }),
+        "landscape-ccw": Object.freeze({ swap: false, safe: [3, 3, 3, 9] })
+      });
+      const FRONT_BUTTONS = Object.freeze(["Back", "Confirm", "Left", "Right"]);
+
+      const lab = document.querySelector(".prototype-lab");
+      const frame = document.querySelector("#device-frame");
+      const sizer = document.querySelector(".device-sizer");
+      const viewport = document.querySelector(".stage-viewport");
+      const deviceSelect = document.querySelector("#device-select");
+      const orientationSelect = document.querySelector("#orientation-select");
+      const shellSelect = document.querySelector("#shell-select");
+      const safeToggle = document.querySelector("#safe-toggle");
+
+      function logicalCanvas(device, orientation) {
+        const [panelWidth, panelHeight] = DEVICE_PROFILES[device].panel;
+        return ORIENTATIONS[orientation].swap ? [panelHeight, panelWidth] : [panelWidth, panelHeight];
+      }
+
+      function syncScale() {
+        frame.style.transform = "none";
+        const naturalWidth = frame.offsetWidth;
+        const naturalHeight = frame.offsetHeight;
+        const scale = Math.min((viewport.clientWidth - 48) / naturalWidth, (viewport.clientHeight - 48) / naturalHeight, 1);
+        frame.style.transform = `scale(${Math.max(scale, .1)})`;
+        sizer.style.width = `${naturalWidth * scale}px`;
+        sizer.style.height = `${naturalHeight * scale}px`;
+      }
+
+      function applyConfiguration() {
+        const device = deviceSelect.value;
+        const orientation = orientationSelect.value;
+        const profile = DEVICE_PROFILES[device];
+        const [width, height] = logicalCanvas(device, orientation);
+        const safe = ORIENTATIONS[orientation].safe;
+
+        lab.dataset.device = device;
+        lab.dataset.orientation = orientation;
+        lab.dataset.shell = shellSelect.value;
+        lab.dataset.showSafe = String(safeToggle.checked);
+        lab.style.setProperty("--screen-width", `${width}px`);
+        lab.style.setProperty("--screen-height", `${height}px`);
+        ["top", "right", "bottom", "left"].forEach((edge, index) => lab.style.setProperty(`--safe-${edge}`, `${safe[index]}px`));
+
+        document.querySelector("#target-readout").textContent = profile.name;
+        document.querySelector("#product-readout").textContent = profile.product;
+        document.querySelector("#canvas-readout").textContent = `${width} × ${height}`;
+        document.querySelector("#safe-readout").textContent = safe.join(" / ");
+        document.querySelector("#side-readout").textContent = profile.side;
+        document.querySelector("#page-readout").textContent = device === "x3"
+          ? "Left raw Up · Right raw Down"
+          : "Up = PageBack · Down = PageForward";
+        requestAnimationFrame(syncScale);
+      }
+
+      [deviceSelect, orientationSelect, shellSelect, safeToggle].forEach(control => control.addEventListener("change", applyConfiguration));
+      new ResizeObserver(syncScale).observe(viewport);
+      window.addEventListener("resize", syncScale);
+
+      const viewSelect = document.querySelector("#view-select");
+      function showView(name) {
+        const known = name === "detail" || name === "stats" ? name : "recents";
+        document.querySelectorAll("#prototype-screen .view").forEach((node) => {
+          node.classList.toggle("is-on", node.dataset.view === known);
+        });
+        if (viewSelect) viewSelect.value = known;
+      }
+      if (viewSelect) viewSelect.addEventListener("change", () => showView(viewSelect.value));
+      document.querySelector("#prototype-screen").addEventListener("click", (event) => {
+        const go = event.target.closest("[data-go]");
+        if (!go) return;
+        const target = go.getAttribute("data-go");
+        if (target === "recents" || target === "stats" || target === "detail") showView(target);
+      });
+
+      const expectedCanvases = Object.freeze({
+        "x4/portrait": [480, 800], "x4/landscape-cw": [800, 480],
+        "x4/portrait-inverted": [480, 800], "x4/landscape-ccw": [800, 480],
+        "x3/portrait": [528, 792], "x3/landscape-cw": [792, 528],
+        "x3/portrait-inverted": [528, 792], "x3/landscape-ccw": [792, 528]
+      });
+      Object.entries(expectedCanvases).forEach(([key, expected]) => {
+        const [device, orientation] = key.split("/");
+        console.assert(logicalCanvas(device, orientation).join("×") === expected.join("×"), `Canvas mismatch: ${key}`);
+      });
+      console.assert(ORIENTATIONS.portrait.safe.join("/") === "9/3/3/3", "Portrait safe margins changed");
+      console.assert(ORIENTATIONS["landscape-cw"].safe.join("/") === "3/9/3/3", "CW safe margins changed");
+      console.assert(ORIENTATIONS["portrait-inverted"].safe.join("/") === "3/3/9/3", "Inverted safe margins changed");
+      console.assert(ORIENTATIONS["landscape-ccw"].safe.join("/") === "3/3/3/9", "CCW safe margins changed");
+      console.assert(FRONT_BUTTONS.join("/") === "Back/Confirm/Left/Right", "Default front button order changed");
+
+      applyConfiguration();
+    })();
+  </script>
+</body>
+</html>

@@ -8,8 +8,10 @@
 #include <vector>
 
 #include "AppMetricCard.h"
+#include "ReadingStatsDetailActivity.h"
 #include "ReadingStatsStore.h"
 #include "components/UITheme.h"
+#include "components/themes/inx/InxInkCards.h"
 #include "fontIds.h"
 #include "util/HeaderDateUtils.h"
 #include "util/ReadingStatsAnalytics.h"
@@ -25,6 +27,39 @@ constexpr int CHART_TOP_GAP = 10;
 constexpr int CHART_BOTTOM_GAP = 10;
 constexpr int CHART_SECTION_GAP = 16;
 constexpr int CHART_SCROLL_STEP = 110;
+constexpr int INX_PAD = 14;
+constexpr int INX_GOAL_H = 108;
+constexpr int INX_BOOK_ROW_H = 110;
+constexpr int INX_LIST_GAP = 12;
+
+const char* bookTitleOf(const ReadingBookStats& book) {
+  return book.title.empty() ? book.path.c_str() : book.title.c_str();
+}
+
+void drawDurationColumn(const GfxRenderer& renderer, const int rightX, const int y, const uint64_t ms) {
+  char number[8];
+  bool hours = false;
+  ReadingStatsAnalytics::formatDurationParts(ms, number, sizeof(number), hours);
+  const char* unit = hours ? tr(STR_HOURS_UNIT) : tr(STR_MINUTES_UNIT);
+  const int numW = renderer.getTextWidth(UI_12_FONT_ID, number, EpdFontFamily::BOLD);
+  const int unitW = renderer.getTextWidth(SMALL_FONT_ID, unit);
+  renderer.drawText(UI_12_FONT_ID, rightX - numW, y, number, true, EpdFontFamily::BOLD);
+  renderer.drawText(SMALL_FONT_ID, rightX - unitW, y + renderer.getLineHeight(UI_12_FONT_ID) + 2, unit);
+}
+
+int inxListInnerHeight(const GfxRenderer& renderer) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int hintH = GUI.buttonHintsVisible() ? metrics.buttonHintsHeight : 0;
+  const int contentTop = metrics.topPadding + metrics.headerHeight + 8;
+  const int contentBottom = renderer.getScreenHeight() - hintH - 8;
+  const int listH = contentBottom - (contentTop + INX_GOAL_H + INX_LIST_GAP);
+  return std::max(1, listH - 16);
+}
+
+int inxMaxBookScroll(const GfxRenderer& renderer) {
+  const int contentH = static_cast<int>(READING_STATS.getBooks().size()) * INX_BOOK_ROW_H;
+  return std::max(0, contentH - inxListInnerHeight(renderer));
+}
 
 struct ChartBar {
   std::string bottomLabel;
@@ -288,12 +323,95 @@ void drawReadingChart(const GfxRenderer& renderer, const Rect& rect, const std::
 void ReadingStatsExtendedActivity::onEnter() {
   Activity::onEnter();
   scrollOffset = 0;
+  selectedIndex = 0;
+  waitForConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
+  waitForBackRelease = false;
   requestUpdate();
 }
 
+bool ReadingStatsExtendedActivity::usesInxLayout() const { return UITheme::getInstance().hasMainTabs(); }
+
+void ReadingStatsExtendedActivity::openSelectedBook() {
+  const auto& books = READING_STATS.getBooks();
+  if (selectedIndex < 0 || selectedIndex >= static_cast<int>(books.size())) return;
+  startActivityForResultWith<ReadingStatsDetailActivity>(
+      [this](const ActivityResult&) {
+        waitForBackRelease = true;
+        requestUpdate();
+      },
+      books[selectedIndex].path);
+}
+
+void ReadingStatsExtendedActivity::loopInx() {
+  const int maxScrollOffset = inxMaxBookScroll(renderer);
+  scrollOffset = std::clamp(scrollOffset, 0, maxScrollOffset);
+  const auto scrollBy = [this, maxScrollOffset](const int delta) {
+    const int nextOffset = std::clamp(scrollOffset + delta, 0, maxScrollOffset);
+    if (nextOffset != scrollOffset) {
+      scrollOffset = nextOffset;
+      requestUpdate();
+    }
+  };
+
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    openSelectedBook();
+    return;
+  }
+
+  const auto swipe = mappedInput.wasSwipe();
+  if (swipe == MappedInputManager::SwipeDir::Up) {
+    scrollBy(INX_BOOK_ROW_H);
+    return;
+  }
+  if (swipe == MappedInputManager::SwipeDir::Down) {
+    scrollBy(-INX_BOOK_ROW_H);
+    return;
+  }
+
+  int touchX = 0;
+  int touchY = 0;
+  if (mappedInput.wasScreenTapped(touchX, touchY)) {
+    if (touchX >= bookListRect_.x && touchY >= bookListInnerTop_ && touchX < bookListRect_.x + bookListRect_.width &&
+        touchY < bookListRect_.y + bookListRect_.height) {
+      const int localY = touchY - bookListInnerTop_ + scrollOffset;
+      if (bookRowHeight_ > 0 && localY >= 0) {
+        const int index = localY / bookRowHeight_;
+        if (index >= 0 && index < static_cast<int>(READING_STATS.getBooks().size())) {
+          selectedIndex = index;
+          openSelectedBook();
+        }
+      }
+    }
+    return;
+  }
+
+  buttonNavigator.onPreviousRelease([&]() { scrollBy(-INX_BOOK_ROW_H); });
+  buttonNavigator.onNextRelease([&]() { scrollBy(INX_BOOK_ROW_H); });
+}
+
 void ReadingStatsExtendedActivity::loop() {
+  if (waitForBackRelease) {
+    if (!mappedInput.isPressed(MappedInputManager::Button::Back) &&
+        !mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      waitForBackRelease = false;
+    }
+    return;
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     finish();
+    return;
+  }
+
+  if (waitForConfirmRelease) {
+    if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
+      waitForConfirmRelease = false;
+    }
+    return;
+  }
+
+  if (usesInxLayout()) {
+    loopInx();
     return;
   }
 
@@ -323,6 +441,11 @@ void ReadingStatsExtendedActivity::loop() {
 }
 
 void ReadingStatsExtendedActivity::render(RenderLock&&) {
+  if (usesInxLayout()) {
+    renderInx();
+    return;
+  }
+
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -398,6 +521,108 @@ void ReadingStatsExtendedActivity::render(RenderLock&&) {
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", scrollOffset > 0 ? tr(STR_DIR_UP) : "",
                                             scrollOffset < maxScrollOffset ? tr(STR_DIR_DOWN) : "");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  renderer.displayBuffer();
+}
+
+void ReadingStatsExtendedActivity::renderInx() {
+  renderer.clearScreen();
+
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  drawPageHeader(Rect{0, metrics.topPadding, screenWidth, metrics.headerHeight}, tr(STR_MORE_DETAILS));
+
+  const int hintH = GUI.buttonHintsVisible() ? metrics.buttonHintsHeight : 0;
+  const int contentTop = metrics.topPadding + metrics.headerHeight + 8;
+  const int contentBottom = screenHeight - hintH - 8;
+
+  const Rect goal{INX_PAD, contentTop, screenWidth - INX_PAD * 2, INX_GOAL_H};
+  InxInkCards::drawCard(renderer, goal);
+
+  const uint64_t todayMs = READING_STATS.getTodayReadingMs();
+  const uint64_t goalMs = getDailyReadingGoalMs();
+  const std::string goalValue =
+      ReadingStatsAnalytics::formatDurationHm(todayMs) + " / " + ReadingStatsAnalytics::formatDurationHm(goalMs);
+  const int goalPad = 14;
+  renderer.drawText(UI_12_FONT_ID, goal.x + goalPad, goal.y + 10, tr(STR_DAILY_GOAL), true, EpdFontFamily::BOLD);
+  const int goalValueW = renderer.getTextWidth(UI_12_FONT_ID, goalValue.c_str());
+  renderer.drawText(UI_12_FONT_ID, goal.x + goal.width - goalPad - goalValueW, goal.y + 10, goalValue.c_str());
+
+  const uint8_t goalPercent =
+      goalMs == 0 ? 0 : static_cast<uint8_t>(std::min<uint64_t>(100, todayMs * 100ULL / goalMs));
+  const int barY = goal.y + 10 + renderer.getLineHeight(UI_12_FONT_ID) + 8;
+  InxInkCards::drawHairProgress(renderer, Rect{goal.x + goalPad, barY, goal.width - goalPad * 2, 6}, goalPercent);
+
+  char streakLine[32];
+  snprintf(streakLine, sizeof(streakLine), tr(STR_STREAK_DAYS_FMT),
+           static_cast<int>(READING_STATS.getCurrentStreakDays()));
+  char maxStreakLine[32];
+  snprintf(maxStreakLine, sizeof(maxStreakLine), tr(STR_MAX_STREAK_DAYS_FMT),
+           static_cast<int>(READING_STATS.getMaxStreakDays()));
+  const int streakY = barY + 14;
+  renderer.drawText(SMALL_FONT_ID, goal.x + goalPad, streakY, streakLine);
+  const int maxW = renderer.getTextWidth(SMALL_FONT_ID, maxStreakLine);
+  renderer.drawText(SMALL_FONT_ID, goal.x + goal.width - goalPad - maxW, streakY, maxStreakLine);
+
+  const Rect list{INX_PAD, goal.y + goal.height + INX_LIST_GAP, screenWidth - INX_PAD * 2,
+                  std::max(80, contentBottom - (goal.y + goal.height + INX_LIST_GAP))};
+  InxInkCards::drawCard(renderer, list);
+  bookListRect_ = list;
+  bookRowHeight_ = INX_BOOK_ROW_H;
+  bookListInnerTop_ = list.y + 8;
+
+  const auto& books = READING_STATS.getBooks();
+  const int innerH = std::max(1, list.height - 16);
+  const int maxScrollOffset = std::max(0, static_cast<int>(books.size()) * INX_BOOK_ROW_H - innerH);
+  scrollOffset = std::clamp(scrollOffset, 0, maxScrollOffset);
+
+  if (books.empty()) {
+    renderer.drawText(UI_10_FONT_ID, list.x + goalPad, bookListInnerTop_ + 8, tr(STR_NO_READING_STATS));
+  } else {
+    const GfxRenderer::ClipScope clip(renderer, list.x + 8, bookListInnerTop_, list.width - 16, innerH);
+    const int titleFont = UI_10_FONT_ID;
+    const int titleLineH = renderer.getLineHeight(titleFont);
+    for (int index = 0; index < static_cast<int>(books.size()); ++index) {
+      const int rowY = bookListInnerTop_ - scrollOffset + index * INX_BOOK_ROW_H;
+      if (rowY + INX_BOOK_ROW_H < bookListInnerTop_ || rowY > bookListInnerTop_ + innerH) continue;
+      if (index > 0) renderer.drawLine(list.x + 12, rowY, list.x + list.width - 12, rowY);
+      if (index == selectedIndex && showMainTabContentSelection()) {
+        renderer.drawRect(list.x + 8, rowY + 2, list.width - 16, INX_BOOK_ROW_H - 4);
+      }
+
+      const ReadingBookStats& book = books[index];
+      const int durCol = 58;
+      const int textX = list.x + 14;
+      const int textW = std::max(24, list.x + list.width - 12 - durCol - textX);
+      const auto titleLines = renderer.wrappedText(titleFont, bookTitleOf(book), textW, 2, EpdFontFamily::BOLD);
+      int ty = rowY + 8;
+      for (const auto& line : titleLines) {
+        renderer.drawText(titleFont, textX, ty, line.c_str(), true, EpdFontFamily::BOLD);
+        ty += titleLineH;
+      }
+
+      char sessions[24];
+      snprintf(sessions, sizeof(sessions), tr(STR_SESSIONS_COUNT_FMT), static_cast<int>(book.sessions));
+      char chLine[80] = {};
+      if (book.completed) {
+        snprintf(chLine, sizeof(chLine), "%s", tr(STR_DONE));
+      } else if (!book.chapterTitle.empty()) {
+        snprintf(chLine, sizeof(chLine), "%s · %s", sessions, book.chapterTitle.c_str());
+      } else {
+        snprintf(chLine, sizeof(chLine), "%s · %u%%", sessions, static_cast<unsigned>(book.lastProgressPercent));
+      }
+      const std::string chCut = renderer.truncatedText(UI_10_FONT_ID, chLine, textW);
+      renderer.drawText(UI_10_FONT_ID, textX, ty + 2, chCut.c_str());
+      InxInkCards::drawHairProgress(renderer, Rect{textX, rowY + INX_BOOK_ROW_H - 14, textW, 5},
+                                    book.lastProgressPercent);
+      drawDurationColumn(renderer, list.x + list.width - 12, rowY + 8, book.totalReadingMs);
+    }
+  }
+
+  const auto labels =
+      mappedInput.mapLabels(tr(STR_BACK), books.empty() ? "" : tr(STR_SELECT), scrollOffset > 0 ? tr(STR_DIR_UP) : "",
+                            scrollOffset < maxScrollOffset ? tr(STR_DIR_DOWN) : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

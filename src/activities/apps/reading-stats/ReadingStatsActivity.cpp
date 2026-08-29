@@ -1,21 +1,13 @@
 #include "ReadingStatsActivity.h"
 
-#include <Bitmap.h>
-#include <FsHelpers.h>
 #include <GfxRenderer.h>
-#include <HalStorage.h>
 #include <I18n.h>
 
 #include <algorithm>
-#include <array>
-#include <cmath>
 #include <cstdio>
-#include <cstring>
-#include <numeric>
 #include <string>
 
 #include "AppMetricCard.h"
-#include "BookTitleFont.h"
 #include "CrossPointSettings.h"
 #include "InxItemLayout.h"
 #include "ReadingStatsDetailActivity.h"
@@ -24,12 +16,11 @@
 #include "SdCardFontSystem.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
-#include "components/icons/cover.h"
 #include "components/themes/inx/InxInkCards.h"
 #include "fontIds.h"
-#include "util/BookCoverLoader.h"
 #include "util/HeaderDateUtils.h"
 #include "util/ReadingStatsAnalytics.h"
+#include "util/TimeUtils.h"
 
 namespace {
 constexpr unsigned long BOOK_LONG_PRESS_MS = 1000;
@@ -41,16 +32,14 @@ constexpr int LIST_HEADER_BOTTOM_GAP = 10;
 constexpr int BOOK_ROW_HEIGHT = 80;
 constexpr int BOOK_ROW_GAP = 10;
 constexpr int BOOKS_PER_PAGE = 3;
-constexpr int INX_TEXT_GAP = 4;
-constexpr int INX_CELL_VERTICAL_PADDING = 12;
-constexpr float kPi = 3.14159265358979323846f;
 
 std::string getBookTitle(const ReadingBookStats& book) { return book.title.empty() ? book.path : book.title; }
 
 int titleFontId() {
-  // Reader font when it covers common CJK; otherwise the full 12pt subset
-  // (built-in 14/16/18 hold UI-string glyphs only). See BookTitleFont.h.
-  return bookTitleFontId();
+  // Card titles stay at 12pt so a CJK title can wrap instead of becoming 重生之…
+  // when the reader size is 14/16/18. UI_12 is the full common-character subset
+  // on CN builds. See BookTitleFont.h.
+  return UI_12_FONT_ID;
 }
 
 std::string getBookSubtitle(const ReadingBookStats& book) {
@@ -78,6 +67,17 @@ void drawMoreDetailsButton(const GfxRenderer& renderer, const Rect& rect, const 
   const int textX = rect.x + (rect.width - textWidth) / 2;
   const int textY = rect.y + (rect.height - renderer.getLineHeight(UI_12_FONT_ID)) / 2 + 2;
   renderer.drawText(UI_12_FONT_ID, textX, textY, label, true, EpdFontFamily::BOLD);
+}
+
+void drawDurationStack(const GfxRenderer& renderer, const int cx, const int y, const uint64_t ms) {
+  char number[8];
+  bool hours = false;
+  ReadingStatsAnalytics::formatDurationParts(ms, number, sizeof(number), hours);
+  const char* unit = hours ? tr(STR_HOURS_UNIT) : tr(STR_MINUTES_UNIT);
+  const int numW = renderer.getTextWidth(UI_12_FONT_ID, number, EpdFontFamily::BOLD);
+  renderer.drawText(UI_12_FONT_ID, cx - numW / 2, y, number, true, EpdFontFamily::BOLD);
+  const int unitW = renderer.getTextWidth(SMALL_FONT_ID, unit);
+  renderer.drawText(SMALL_FONT_ID, cx - unitW / 2, y + renderer.getLineHeight(UI_12_FONT_ID) + 4, unit);
 }
 
 void drawMiniProgressBar(const GfxRenderer& renderer, const Rect& rect, const uint8_t percent) {
@@ -128,159 +128,6 @@ void drawBookRow(const GfxRenderer& renderer, const Rect& rect, const ReadingBoo
 
   drawMiniProgressBar(renderer, Rect{innerX, progressBarY, rect.width - sidePadding * 2, 9}, book.lastProgressPercent);
 }
-
-const char* titleOf(const ReadingBookStats& book) {
-  return book.title.empty() ? book.path.c_str() : book.title.c_str();
-}
-
-void formatDuration(const uint64_t durationMs, char* output, const size_t outputSize) {
-  const uint64_t minutes = durationMs / 60000ULL;
-  if (minutes >= 60) {
-    snprintf(output, outputSize, "%lluh %llum", static_cast<unsigned long long>(minutes / 60),
-             static_cast<unsigned long long>(minutes % 60));
-  } else {
-    snprintf(output, outputSize, "%llum", static_cast<unsigned long long>(minutes));
-  }
-}
-
-void drawClippedText(const GfxRenderer& renderer, const int fontId, const Rect rect, const char* text,
-                     const EpdFontFamily::Style style = EpdFontFamily::REGULAR) {
-  if (!text || rect.width <= 0 || rect.height <= 0) return;
-  GfxRenderer::ClipScope clip(renderer, rect.x, rect.y, rect.width, rect.height);
-  renderer.drawText(fontId, rect.x, rect.y, text, true, style);
-}
-
-void drawCenteredClippedText(const GfxRenderer& renderer, const int fontId, const Rect rect, const char* text,
-                             const EpdFontFamily::Style style = EpdFontFamily::REGULAR) {
-  if (!text || rect.width <= 0 || rect.height <= 0) return;
-  const int textWidth = renderer.getTextWidth(fontId, text, style);
-  GfxRenderer::ClipScope clip(renderer, rect.x, rect.y, rect.width, rect.height);
-  renderer.drawText(fontId, rect.x + std::max(0, (rect.width - textWidth) / 2), rect.y, text, true, style);
-}
-
-void drawDottedLine(const GfxRenderer& renderer, const int x1, const int y1, const int x2, const int y2) {
-  if (x1 == x2) {
-    for (int y = y1; y <= y2; y += 3) renderer.drawPixel(x1, y);
-  } else {
-    for (int x = x1; x <= x2; x += 3) renderer.drawPixel(x, y1);
-  }
-}
-
-int statsCellHeight(const GfxRenderer& renderer) {
-  return renderer.getLineHeight(UI_12_FONT_ID) + INX_TEXT_GAP + renderer.getLineHeight(SMALL_FONT_ID) +
-         INX_CELL_VERTICAL_PADDING;
-}
-
-void drawStatsGrid(const GfxRenderer& renderer, const Rect rect, const int rows, const char* const* values,
-                   const char* const* labels) {
-  if (rows <= 0 || rect.width <= 0 || rect.height <= 0) return;
-  const int cellWidth = rect.width / 2;
-  const int cellHeight = rect.height / rows;
-  const int valueHeight = renderer.getLineHeight(UI_12_FONT_ID);
-  const int labelHeight = renderer.getLineHeight(SMALL_FONT_ID);
-  const int textHeight = valueHeight + INX_TEXT_GAP + labelHeight;
-  drawDottedLine(renderer, rect.x + cellWidth, rect.y, rect.x + cellWidth, rect.y + rect.height - 1);
-  for (int row = 1; row < rows; ++row) {
-    drawDottedLine(renderer, rect.x, rect.y + row * cellHeight, rect.x + rect.width - 1, rect.y + row * cellHeight);
-  }
-
-  for (int index = 0; index < rows * 2; ++index) {
-    const int column = index % 2;
-    const int row = index / 2;
-    const int cellTop = rect.y + row * cellHeight;
-    const int textY = cellTop + std::max(0, (cellHeight - textHeight) / 2);
-    const Rect valueRect{rect.x + column * cellWidth + 10, textY, cellWidth - 20, valueHeight};
-    drawClippedText(renderer, UI_12_FONT_ID, valueRect, values[index], EpdFontFamily::BOLD);
-    drawClippedText(renderer, SMALL_FONT_ID,
-                    Rect{valueRect.x, valueRect.y + valueHeight + INX_TEXT_GAP, valueRect.width, labelHeight},
-                    labels[index]);
-  }
-}
-
-void drawDonut(const GfxRenderer& renderer, const int centerX, const int centerY, const int radius,
-               const uint8_t rawPercent) {
-  const int percent = std::min<int>(rawPercent, 100);
-  const int thickness = std::max(5, radius / 7);
-  const int innerRadius = radius - thickness;
-  for (int degree = 0; degree < 360; degree += 8) {
-    const float angle = (static_cast<float>(degree) - 90.0f) * kPi / 180.0f;
-    renderer.drawPixel(centerX + static_cast<int>(std::cos(angle) * (radius - thickness / 2)),
-                       centerY + static_cast<int>(std::sin(angle) * (radius - thickness / 2)));
-  }
-  const int progressDegrees = percent * 360 / 100;
-  if (percent == 100) {
-    renderer.drawArc(radius, centerX, centerY, -1, -1, thickness, true);
-    renderer.drawArc(radius, centerX, centerY, 1, -1, thickness, true);
-    renderer.drawArc(radius, centerX, centerY, -1, 1, thickness, true);
-    renderer.drawArc(radius, centerX, centerY, 1, 1, thickness, true);
-  } else {
-    for (int degree = 0; degree < progressDegrees; ++degree) {
-      const float angle = (static_cast<float>(degree) - 90.0f) * kPi / 180.0f;
-      renderer.drawLine(centerX + static_cast<int>(std::cos(angle) * innerRadius),
-                        centerY + static_cast<int>(std::sin(angle) * innerRadius),
-                        centerX + static_cast<int>(std::cos(angle) * radius),
-                        centerY + static_cast<int>(std::sin(angle) * radius), 2, true);
-    }
-  }
-
-  char label[8];
-  snprintf(label, sizeof(label), "%d%%", percent);
-  const int textWidth = renderer.getTextWidth(NOTOSERIF_18_FONT_ID, label, EpdFontFamily::BOLD);
-  const int textHeight = renderer.getLineHeight(NOTOSERIF_18_FONT_ID);
-  renderer.drawText(NOTOSERIF_18_FONT_ID, centerX - textWidth / 2, centerY - textHeight / 2, label, true,
-                    EpdFontFamily::BOLD);
-}
-
-bool resolveCoverPath(const std::string& source, const int height, char* output, const size_t outputSize) {
-  if (source.empty() || outputSize == 0) return false;
-  constexpr const char token[] = "[HEIGHT]";
-  const size_t tokenAt = source.find(token);
-  if (tokenAt == std::string::npos) {
-    if (source.size() >= outputSize) return false;
-    memcpy(output, source.c_str(), source.size() + 1);
-    return true;
-  }
-
-  char heightText[12];
-  const int heightLength = snprintf(heightText, sizeof(heightText), "%d", height);
-  const size_t suffixAt = tokenAt + sizeof(token) - 1;
-  const size_t suffixLength = source.size() - suffixAt;
-  if (heightLength <= 0 || tokenAt + static_cast<size_t>(heightLength) + suffixLength >= outputSize) return false;
-  memcpy(output, source.data(), tokenAt);
-  memcpy(output + tokenAt, heightText, static_cast<size_t>(heightLength));
-  memcpy(output + tokenAt + heightLength, source.data() + suffixAt, suffixLength);
-  output[tokenAt + heightLength + suffixLength] = '\0';
-  return true;
-}
-
-bool drawCover(const GfxRenderer& renderer, const ReadingBookStats& book, const Rect bounds) {
-  renderer.drawRect(bounds.x, bounds.y, bounds.width, bounds.height, 2, true);
-  const auto tryDraw = [&renderer, &book, &bounds](const int height) {
-    char path[256];
-    if (!resolveCoverPath(book.coverBmpPath, height, path, sizeof(path))) return false;
-    HalFile file;
-    if (Storage.openFileForRead("INX_STATS", path, file)) {
-      Bitmap bitmap(file);
-      if (bitmap.parseHeaders() == BmpReaderError::Ok && bitmap.getWidth() > 0 && bitmap.getHeight() > 0) {
-        if (renderer.drawBitmapCropToFill(bitmap, bounds.x + 3, bounds.y + 3, bounds.width - 6, bounds.height - 6))
-          return true;
-      }
-    }
-    return false;
-  };
-
-  if (book.coverBmpPath.find("[HEIGHT]") == std::string::npos) {
-    if (tryDraw(bounds.height)) return true;
-  } else {
-    const std::array candidateHeights = {bounds.height, 140, 160, 226, 240, 400};
-    if (std::any_of(candidateHeights.begin(), candidateHeights.end(), tryDraw)) return true;
-  }
-
-  constexpr int iconSize = 32;
-  renderer.drawIcon(CoverIcon, bounds.x + (bounds.width - iconSize) / 2, bounds.y + (bounds.height - iconSize) / 2,
-                    iconSize);
-  return false;
-}
 }  // namespace
 
 void ReadingStatsActivity::selectMainTabContentEdge(const MainTabContentEdge edge) {
@@ -296,19 +143,11 @@ void ReadingStatsActivity::onEnter() {
   selectedIndex = usesInxLayout() ? 0 : (READING_STATS.getBooks().empty() ? 0 : 1);
   waitForConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   waitForBackRelease = false;
-  waitingForCoverRender = false;
-  renderedCoverMissing = false;
-  renderedCoverView = -1;
-  attemptedCoverView = -1;
   requestUpdate();
 }
 
 void ReadingStatsActivity::onExit() {
   // No refresh override here: returning to the Reading Stats menu stays on FAST_REFRESH (no flash).
-  waitingForCoverRender = false;
-  renderedCoverMissing = false;
-  renderedCoverView = -1;
-  attemptedCoverView = -1;
   Activity::onExit();
 }
 
@@ -348,42 +187,12 @@ void ReadingStatsActivity::loop() {
   }
 
   if (usesInxLayout()) {
-    const auto moveSelection = [this, bookCount](const int delta) {
-      selectedIndex = InxStatisticsGeometry::adjacentView(selectedIndex, bookCount, delta);
-      requestUpdate();
-    };
-
     int touchX = 0;
     int touchY = 0;
     if (mappedInput.wasScreenTapped(touchX, touchY)) {
-      if (selectedIndex == 0 && touchX >= coverHitRect_.x && touchY >= coverHitRect_.y &&
-          touchX < coverHitRect_.x + coverHitRect_.width && touchY < coverHitRect_.y + coverHitRect_.height) {
-        openCoverBook();
-        return;
-      }
-      if (selectedIndex > 0 && mappedInput.getHeldTime() >= BOOK_LONG_PRESS_MS) {
-        confirmRemoveSelectedBook();
-      } else {
-        openSelectedEntry();
-      }
+      openSelectedEntry();
       return;
     }
-
-    const auto swipe = mappedInput.wasSwipe();
-    if (swipe == MappedInputManager::SwipeDir::Left) {
-      moveSelection(1);
-      return;
-    }
-    if (swipe == MappedInputManager::SwipeDir::Right) {
-      moveSelection(-1);
-      return;
-    }
-
-    buttonNavigator.onNextRelease([moveSelection] { moveSelection(1); });
-    buttonNavigator.onPreviousRelease([moveSelection] { moveSelection(-1); });
-    buttonNavigator.onNextContinuous([moveSelection] { moveSelection(1); });
-    buttonNavigator.onPreviousContinuous([moveSelection] { moveSelection(-1); });
-    prepareVisibleCover();
     return;
   }
 
@@ -424,12 +233,6 @@ void ReadingStatsActivity::loop() {
     }
     requestUpdate();
   });
-}
-
-void ReadingStatsActivity::openCoverBook() {
-  const auto& books = READING_STATS.getBooks();
-  if (books.empty()) return;
-  onSelectBook(books.front().path);
 }
 
 void ReadingStatsActivity::openSelectedEntry() {
@@ -476,51 +279,13 @@ void ReadingStatsActivity::confirmRemoveSelectedBook() {
       tr(STR_DELETE_STATS_ENTRY), getBookTitle(selectedBook));
 }
 
-void ReadingStatsActivity::guardBackReturn() {
-  waitForBackRelease = true;
-  attemptedCoverView = -1;
-}
-
-void ReadingStatsActivity::prepareVisibleCover() {
-  if (waitingForCoverRender || !renderedCoverMissing || renderedCoverView != selectedIndex ||
-      attemptedCoverView == selectedIndex)
-    return;
-
-  const auto& books = READING_STATS.getBooks();
-  if (books.empty()) return;
-  const int bookIndex = selectedIndex == 0 ? 0 : selectedIndex - 1;
-  if (bookIndex < 0 || bookIndex >= static_cast<int>(books.size())) return;
-
-  attemptedCoverView = selectedIndex;
-  waitingForCoverRender = true;
-  requestUpdate();
-}
+void ReadingStatsActivity::guardBackReturn() { waitForBackRelease = true; }
 
 bool ReadingStatsActivity::usesInxLayout() const { return UITheme::getInstance().hasMainTabs(); }
 
 void ReadingStatsActivity::render(RenderLock&&) {
-  if (waitingForCoverRender) {
-    const auto& books = READING_STATS.getBooks();
-    const int bookIndex = selectedIndex == 0 ? 0 : selectedIndex - 1;
-    if (bookIndex >= 0 && bookIndex < static_cast<int>(books.size())) {
-      const std::string bookPath = books[bookIndex].path;
-      std::string title;
-      std::string author;
-      std::string coverPath;
-      if (FsHelpers::hasEpubExtension(bookPath)) {
-        GfxRenderer::FrameBufferLoan loan(renderer);
-        coverPath = BookCoverLoader::ensureFullCover(bookPath, &title, &author);
-      } else {
-        coverPath = BookCoverLoader::ensureFullCover(bookPath, &title, &author);
-      }
-      if (!coverPath.empty()) READING_STATS.updateBookMetadata(bookPath, title, author, coverPath);
-    }
-  }
-
   if (usesInxLayout()) {
     renderInx();
-    renderedCoverView = selectedIndex;
-    waitingForCoverRender = false;
     return;
   }
 
@@ -598,178 +363,106 @@ void ReadingStatsActivity::render(RenderLock&&) {
 
 void ReadingStatsActivity::renderInx() {
   renderer.clearScreen();
-  renderedCoverMissing = false;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
   drawPageHeader(Rect{0, metrics.topPadding, screenWidth, metrics.headerHeight}, tr(STR_READING_STATS));
 
+  const int hintH = GUI.buttonHintsVisible() ? metrics.buttonHintsHeight : 0;
   const int contentTop = metrics.topPadding + metrics.headerHeight;
-  const int contentBottom = screenHeight - metrics.buttonHintsHeight;
-  const Rect content{18, contentTop + 6, screenWidth - 36, std::max(1, contentBottom - contentTop - 12)};
-  const auto& books = READING_STATS.getBooks();
-  const int pageTitleHeight = renderer.getLineHeight(NOTOSERIF_14_FONT_ID);
-  const int bookTitleFont = titleFontId();
-  const int bookTitleHeight = renderer.getLineHeight(bookTitleFont);
-  const int bodyHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  const int cellHeight = statsCellHeight(renderer);
+  const int contentBottom = screenHeight - hintH;
 
-  if (selectedIndex == 0 || books.empty()) {
-    coverHitRect_ = Rect{};
-    const int titleH = InxInkCards::pageTitleHeight(renderer);
-    InxInkCards::drawPageTitle(renderer, content.x, content.y + 4, tr(STR_READING_STATS));
+  char timeBuf[16] = {};
+  TimeUtils::formatCurrentTime(timeBuf, sizeof(timeBuf), SETTINGS.clockFormat == 1);
+  if (timeBuf[0] != '\0') renderer.drawText(SMALL_FONT_ID, 16, contentTop + 6, timeBuf);
+  GUI.drawBatteryRight(renderer, Rect{screenWidth - 12 - 15, contentTop + 4, 15, 12},
+                       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
 
-    const int footerH = std::max(88, content.height * 14 / 100);
-    const int donutH = std::max(140, content.height * 24 / 100);
-    // 2x2 metric cells must fit value+label at their real line heights.
-    const int gridH =
-        std::max(2 * InxInkCards::metricCardMinHeight(renderer) + InxInkCards::kGap, content.height * 22 / 100);
-    const int titleBottom = content.y + 4 + titleH + 8;
-    const Rect footer{content.x, content.y + content.height - footerH, content.width, footerH};
-    const Rect donutCard{content.x, footer.y - InxInkCards::kGap - donutH, content.width, donutH};
-    const Rect grid{content.x, donutCard.y - InxInkCards::kGap - gridH, content.width, gridH};
-    const Rect hero{content.x, titleBottom, content.width, std::max(96, grid.y - InxInkCards::kGap - titleBottom)};
-
-    if (books.empty()) {
-      drawCenteredClippedText(renderer, UI_12_FONT_ID, hero, tr(STR_NO_READING_STATS));
-    } else {
-      const ReadingBookStats& recentBook = books.front();
-      InxInkCards::drawCard(renderer, hero);
-      const int heroPad = 12;
-      const auto coverSize = InxCoverGeometry::fit(hero.width * 28 / 100, hero.height - heroPad * 2);
-      coverHitRect_ =
-          Rect{hero.x + heroPad, hero.y + (hero.height - coverSize.height) / 2, coverSize.width, coverSize.height};
-      renderedCoverMissing = !drawCover(renderer, recentBook, coverHitRect_);
-
-      const int textX = coverHitRect_.x + coverHitRect_.width + 14;
-      const int textW = hero.x + hero.width - heroPad - textX;
-      const int titleFont = titleFontId();
-      const int titleLineH = renderer.getLineHeight(titleFont);
-      const auto titleLines = renderer.wrappedText(titleFont, titleOf(recentBook), textW, 2, EpdFontFamily::BOLD);
-      int titleCursor = hero.y + heroPad;
-      for (const auto& line : titleLines) {
-        drawClippedText(renderer, titleFont, Rect{textX, titleCursor, textW, titleLineH}, line.c_str(),
-                        EpdFontFamily::BOLD);
-        titleCursor += titleLineH;
-      }
-      if (!recentBook.author.empty()) {
-        drawClippedText(renderer, UI_10_FONT_ID, Rect{textX, titleCursor + 4, textW, bodyHeight},
-                        recentBook.author.c_str());
-      }
-
-      char progress[12];
-      snprintf(progress, sizeof(progress), "%u%%", static_cast<unsigned>(recentBook.lastProgressPercent));
-      const int progressW = renderer.getTextWidth(SMALL_FONT_ID, progress, EpdFontFamily::BOLD);
-      const int barY = hero.y + hero.height - heroPad - InxInkCards::kProgressHeight - 14;
-      drawClippedText(renderer, SMALL_FONT_ID, Rect{textX, barY - bodyHeight, textW - progressW - 8, bodyHeight},
-                      tr(STR_BOOK_PROGRESS));
-      renderer.drawText(SMALL_FONT_ID, textX + textW - progressW, barY - bodyHeight, progress, true,
-                        EpdFontFamily::BOLD);
-      InxInkCards::drawProgress(renderer, Rect{textX, barY, textW, InxInkCards::kProgressHeight},
-                                recentBook.lastProgressPercent);
-    }
-
-    const uint32_t sessions =
-        std::accumulate(books.begin(), books.end(), uint32_t{0},
-                        [](const uint32_t total, const ReadingBookStats& book) { return total + book.sessions; });
-    char totalTime[24];
-    char averageSession[24];
-    char sessionCount[16];
-    char streak[16];
-    formatDuration(READING_STATS.getTotalReadingMs(), totalTime, sizeof(totalTime));
-    formatDuration(InxStatisticsGeometry::averageSessionMs(READING_STATS.getTotalReadingMs(), sessions), averageSession,
-                   sizeof(averageSession));
-    snprintf(sessionCount, sizeof(sessionCount), "%u", static_cast<unsigned>(sessions));
-    snprintf(streak, sizeof(streak), "%u", static_cast<unsigned>(READING_STATS.getCurrentStreakDays()));
-    const char* values[] = {totalTime, averageSession, sessionCount, streak};
-    const char* labels[] = {tr(STR_TOTAL_TIME), tr(STR_AVG_SESSION), tr(STR_SESSIONS), tr(STR_READ_STREAK)};
-    for (int i = 0; i < 4; ++i) {
-      Rect cell{};
-      InxInkCards::layoutGrid(grid, 2, 2, i, cell);
-      InxInkCards::drawMetricCard(renderer, cell, values[i], labels[i]);
-    }
-
-    InxInkCards::drawCard(renderer, donutCard);
-    const uint64_t todayMs = READING_STATS.getTodayReadingMs();
-    const uint64_t goalMs = getDailyReadingGoalMs();
-    const uint8_t goalPercent = goalMs == 0 ? 0 : static_cast<uint8_t>(std::min<uint64_t>(100, todayMs * 100 / goalMs));
-    const int donutRadius = std::min(donutCard.width, donutCard.height) * 32 / 100;
-    InxInkCards::drawDonut(renderer, donutCard.x + donutCard.width / 2, donutCard.y + donutCard.height / 2, donutRadius,
-                           goalPercent, tr(STR_DAILY_GOAL));
-
-    char finishedText[16];
-    char startedText[16];
-    snprintf(finishedText, sizeof(finishedText), "%d", static_cast<int>(READING_STATS.getBooksFinishedCount()));
-    snprintf(startedText, sizeof(startedText), "%d", static_cast<int>(READING_STATS.getBooksStartedCount()));
-    Rect finishedCell{};
-    Rect startedCell{};
-    InxInkCards::layoutGrid(footer, 2, 1, 0, finishedCell);
-    InxInkCards::layoutGrid(footer, 2, 1, 1, startedCell);
-    InxInkCards::drawMetricCard(renderer, finishedCell, finishedText, tr(STR_BOOKS_FINISHED));
-    InxInkCards::drawMetricCard(renderer, startedCell, startedText, tr(STR_BOOKS_STARTED));
-  } else {
-    selectedIndex = InxStatisticsGeometry::clampView(selectedIndex, static_cast<int>(books.size()));
-    const ReadingBookStats& book = books[selectedIndex - 1];
-    const int footerHeight = bodyHeight + 8;
-    const int screenTitleHeight = usesMainTabBar() ? pageTitleHeight + 8 : 0;
-    const int metadataHeight = bookTitleHeight + (book.author.empty() ? 0 : bodyHeight + INX_TEXT_GAP) + 8;
-    const int gridHeight = cellHeight * 3;
-    const int heroHeight = std::max(1, content.height - screenTitleHeight - metadataHeight - gridHeight - footerHeight);
-    const Rect screenTitle{content.x, content.y, content.width, screenTitleHeight};
-    const Rect hero{content.x, screenTitle.y + screenTitle.height, content.width, heroHeight};
-    const Rect metadata{content.x, hero.y + hero.height, content.width, metadataHeight};
-    const Rect grid{content.x, metadata.y + metadata.height, content.width, gridHeight};
-    const Rect footer{content.x, grid.y + grid.height, content.width, footerHeight};
-
-    if (usesMainTabBar()) {
-      drawClippedText(renderer, NOTOSERIF_14_FONT_ID,
-                      Rect{screenTitle.x, screenTitle.y + 4, screenTitle.width, pageTitleHeight}, tr(STR_READING_STATS),
-                      EpdFontFamily::BOLD);
-    }
-
-    const auto coverSize = InxCoverGeometry::fit(hero.width * 34 / 100, hero.height - 20);
-    renderedCoverMissing =
-        !drawCover(renderer, book,
-                   Rect{hero.x + hero.width / 4 - coverSize.width / 2, hero.y + (hero.height - coverSize.height) / 2,
-                        coverSize.width, coverSize.height});
-    const int donutBounds = std::min(hero.width / 2, hero.height);
-    const int donutRadius = std::min(std::max(18, donutBounds * 31 / 100), std::max(18, donutBounds / 2 - 4));
-    drawDonut(renderer, hero.x + hero.width * 3 / 4, hero.y + hero.height / 2, donutRadius, book.lastProgressPercent);
-
-    drawClippedText(renderer, bookTitleFont, Rect{metadata.x, metadata.y + 4, metadata.width, bookTitleHeight},
-                    titleOf(book), EpdFontFamily::ITALIC);
-    if (!book.author.empty()) {
-      drawClippedText(renderer, UI_10_FONT_ID,
-                      Rect{metadata.x, metadata.y + 4 + bookTitleHeight + INX_TEXT_GAP, metadata.width, bodyHeight},
-                      book.author.c_str());
-    }
-
-    char totalTime[24];
-    char averageSession[24];
-    char sessionCount[16];
-    char readingDays[16];
-    char lastSession[24];
-    char chapterProgress[12];
-    formatDuration(book.totalReadingMs, totalTime, sizeof(totalTime));
-    formatDuration(InxStatisticsGeometry::averageSessionMs(book.totalReadingMs, book.sessions), averageSession,
-                   sizeof(averageSession));
-    snprintf(sessionCount, sizeof(sessionCount), "%u", static_cast<unsigned>(book.sessions));
-    snprintf(readingDays, sizeof(readingDays), "%u", static_cast<unsigned>(book.readingDays.size()));
-    formatDuration(book.lastSessionMs, lastSession, sizeof(lastSession));
-    snprintf(chapterProgress, sizeof(chapterProgress), "%u%%", static_cast<unsigned>(book.chapterProgressPercent));
-    const char* values[] = {totalTime, averageSession, sessionCount, readingDays, lastSession, chapterProgress};
-    const char* labels[] = {tr(STR_TOTAL_TIME), tr(STR_AVG_SESSION),  tr(STR_SESSIONS),
-                            tr(STR_DAYS_READ),  tr(STR_LAST_SESSION), tr(STR_CHAPTER_PROGRESS)};
-    drawStatsGrid(renderer, grid, 3, values, labels);
-
-    char position[24];
-    snprintf(position, sizeof(position), "%d/%u", selectedIndex, static_cast<unsigned>(books.size()));
-    drawCenteredClippedText(renderer, UI_10_FONT_ID, Rect{footer.x, footer.y + 4, footer.width, bodyHeight}, position,
-                            EpdFontFamily::BOLD);
+  const int pad = 14;
+  const int volTop = contentTop + renderer.getLineHeight(SMALL_FONT_ID) + 14;
+  const int volH = 110;
+  const Rect vol{pad, volTop, screenWidth - pad * 2, volH};
+  InxInkCards::drawCard(renderer, vol);
+  const int cellW = vol.width / 3;
+  const char* volLabels[] = {tr(STR_TODAY_READING), tr(STR_LAST_7_DAYS), tr(STR_THIS_MONTH_READING)};
+  const uint64_t volMs[] = {READING_STATS.getTodayReadingMs(), READING_STATS.getRecentReadingMs(7),
+                            READING_STATS.getRecentReadingMs(30)};
+  const int labelY = vol.y + 12;
+  const int numY = labelY + renderer.getLineHeight(SMALL_FONT_ID) + 10;
+  for (int i = 0; i < 3; ++i) {
+    const int cx = vol.x + cellW * i + cellW / 2;
+    const int labW = renderer.getTextWidth(SMALL_FONT_ID, volLabels[i]);
+    renderer.drawText(SMALL_FONT_ID, cx - labW / 2, labelY, volLabels[i]);
+    drawDurationStack(renderer, cx, numY, volMs[i]);
+    if (i > 0) renderer.drawLine(vol.x + cellW * i, vol.y + 10, vol.x + cellW * i, vol.y + vol.height - 10);
   }
 
-  const auto labels = mainTabButtonLabels(tr(STR_BACK), tr(STR_SELECT), !books.empty());
+  const Rect chart{pad, vol.y + vol.height + 12, screenWidth - pad * 2,
+                   std::max(120, contentBottom - 16 - (vol.y + vol.height + 12))};
+  InxInkCards::drawCard(renderer, chart);
+  const int headerY = chart.y + 10;
+  const int titleH = renderer.getLineHeight(UI_12_FONT_ID);
+  const int moreH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int valueH = renderer.getLineHeight(SMALL_FONT_ID);
+  renderer.drawText(UI_12_FONT_ID, chart.x + 14, headerY, tr(STR_LAST_7D), true, EpdFontFamily::BOLD);
+  const char* more = tr(STR_MORE);
+  const int moreW = renderer.getTextWidth(UI_10_FONT_ID, more);
+  detailsHitRect_ = Rect{chart.x + chart.width - 16 - moreW, headerY, moreW + 10, moreH + 8};
+  renderer.drawText(UI_10_FONT_ID, detailsHitRect_.x, headerY, more);
+
+  const auto& days = READING_STATS.getReadingDays();
+  uint32_t refDay = TimeUtils::getLocalDayOrdinal(READING_STATS.getDisplayTimestamp());
+  if (refDay == 0 && !days.empty()) refDay = days.back().dayOrdinal;
+  uint64_t maxMs = 1;
+  uint64_t dayMs[7] = {};
+  char dayLabel[7][4] = {};
+  char topLabel[7][8] = {};
+  for (int i = 0; i < 7; ++i) {
+    const uint32_t ordinal = (refDay >= static_cast<uint32_t>(6 - i)) ? refDay - static_cast<uint32_t>(6 - i) : 0;
+    int year = 0;
+    unsigned month = 0;
+    unsigned day = 0;
+    if (ordinal != 0 && TimeUtils::getDateFromDayOrdinal(ordinal, year, month, day)) {
+      snprintf(dayLabel[i], sizeof(dayLabel[i]), "%u", day);
+    }
+    for (const auto& entry : days) {
+      if (entry.dayOrdinal == ordinal) {
+        dayMs[i] = entry.readingMs;
+        if (entry.readingMs > maxMs) maxMs = entry.readingMs;
+        const uint64_t minutes = entry.readingMs / 60000ULL;
+        if (minutes > 0) snprintf(topLabel[i], sizeof(topLabel[i]), "%llu", static_cast<unsigned long long>(minutes));
+        break;
+      }
+    }
+  }
+
+  const int headerBottom = headerY + std::max(titleH, moreH);
+  const int plotTop = headerBottom + valueH + 6;
+  const int plotBottom = chart.y + chart.height - 28;
+  const int plotH = std::max(20, plotBottom - plotTop);
+  const int gap = 8;
+  const int barW = std::max(8, (chart.width - 28 - gap * 6) / 7);
+  for (int i = 0; i < 7; ++i) {
+    const int x = chart.x + 14 + i * (barW + gap);
+    int barH = static_cast<int>(dayMs[i] * static_cast<uint64_t>(plotH) / maxMs);
+    if (dayMs[i] > 0 && barH < 6) barH = 6;
+    if (barH < 3) barH = 3;
+    if (barH > plotH) barH = plotH;
+    renderer.fillRect(x, plotBottom - barH, barW, barH);
+    if (topLabel[i][0] != '\0') {
+      const int tw = renderer.getTextWidth(SMALL_FONT_ID, topLabel[i], EpdFontFamily::BOLD);
+      const int labelY = plotBottom - barH - valueH;
+      renderer.drawText(SMALL_FONT_ID, x + (barW - tw) / 2, std::max(headerBottom + 2, labelY), topLabel[i], true,
+                        EpdFontFamily::BOLD);
+    }
+    if (dayLabel[i][0] != '\0') {
+      const int tw = renderer.getTextWidth(SMALL_FONT_ID, dayLabel[i]);
+      renderer.drawText(SMALL_FONT_ID, x + (barW - tw) / 2, plotBottom + 6, dayLabel[i]);
+    }
+  }
+
+  const auto labels = mainTabButtonLabels(tr(STR_BACK), tr(STR_MORE), false);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

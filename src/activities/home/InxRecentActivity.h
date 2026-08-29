@@ -50,6 +50,10 @@ class InxRecentActivity final : public Activity {
   int selected = 0;
   int thumbnailHeight = 0;
   mutable Rect heroCoverRect_{};
+  mutable Rect moreHitRect_{};
+  mutable int flowListTop_ = 0;
+  mutable int flowRowStep_ = 0;
+  mutable int flowVisible_ = 0;
 
   InxRecentLayout layout() const;
   const ReadingBookStats* statsAt(int index) const;

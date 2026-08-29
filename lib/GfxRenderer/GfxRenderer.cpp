@@ -33,6 +33,17 @@ bool combinesGrayscaleBase(const Display& display) {
 }  // namespace
 
 namespace {
+bool tokenHasCjkBreak(const std::string_view token) {
+  if (token.empty()) return false;
+  // utf8NextCodepoint stops at NUL; copy so a view into the source is safe.
+  const std::string copy(token);
+  const auto* p = reinterpret_cast<const unsigned char*>(copy.c_str());
+  while (const uint32_t cp = utf8NextCodepoint(&p)) {
+    if (utf8IsCjkBreakable(cp)) return true;
+  }
+  return false;
+}
+
 const char* resolveVisualText(const char* text, std::string& visualBuffer, BidiUtils::BidiBaseDir baseDir);
 
 // Appends the shaped visual form of every RTL token in `text` to `shapedOut`.
@@ -374,8 +385,39 @@ static uint8_t get2BitCoverage(const uint8_t* bitmap, const int pixelPosition) {
   return (byte >> ((3 - (pixelPosition & 3)) * 2)) & 0x3;
 }
 
+// Combined AA is one FAST 1-bit paint (no VSL black flash, no overlay second
+// pass). Match AA-off ink weight by keeping coverage 1, then fill a 2x2
+// diagonal hole so stairs are not thinner than off. Dropping coverage 1 (v17)
+// and Bayer dots (v16) both looked more jagged than AA-off on this panel.
+static uint8_t combinedAaCoverage(const uint8_t* bitmap, const int width, const int height, const int gx,
+                                  const int gy) {
+  const uint8_t coverage = get2BitCoverage(bitmap, gy * width + gx);
+  if (coverage >= 1) return coverage;
+  auto at = [bitmap, width, height](const int x, const int y) -> uint8_t {
+    if (x < 0 || y < 0 || x >= width || y >= height) return 0;
+    return get2BitCoverage(bitmap, y * width + x);
+  };
+  const uint8_t n = at(gx, gy - 1);
+  const uint8_t s = at(gx, gy + 1);
+  const uint8_t w = at(gx - 1, gy);
+  const uint8_t e = at(gx + 1, gy);
+  if (n >= 2 || s >= 2 || w >= 2 || e >= 2) return 0;
+  const uint8_t nw = at(gx - 1, gy - 1);
+  const uint8_t ne = at(gx + 1, gy - 1);
+  const uint8_t sw = at(gx - 1, gy + 1);
+  const uint8_t se = at(gx + 1, gy + 1);
+  if ((nw >= 2 && se >= 2) || (ne >= 2 && sw >= 2)) return 3;
+  return 0;
+}
+
 static void draw2BitGlyphPixel(const GfxRenderer& renderer, const GfxRenderer::RenderMode renderMode, const int x,
-                               const int y, const bool pixelState, const uint8_t coverage) {
+                               const int y, const bool pixelState, uint8_t coverage) {
+  if (renderer.usesSolidGlyphs() && coverage > 0) coverage = 3;
+  if (renderer.usesGlyphDither() && renderMode == GfxRenderer::BW) {
+    if (coverage == 0) return;
+    renderer.drawPixel(x, y, pixelState);
+    return;
+  }
   const auto pixel = GfxRenderer::mapTwoBitGlyphCoverage(renderMode, coverage, renderer.usesAbsoluteGrayPlanes());
   if (!pixel.draw) return;
   renderer.drawPixel(x, y, renderMode == GfxRenderer::BW ? pixelState : pixel.state);
@@ -511,6 +553,7 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
     }
 
     if (is2Bit) {
+      const bool combinedOneBit = renderer.usesGlyphDither() && renderMode == GfxRenderer::BW;
       for (int glyphY = 0; glyphY < height; glyphY++) {
         const int outerCoord = outerBase + glyphY;
         if (syntheticBoldPixels == 0) {
@@ -523,8 +566,9 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
               screenX = innerBase + glyphX;
               screenY = outerCoord;
             }
-            draw2BitGlyphPixel(renderer, renderMode, screenX, screenY, pixelState,
-                               get2BitCoverage(bitmap, glyphY * width + glyphX));
+            const uint8_t coverage = combinedOneBit ? combinedAaCoverage(bitmap, width, height, glyphX, glyphY)
+                                                    : get2BitCoverage(bitmap, glyphY * width + glyphX);
+            draw2BitGlyphPixel(renderer, renderMode, screenX, screenY, pixelState, coverage);
           }
           continue;
         }
@@ -1782,6 +1826,36 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
   display.displayBuffer(effectiveRefreshMode, fadingFix);
 }
 
+void GfxRenderer::displayBufferDriveAll(const HalDisplay::RefreshMode refreshMode) const {
+  HalDisplay::RefreshMode effectiveRefreshMode = refreshMode;
+  if (nextRefreshOverridePending) {
+    effectiveRefreshMode = nextRefreshOverride;
+    nextRefreshOverridePending = false;
+  }
+#if defined(SIMULATOR)
+  // The shim has no drive-all variant; a plain FAST repaint models it well
+  // enough (the preview always fully repaints anyway).
+  display.displayBuffer(effectiveRefreshMode, fadingFix);
+#else
+  display.displayBufferDriveAll(effectiveRefreshMode, fadingFix);
+#endif
+}
+
+void GfxRenderer::displayWindow(const int x, const int y, const int width, const int height) const {
+  nextRefreshOverridePending = false;
+  const auto r = screenRectToAlignedMemRect(orientation, x, y, width, height, panelWidth, panelHeight);
+  if (!r.valid) {
+    display.displayBuffer(HalDisplay::FAST_REFRESH, fadingFix);
+    return;
+  }
+#if defined(SIMULATOR)
+  // The shim has no seeded-window variant; it repaints the whole frame anyway.
+  display.displayBuffer(HalDisplay::FAST_REFRESH, fadingFix);
+#else
+  display.displayWindowSeeded(r.x, r.y, r.w, r.h);
+#endif
+}
+
 void GfxRenderer::displayBufferAsync(const HalDisplay::RefreshMode refreshMode) const {
   HalDisplay::RefreshMode effectiveRefreshMode = refreshMode;
   if (nextRefreshOverridePending) {
@@ -1872,18 +1946,66 @@ std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* 
   currentLine.reserve(textLength);
   candidate.reserve(textLength);
 
+  const auto widthOf = [&](const std::string& s) { return getTextWidth(fontId, s.c_str(), style); };
+
+  // Fill currentLine from a CJK (or mixed) token that does not fit as a whole.
+  // Returns false when the line budget is exhausted (caller should return).
+  const auto wrapCodepoints = [&](const std::string_view token) -> bool {
+    const std::string copy(token);
+    const auto* p = reinterpret_cast<const unsigned char*>(copy.c_str());
+    while (true) {
+      const auto* start = p;
+      const uint32_t cp = utf8NextCodepoint(&p);
+      if (cp == 0) return true;
+      const size_t n = static_cast<size_t>(p - start);
+      candidate = currentLine;
+      candidate.append(reinterpret_cast<const char*>(start), n);
+      if (widthOf(candidate) <= maxWidth) {
+        currentLine.swap(candidate);
+        continue;
+      }
+      if (static_cast<int>(lines.size()) >= maxLines - 1) {
+        candidate = currentLine;
+        candidate.append(reinterpret_cast<const char*>(start));
+        lines.push_back(truncatedText(fontId, candidate.c_str(), maxWidth, style));
+        currentLine.clear();
+        return false;
+      }
+      if (!currentLine.empty()) {
+        lines.push_back(std::move(currentLine));
+        currentLine.assign(reinterpret_cast<const char*>(start), n);
+        if (widthOf(currentLine) > maxWidth) {
+          lines.push_back(truncatedText(fontId, currentLine.c_str(), maxWidth, style));
+          currentLine.clear();
+          if (static_cast<int>(lines.size()) >= maxLines) return false;
+        }
+      } else {
+        currentLine.assign(reinterpret_cast<const char*>(start), n);
+        lines.push_back(truncatedText(fontId, currentLine.c_str(), maxWidth, style));
+        currentLine.clear();
+        if (static_cast<int>(lines.size()) >= maxLines) return false;
+      }
+    }
+  };
+
   while (!remaining.empty()) {
     if (static_cast<int>(lines.size()) == maxLines - 1) {
-      // Last available line: combine any word already started on this line with
-      // the rest of the text, then let truncatedText fit it with an ellipsis.
+      // Last available line: keep a Latin space only when the remainder still
+      // contains spaces. CJK titles have none; inserting one would split 重生.
       candidate = currentLine;
-      if (!candidate.empty() && !remaining.empty()) candidate.push_back(' ');
+      if (!candidate.empty() && !remaining.empty() && remaining.find(' ') != std::string_view::npos) {
+        candidate.push_back(' ');
+      }
       candidate.append(remaining.data(), remaining.size());
+      if (tokenHasCjkBreak(remaining) && widthOf(candidate) > maxWidth) {
+        if (!wrapCodepoints(remaining)) return lines;
+        if (!currentLine.empty() && static_cast<int>(lines.size()) < maxLines) lines.push_back(currentLine);
+        return lines;
+      }
       lines.push_back(truncatedText(fontId, candidate.c_str(), maxWidth, style));
       return lines;
     }
 
-    // Find next word
     const size_t spacePos = remaining.find(' ');
     std::string_view word;
 
@@ -1899,29 +2021,22 @@ std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* 
     if (!candidate.empty()) candidate.push_back(' ');
     candidate.append(word.data(), word.size());
 
-    if (getTextWidth(fontId, candidate.c_str(), style) <= maxWidth) {
+    if (widthOf(candidate) <= maxWidth) {
       currentLine = candidate;
     } else {
       if (!currentLine.empty()) {
         lines.push_back(currentLine);
-        // If the carried-over word itself exceeds maxWidth, truncate it and
-        // push it as a complete line immediately — storing it in currentLine
-        // would allow a subsequent short word to be appended after the ellipsis.
-        candidate.assign(word.data(), word.size());
-        if (getTextWidth(fontId, candidate.c_str(), style) > maxWidth) {
-          lines.push_back(truncatedText(fontId, candidate.c_str(), maxWidth, style));
-          currentLine.clear();
-          if (static_cast<int>(lines.size()) >= maxLines) return lines;
-        } else {
-          currentLine.assign(word.data(), word.size());
-        }
+        currentLine.clear();
+        if (static_cast<int>(lines.size()) >= maxLines) return lines;
+      }
+      candidate.assign(word.data(), word.size());
+      if (widthOf(candidate) <= maxWidth) {
+        currentLine = candidate;
+      } else if (tokenHasCjkBreak(word)) {
+        if (!wrapCodepoints(word)) return lines;
       } else {
-        // Single word wider than maxWidth: truncate and stop to avoid complicated
-        // splitting rules (different between languages). Results in an aesthetically
-        // pleasing end.
-        candidate.assign(word.data(), word.size());
         lines.push_back(truncatedText(fontId, candidate.c_str(), maxWidth, style));
-        return lines;
+        if (static_cast<int>(lines.size()) >= maxLines) return lines;
       }
     }
   }

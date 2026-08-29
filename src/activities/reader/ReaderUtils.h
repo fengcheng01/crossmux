@@ -239,14 +239,9 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool ab
 
 inline bool usesCombinedAa() {
 #if FREEINK_DEVICE_MURPHY_M4
-  // Combined AA is its own setting (TEXT_AA_COMBINED): one absolute 4-level
-  // waveform, no 1-bit paint. TEXT_AA_OVERLAY keeps the original two-pass
-  // path (displayed B/W frame + gray overlay) — on this panel that means a
-  // FAST flash per turn, and the two modes must stay distinguishable.
-  //
-  // Night mode skips grayscale (FreeInkDisplay::displayGrayBuffer returns).
-  // Combined AA also skips the 1-bit paint, so invert + AA would never send a
-  // frame — the panel keeps the previous activity (usually the reader menu).
+  // Combined is one FAST 1-bit refresh (no VSL black flash, no gray shadows).
+  // Absolute 4-level left gray ghosts on white and a slow full refresh.
+  // Overlay keeps FAST + gray 0xCC. Night mode skips.
   if (SETTINGS.screenInverted) return false;
   return SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_COMBINED;
 #else

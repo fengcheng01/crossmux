@@ -8,8 +8,10 @@
 
 #include "fontIds.h"
 
-// Shared INX home/stats chrome: rounded light-gray cards, large values, hairline
+// Shared INX home/stats chrome: white rounded cards, large values, hairline
 // progress. Keep drawing here so 阅读记录 and 阅读统计 stay on one design.
+// Do not fill these cards LightGray: 1-in-4 dither over a full panel reads as a
+// washed sheet on M4 FAST and ghosts the previous page through the speckle.
 namespace InxInkCards {
 constexpr int kRadius = 14;
 constexpr int kGap = 12;
@@ -18,7 +20,7 @@ constexpr int kProgressHeight = 4;
 
 inline void drawCard(const GfxRenderer& renderer, const Rect rect) {
   if (rect.width <= 0 || rect.height <= 0) return;
-  renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, kRadius, Color::LightGray);
+  renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, kRadius, Color::White);
   renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, kRadius, true);
 }
 
@@ -58,6 +60,10 @@ inline void drawProgress(const GfxRenderer& renderer, const Rect rect, const uin
   if (fill > 0) renderer.fillRect(rect.x + 1, rect.y + 1, fill, std::max(0, rect.height - 2));
 }
 
+inline void drawHairProgress(const GfxRenderer& renderer, const Rect rect, const uint8_t percent) {
+  drawProgress(renderer, rect, percent);
+}
+
 inline void drawPageTitle(const GfxRenderer& renderer, const int x, const int y, const char* title) {
   renderer.drawText(NOTOSERIF_14_FONT_ID, x, y, title, true, EpdFontFamily::BOLD);
 }
@@ -84,12 +90,29 @@ inline void drawDonut(const GfxRenderer& renderer, const int cx, const int cy, c
   }
   char label[8];
   snprintf(label, sizeof(label), "%u%%", static_cast<unsigned>(std::min<int>(percent, 100)));
-  const int valueH = renderer.getLineHeight(NOTOSANS_18_FONT_ID);
-  const int valueW = renderer.getTextWidth(NOTOSANS_18_FONT_ID, label, EpdFontFamily::BOLD);
-  renderer.drawText(NOTOSANS_18_FONT_ID, cx - valueW / 2, cy - valueH, label, true, EpdFontFamily::BOLD);
+  const int innerDiam = inner * 2;
+  const int capH = caption ? renderer.getLineHeight(SMALL_FONT_ID) : 0;
+  const int capGap = caption ? 2 : 0;
+  int valueFont = SMALL_FONT_ID;
+  // Prefer the largest face that still sits inside the hole. CN 18pt is 54 px
+  // tall and "100%" overflows the ring (and the cards above it).
+  const int candidates[] = {NOTOSANS_18_FONT_ID, UI_12_FONT_ID, SMALL_FONT_ID};
+  for (const int id : candidates) {
+    const int valueH = renderer.getLineHeight(id);
+    const int valueW = renderer.getTextWidth(id, label, EpdFontFamily::BOLD);
+    if (valueW <= innerDiam - 8 && valueH + capGap + capH <= innerDiam - 4) {
+      valueFont = id;
+      break;
+    }
+  }
+  const int valueH = renderer.getLineHeight(valueFont);
+  const int valueW = renderer.getTextWidth(valueFont, label, EpdFontFamily::BOLD);
+  const int blockH = valueH + capGap + capH;
+  const int textY = cy - blockH / 2;
+  renderer.drawText(valueFont, cx - valueW / 2, textY, label, true, EpdFontFamily::BOLD);
   if (caption) {
     const int capW = renderer.getTextWidth(SMALL_FONT_ID, caption);
-    renderer.drawText(SMALL_FONT_ID, cx - capW / 2, cy + 4, caption);
+    renderer.drawText(SMALL_FONT_ID, cx - capW / 2, textY + valueH + capGap, caption);
   }
 }
 

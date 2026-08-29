@@ -739,6 +739,7 @@ void TxtReaderActivity::renderPage() {
 
   // BW rendering
   if (SETTINGS.readingBackgroundEnabled && !readingBackground::load(renderer)) renderer.clearScreen();
+  const bool combinedAa = ReaderUtils::usesCombinedAa();
   renderLines();
   renderStatusBar();
   const auto tBwRender = millis();
@@ -767,23 +768,18 @@ void TxtReaderActivity::renderPage() {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
 #else
-  if (ReaderUtils::usesCombinedAa()) {
-    // FAST/HALF cadence picks the waveform tier: smooth turns (00 idle) with
-    // the periodic HALF pass clearing accumulated ghosts.
-    const auto mode = ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
-    ReaderUtils::renderAntiAliased(
-        renderer,
-        [this, &renderLines]() {
-          renderLines();
-          renderStatusBar();
-        },
-        true, mode == HalDisplay::HALF_REFRESH);
+  if (combinedAa) {
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    if (pagesUntilFullRefresh <= 1) {
+      pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+    } else {
+      pagesUntilFullRefresh--;
+    }
   } else {
-    // Other devices keep the upstream behavior: show the BW frame first, then
-    // the gray pass.
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
     if (SETTINGS.textAntiAliasing) {
       ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
+      renderer.cleanupGrayscaleWithFrameBuffer();
     }
   }
 #endif

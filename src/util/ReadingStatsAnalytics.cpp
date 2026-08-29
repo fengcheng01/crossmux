@@ -1,6 +1,7 @@
 #include "ReadingStatsAnalytics.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <ctime>
 
 #include "util/TimeUtils.h"
@@ -29,6 +30,22 @@ std::string formatDurationHm(const uint64_t totalMs) {
     return std::to_string(minutes) + "m";
   }
   return std::to_string(hours) + "h " + std::to_string(minutes) + "m";
+}
+
+void formatDurationParts(const uint64_t totalMs, char* number, const size_t numberSize, bool& hours) {
+  if (number == nullptr || numberSize == 0) {
+    hours = false;
+    return;
+  }
+  const uint64_t minutes = totalMs / 60000ULL;
+  if (minutes < 60ULL) {
+    hours = false;
+    snprintf(number, numberSize, "%llu", static_cast<unsigned long long>(minutes));
+    return;
+  }
+  hours = true;
+  const unsigned tenths = static_cast<unsigned>((minutes * 10ULL + 3ULL) / 60ULL);
+  snprintf(number, numberSize, "%u.%u", tenths / 10U, tenths % 10U);
 }
 
 std::string formatDayOrdinalLabel(const uint32_t dayOrdinal) {

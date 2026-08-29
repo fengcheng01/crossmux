@@ -440,6 +440,17 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem) {
   if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::INX) {
     mainTabFocus = MainTabFocus::Tabs;
     mainTabEntryReleasePending = false;
+#if FREEINK_DEVICE_MURPHY_M4
+    // Reader onExit already resynced + FAST. Do not FULL here: 0xF7 inverts
+    // the panel several times (three black flashes on the way home).
+    if (currentActivity) {
+      const std::string& activityName = currentActivity->name;
+      if (activityName.size() >= 6 && activityName.compare(activityName.size() - 6, 6, "Reader") == 0) {
+        renderer.cleanupGrayscaleWithFrameBuffer();
+        renderer.requestNextRefresh(HalDisplay::FAST_REFRESH);
+      }
+    }
+#endif
     goToInxRecent();
     return;
   }

@@ -90,25 +90,26 @@ void InxTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const ch
 
   const int titleTop = rect.y + InxMetrics::values.batteryBarHeight;
   const int rightPadding = InxMetrics::values.contentSidePadding;
+  // Clip the whole title band down to the header rule. Vertically centering
+  // 8pt "更多详情" inside the 12pt row while clipping to 8pt line height
+  // sheared the glyph bottoms.
+  const int titleClipH = std::max(0, rect.y + rect.height - 1 - titleTop);
   int titleRight = rect.x + rect.width - rightPadding;
   if (subtitle && *subtitle) {
+    constexpr int kGlyphSlack = 16;
     const int subtitleWidth =
         std::min(renderer.getTextWidth(SMALL_FONT_ID, subtitle), std::max(0, rect.width / 2 - rightPadding));
-    titleRight -= subtitleWidth + kIconGap;
+    titleRight -= subtitleWidth + kIconGap + kGlyphSlack;
     if (subtitleWidth > 0) {
-      const GfxRenderer::ClipScope clip(renderer, titleRight + kIconGap, titleTop, subtitleWidth,
-                                        renderer.getLineHeight(SMALL_FONT_ID));
-      renderer.drawText(
-          SMALL_FONT_ID, rect.x + rect.width - rightPadding - subtitleWidth,
-          titleTop +
-              std::max(0, (renderer.getLineHeight(NOTOSERIF_12_FONT_ID) - renderer.getLineHeight(SMALL_FONT_ID)) / 2),
-          subtitle);
+      const int textX = rect.x + rect.width - rightPadding - subtitleWidth - kGlyphSlack;
+      const GfxRenderer::ClipScope clip(renderer, textX, titleTop, subtitleWidth + kGlyphSlack, titleClipH);
+      renderer.drawText(SMALL_FONT_ID, textX, titleTop, subtitle);
     }
   }
 
   if (title && *title && titleRight > rect.x + kRowPadding) {
     const GfxRenderer::ClipScope clip(renderer, rect.x + kRowPadding, titleTop, titleRight - rect.x - kRowPadding,
-                                      renderer.getLineHeight(NOTOSERIF_12_FONT_ID));
+                                      titleClipH);
     renderer.drawText(NOTOSERIF_12_FONT_ID, rect.x + kRowPadding, titleTop, title, true, EpdFontFamily::BOLD);
   }
   renderer.drawLine(rect.x, rect.y + rect.height - 1, rect.x + rect.width - 1, rect.y + rect.height - 1, true);

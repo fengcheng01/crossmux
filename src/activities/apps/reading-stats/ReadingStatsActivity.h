@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../Activity.h"
-#include "Bitmap.h"
 #include "components/themes/BaseTheme.h"
 #include "util/ButtonNavigator.h"
 
@@ -13,16 +12,10 @@ class ReadingStatsActivity final : public Activity {
   bool waitForConfirmRelease = false;
   bool waitForBackRelease = false;
   bool mainTabEnabled = false;
-  bool waitingForCoverRender = false;
-  bool renderedCoverMissing = false;
-  int renderedCoverView = -1;
-  int attemptedCoverView = -1;
-  Rect coverHitRect_{};
+  Rect detailsHitRect_{};
   void openSelectedEntry();
-  void openCoverBook();
   void confirmRemoveSelectedBook();
   void guardBackReturn();
-  void prepareVisibleCover();
   bool usesInxLayout() const;
   void renderInx();
 

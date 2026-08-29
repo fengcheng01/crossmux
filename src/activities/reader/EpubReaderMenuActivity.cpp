@@ -5,10 +5,12 @@
 #include <I18n.h>
 
 #include <algorithm>
+#include <cstdio>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
+#include "activities/util/FrontlightPanelActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
 
@@ -164,11 +166,7 @@ void EpubReaderMenuActivity::activateIndex(const int index) {
   }
 
   if (selectedAction == MenuAction::FRONTLIGHT) {
-    const bool lightOn = !Frontlight.isOn();
-    Frontlight.setOn(lightOn);
-    SETTINGS.frontlightOn = lightOn ? 1 : 0;
-    SETTINGS.saveToFile();
-    requestUpdate();
+    startActivityForResultWith<FrontlightPanelActivity>([this](const ActivityResult&) { requestUpdate(); });
     return;
   }
 
@@ -227,7 +225,13 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
     } else if (action == MenuAction::NIGHT_MODE) {
       menuRowItems[i].value = I18N.get(SETTINGS.screenInverted ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF);
     } else if (action == MenuAction::FRONTLIGHT) {
-      menuRowItems[i].value = I18N.get(Frontlight.isOn() ? StrId::STR_STATE_ON : StrId::STR_STATE_OFF);
+      if (Frontlight.hasColorTemperature()) {
+        snprintf(frontlightValue, sizeof(frontlightValue), "%u%% / %u%%",
+                 static_cast<unsigned>(Frontlight.brightness()), static_cast<unsigned>(Frontlight.warmth()));
+      } else {
+        snprintf(frontlightValue, sizeof(frontlightValue), "%u%%", static_cast<unsigned>(Frontlight.brightness()));
+      }
+      menuRowItems[i].value = frontlightValue;
     }
   }
 
@@ -254,15 +258,19 @@ void EpubReaderMenuActivity::drawChrome() {
 void EpubReaderMenuActivity::render(RenderLock&&) {
   if (optionPopup.processRender(renderer, mappedInput)) return;
 
+#if FREEINK_DEVICE_MURPHY_M4
+  if (firstRender) renderer.cleanupGrayscaleWithFrameBuffer();
+#endif
   renderer.clearScreen();
   drawChrome();
 
   renderUi();
 
   drawFooter();
-#if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_MURPHY_M4
-  // A4/M4 render single-pass grayscale reader pages; the menu's first frame
-  // needs a HALF refresh or it ghosts over the gray text.
+#if FREEINK_DEVICE_MURPHY_M4
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  firstRender = false;
+#elif FREEINK_DEVICE_EEGO_A4
   renderer.displayBuffer(firstRender ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
   firstRender = false;
 #else

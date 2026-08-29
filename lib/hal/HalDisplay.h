@@ -39,6 +39,11 @@ class HalDisplay {
                             bool fromProgmem = false) const;
 
   void displayBuffer(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
+  // FAST, but every pixel is driven (RED = complement of the new frame). Use
+  // to bleach a previous image into white without HALF/FULL invert flash.
+  void displayBufferDriveAll(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
+  // Panel-memory rectangle, x/w multiples of 8. FAST against already-seeded RED.
+  void displayWindowSeeded(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
   // Non-blocking refresh (shadow-free): starts the panel waveform and returns
   // while the panel refreshes on its own. The framebuffer must stay untouched
   // until waitRefreshComplete(), and the caller must rebuild the differential
