@@ -228,6 +228,8 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   }
   doc["sdFontFlashPreload"] = sdFontFlashPreload;
   doc["readerTapZones"] = readerTapZones;
+  doc["lockScreenPin"] = lockScreenPin;
+  doc["lockScreenPinIsSet"] = lockScreenPinIsSet;
 #ifdef ENABLE_CHINESE_VERSION
   // Marker for the one-time 14pt→12pt clamp in fromJson (see below).
   doc["cnFontClampV1"] = 1;
@@ -378,6 +380,14 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
       clamp(static_cast<uint8_t>(doc["sdFontFlashPreload"] | 0), static_cast<uint8_t>(2), static_cast<uint8_t>(0));
   readerTapZones = doc["readerTapZones"].isNull() ? DEFAULT_READER_TAP_ZONES : doc["readerTapZones"].as<uint32_t>();
   if ((readerTapZones & ~0x3FFFFu) != 0) readerTapZones = DEFAULT_READER_TAP_ZONES;
+  // Lock-screen PIN (manual persistence: uint16_t, see header note). "0000" is
+  // a legal PIN and stores as 0, so a missing lockScreenPin key (rather than a
+  // stored 0) is what disarms a stray set flag — a hand-edited file must not
+  // lock the user out with an unknowable code.
+  lockScreenPin = doc["lockScreenPin"].isNull() ? 0 : static_cast<uint16_t>(doc["lockScreenPin"].as<uint32_t>());
+  if (lockScreenPin > 9999) lockScreenPin = 0;
+  lockScreenPinIsSet = static_cast<uint8_t>(doc["lockScreenPinIsSet"] | 0) != 0 ? 1 : 0;
+  if (lockScreenPinIsSet && doc["lockScreenPin"].isNull()) lockScreenPinIsSet = 0;
 #ifdef ENABLE_CHINESE_VERSION
   cnFontPromptDismissed = static_cast<uint8_t>(doc["cnFontPromptDismissed"] | 0);
   // One-time clamp: files saved before the 12pt default keep a 14/16/18pt

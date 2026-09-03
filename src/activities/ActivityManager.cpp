@@ -17,6 +17,7 @@
 #include "apps/avatar/UglyAvatarActivity.h"
 #include "apps/buddy/BuddyActivity.h"
 #include "apps/calculator/CalculatorActivity.h"
+#include "apps/countdown/CountdownActivity.h"
 #include "apps/sokoban/SokobanGameActivity.h"
 #ifdef ENABLE_CHINESE_VERSION
 #include "apps/chinese-chess/ChineseChessMenuActivity.h"
@@ -111,22 +112,26 @@ void ActivityManager::loop() {
   if (currentActivity && pendingAction.load() == PendingAction::None) {
     if (handleMainTabInput()) return;
 
-    if (!currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {
-      if (currentActivity->handleHomeGesture()) {
+    // System gestures (swipe-up home, swipe-down light panel) must not fire on
+    // activities that declared themselves gesture-locked (the PIN pad).
+    if (!currentActivity->blocksSystemGestures()) {
+      if (!currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {
+        if (currentActivity->handleHomeGesture()) {
+          return;
+        }
+        goHome();
         return;
       }
-      goHome();
-      return;
-    }
 
-    if (currentActivity->name != "FrontlightPanel" && mappedInput.wasLightPanelGesture()) {
-      auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput);
-      if (!panel) {
-        LOG_ERR("ACT", "OOM: frontlight panel (%u bytes)", static_cast<unsigned>(sizeof(FrontlightPanelActivity)));
+      if (currentActivity->name != "FrontlightPanel" && mappedInput.wasLightPanelGesture()) {
+        auto panel = makeUniqueNoThrow<FrontlightPanelActivity>(renderer, mappedInput);
+        if (!panel) {
+          LOG_ERR("ACT", "OOM: frontlight panel (%u bytes)", static_cast<unsigned>(sizeof(FrontlightPanelActivity)));
+          return;
+        }
+        pushActivity(std::move(panel));
         return;
       }
-      pushActivity(std::move(panel));
-      return;
     }
 
     // Note: do not hold a lock here, the loop() method must be responsible for acquire one if needed
@@ -210,10 +215,11 @@ void ActivityManager::loop() {
       // but a pushActivity runs mid-frame; without this, the incoming activity
       // re-reads the same tap and double-activates (observed crash with WeRead:
       // the second activation hit WiFi/render-lock interleaving and tripped
-      // FreeRTOS xTaskPriorityDisinherit on the rendering mutex).
-#if !defined(SIMULATOR)
+      // FreeRTOS xTaskPriorityDisinherit on the rendering mutex). The simulator
+      // HalGPIO implements the same clear — skipping it there let the leaked
+      // tap re-activate under the just-entered activity (countdown opened its
+      // action popup from the apps-menu icon tap).
       gpio.clearTouchTapEvent();
-#endif
 
       lock.unlock();  // onEnter may acquire its own lock
       currentActivity->onEnter();
@@ -489,6 +495,7 @@ void ActivityManager::goToMinesweeper() { replaceActivityWith<MinesweeperMenuAct
 void ActivityManager::goToPixelSwitch() { replaceActivityWith<PixelSwitchActivity>(); }
 
 void ActivityManager::goToCalculator() { replaceActivityWith<CalculatorActivity>(); }
+void ActivityManager::goToCountdown() { replaceActivityWith<CountdownActivity>(); }
 
 void ActivityManager::goToWoodfish() { replaceActivityWith<WoodfishActivity>(); }
 

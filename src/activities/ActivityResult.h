@@ -76,9 +76,13 @@ struct FilePathResult {
   std::string path;
 };
 
+struct PinResult {
+  bool verified = false;
+};
+
 using ResultVariant = std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult,
                                    IntervalResult, ChapterRangeResult, PageResult, TxtOffsetResult,
-                                   ProgressChangeResult, NetworkModeResult, FootnoteResult, FilePathResult>;
+                                   ProgressChangeResult, NetworkModeResult, FootnoteResult, FilePathResult, PinResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

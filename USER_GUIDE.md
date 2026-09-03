@@ -118,6 +118,8 @@ The Recent Books screen lists the most recently opened books in a chronological 
 
 The File Transfer screen allows you to upload and manage files on the device. When you enter the screen, choose **Join a Network**, **Calibre Wireless**, or **Create Hotspot**. The reader then starts the web server for the selected mode.
 
+On the Murphy M4 you can also choose **USB 数据线 / USB Transfer**: connect the device to your computer with a USB cable and the SD card appears as a removable drive — no Wi-Fi needed. While the card is shared the reader itself stays idle; when you are done, eject the drive on your computer first, and the reader will restart automatically. Pressing Back cancels as long as no computer has connected yet.
+
 See the [web server docs](./docs/webserver.md) for more information on how to connect to the web server and upload files.
 
 The web interface also supports **WebDAV**, allowing you to mount the device as a network drive and manage files directly from your computer's file manager.
@@ -490,6 +492,15 @@ If this returns `HTTP 402` with `{"code":2002,"message":"Username is already reg
 
 If you use the HTTPS listener, use `https://<server-ip>:7200` (`curl -k` only for self-signed certificate testing).
 
+##### Document Matching (Filename vs Binary)
+
+The **Document Matching** option in the KOReader Sync settings decides how CrossPoint identifies a book to the sync server:
+
+- **Filename** (default): the book is identified by the MD5 of its file name including the extension (`book.epub` and `other.epub` are different books even if their content is identical). Progress follows the name, so renaming a file makes it count as a different book. This matches KOReader's own *filename* checksum method.
+- **Binary**: the book is identified by KOReader's standard partial MD5 of the file content (a few sampled 1024-byte chunks). This is KOReader's own default checksum method, so KOReader apps and devices sync with CrossPoint out of the box in this mode. Binary matching requires both devices to hold the *same file*: renaming is fine, but a different conversion or edition of the same title has different content and will not match.
+
+Switching the matching method switches which server record is read and written. **Sync Behavior** set to **Smart sync** eases the transition: it also probes the other method's record and continues from the furthest progress, while uploads always go to the configured method.
+
 ##### Syncing While Reading
 
 Once any of the options above is set up, press **Confirm** while reading to open the reader menu, then select **Sync Progress**. Alternatively, set **Settings -> Controls -> Long-press Menu** to **KOSync** and hold Confirm to launch sync directly.
@@ -543,6 +554,15 @@ Transparent overlay files are intentionally separate from normal sleep images. R
 
 > [!TIP]
 > You can set an image as the sleep screen cover directly from the BMP image viewer in the **[Browse Files](#33-browse-files-screen)** screen.
+
+#### Lock screen password
+
+**Settings → System → Lock Screen Password** asks for a 4-digit code when waking from a sleep screen before entering the system — a convenience barrier against accidental wakes and pocket touches, not device encryption.
+
+- Turning the setting on for the first time opens the PIN pad immediately: type a 4-digit code, then type it again to confirm. Toggling it off (and back on later) reuses the saved code.
+- **Set Lock Password** (directly below the toggle) replaces the code: the new code takes effect after the confirm entry matches.
+- On the PIN pad, tap the keys, or move with the direction buttons and press Confirm; `<` deletes the last digit. The entry verifies automatically on the fourth digit — a wrong code clears and can be retried.
+- Cold boots (powering on after a full shutdown) are not gated, and the code is stored unencrypted in the device settings — if you forget it, a restart or reflash gets you back in.
 
 ---
 

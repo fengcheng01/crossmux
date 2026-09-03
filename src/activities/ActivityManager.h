@@ -124,6 +124,7 @@ class ActivityManager {
   void goToMinesweeper();
   void goToPixelSwitch();
   void goToCalculator();
+  void goToCountdown();
   void goToWoodfish();
   void goToAirPage();
   void goToBuddy();

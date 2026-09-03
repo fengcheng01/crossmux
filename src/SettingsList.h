@@ -187,8 +187,8 @@ inline std::vector<StrId> buildLongPressMenuValues() {
 // ACTION-type entries and entries without a key are device-only.
 inline const std::vector<SettingInfo>& getBaseSettingsList() {
   static const std::vector<SettingInfo> baseList = [] {
-    // Enum settings are persisted as numeric values. Assign these labels by enum
-    // value so a reordered menu or enum cannot silently swap their behavior.
+  // Enum settings are persisted as numeric values. Assign these labels by enum
+  // value so a reordered menu or enum cannot silently swap their behavior.
 #if !FREEINK_DEVICE_MURPHY_M4
     std::vector<StrId> sleepScreenValues(CrossPointSettings::SLEEP_SCREEN_MODE_COUNT);
     sleepScreenValues[CrossPointSettings::DARK] = StrId::STR_DARK;
@@ -200,6 +200,10 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
     sleepScreenValues[CrossPointSettings::QUICK_RESUME] = StrId::STR_QUICK_RESUME;
     sleepScreenValues[CrossPointSettings::TRANSPARENT] = StrId::STR_TRANSPARENT;
     sleepScreenValues[CrossPointSettings::CLOCK] = StrId::STR_SLEEP_CLOCK;
+#ifdef ENABLE_CHINESE_VERSION
+    sleepScreenValues[CrossPointSettings::CALENDAR] = StrId::STR_SLEEP_CALENDAR;
+#endif
+    sleepScreenValues[CrossPointSettings::COUNTDOWN] = StrId::STR_SLEEP_COUNTDOWN;
 #endif
 
     std::vector<StrId> statusBarClockValues(CrossPointSettings::STATUS_BAR_CLOCK_MODE_COUNT);
@@ -211,29 +215,29 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
     // INX option popups show 5 rows and touch cannot scroll them. CLOCK used to
     // sit at enum index 8, so testers only ever saw 浅色/深色/自定义/封面/无.
     // Map a display-first order; persistence still stores SLEEP_SCREEN_MODE.
+    // Exactly five entries: the INX option popup shows five rows without
+    // scrolling — a longer list desyncs touch hits from the drawn window.
     static constexpr uint8_t kM4SleepDisplayToMode[] = {
-        CrossPointSettings::LIGHT,        CrossPointSettings::DARK,         CrossPointSettings::CLOCK,
-        CrossPointSettings::COVER,        CrossPointSettings::BLANK,        CrossPointSettings::CUSTOM,
-        CrossPointSettings::COVER_CUSTOM, CrossPointSettings::QUICK_RESUME, CrossPointSettings::TRANSPARENT,
+        CrossPointSettings::CLOCK, CrossPointSettings::CALENDAR, CrossPointSettings::COUNTDOWN,
+        CrossPointSettings::LIGHT, CrossPointSettings::DARK,
     };
     SettingInfo sleepScreenSetting = SettingInfo::DynamicEnum(
         StrId::STR_SLEEP_SCREEN,
-        {StrId::STR_LIGHT, StrId::STR_DARK, StrId::STR_SLEEP_CLOCK, StrId::STR_COVER, StrId::STR_NONE_OPT,
-         StrId::STR_CUSTOM, StrId::STR_COVER_CUSTOM, StrId::STR_QUICK_RESUME, StrId::STR_TRANSPARENT},
+        {StrId::STR_SLEEP_CLOCK, StrId::STR_SLEEP_CALENDAR, StrId::STR_LIGHT, StrId::STR_DARK, StrId::STR_COVER},
         []() -> uint8_t {
           for (uint8_t i = 0; i < static_cast<uint8_t>(std::size(kM4SleepDisplayToMode)); ++i) {
             if (kM4SleepDisplayToMode[i] == SETTINGS.sleepScreen) return i;
           }
-          return 2;
+          return 0;  // modes outside the trimmed list display as the first entry
         },
         [](uint8_t v) {
           if (v < std::size(kM4SleepDisplayToMode)) SETTINGS.sleepScreen = kM4SleepDisplayToMode[v];
         },
         "sleepScreen", StrId::STR_CAT_DISPLAY);
 #else
-    SettingInfo sleepScreenSetting = SettingInfo::Enum(
-        StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen, std::move(sleepScreenValues), "sleepScreen",
-        StrId::STR_CAT_DISPLAY);
+    SettingInfo sleepScreenSetting =
+        SettingInfo::Enum(StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen, std::move(sleepScreenValues),
+                          "sleepScreen", StrId::STR_CAT_DISPLAY);
 #endif
 
     std::vector<SettingInfo> v = {
@@ -339,8 +343,9 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
             .withTextSettings(),
 #if FREEINK_DEVICE_MURPHY_M4
         SettingInfo::Enum(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing,
-                          {StrId::STR_STATE_OFF, StrId::STR_AA_OVERLAY, StrId::STR_AA_COMBINED}, "textAntiAliasing",
-                          StrId::STR_CAT_READER)
+                          {StrId::STR_STATE_OFF, StrId::STR_AA_OVERLAY, StrId::STR_AA_COMBINED, StrId::STR_AA_DIRECT,
+                           StrId::STR_AA_SWIFT},
+                          "textAntiAliasing", StrId::STR_CAT_READER)
             .withTextSettings(),
 #else
         SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
@@ -360,6 +365,8 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
             StrId::STR_TOUCH_READER_CONTROLS, &CrossPointSettings::touchReaderControls,
             {StrId::STR_STATE_OFF, StrId::STR_STATE_TAP, StrId::STR_STATE_SWIPE, StrId::STR_STATE_INVERTED_TAP},
             "touchReaderControls", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Toggle(StrId::STR_SWIPE_TO_TURN_PAGE, &CrossPointSettings::swipeToTurnPage, "swipeToTurnPage",
+                            StrId::STR_CAT_CONTROLS),
         SettingInfo::Toggle(StrId::STR_TAP_FOR_READER_MENU, &CrossPointSettings::tapForReaderMenu, "tapForReaderMenu",
                             StrId::STR_CAT_CONTROLS),
         SettingInfo::Toggle(StrId::STR_FRONT_BTN_FOLLOW_ORIENTATION, &CrossPointSettings::frontButtonFollowOrientation,
@@ -391,6 +398,8 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
             StrId::STR_TIME_TO_SLEEP, &CrossPointSettings::sleepTimeoutMinutes,
             {CrossPointSettings::MIN_SLEEP_TIMEOUT_MINUTES, CrossPointSettings::MAX_SLEEP_TIMEOUT_MINUTES, 1},
             "sleepTimeoutMinutes", StrId::STR_CAT_SYSTEM),
+        SettingInfo::Toggle(StrId::STR_LOCK_SCREEN_PASSWORD, &CrossPointSettings::lockScreenPasswordEnabled,
+                            "lockScreenPasswordEnabled", StrId::STR_CAT_SYSTEM),
         SettingInfo::Toggle(StrId::STR_SHOW_HIDDEN_FILES, &CrossPointSettings::showHiddenFiles, "showHiddenFiles",
                             StrId::STR_CAT_SYSTEM),
         SettingInfo::Toggle(StrId::STR_REMOVE_READ_FROM_RECENTS, &CrossPointSettings::removeReadBooksFromRecents,
@@ -474,6 +483,14 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
               KOREADER_STORE.saveToFile();
             },
             "koSyncBehavior", StrId::STR_KOREADER_SYNC),
+        SettingInfo::DynamicEnum(
+            StrId::STR_EXIT_SYNC_PROMPT_SETTING, {StrId::STR_STATE_OFF, StrId::STR_STATE_ON},
+            [] { return static_cast<uint8_t>(KOREADER_STORE.getExitSyncPrompt()); },
+            [](uint8_t v) {
+              KOREADER_STORE.setExitSyncPrompt(v != 0);
+              KOREADER_STORE.saveToFile();
+            },
+            "koExitSyncPrompt", StrId::STR_KOREADER_SYNC),
         // --- Status Bar Settings (web-only, uses StatusBarSettingsActivity) ---
         SettingInfo::Toggle(StrId::STR_CHAPTER_PAGE_COUNT, &CrossPointSettings::statusBarChapterPageCount,
                             "statusBarChapterPageCount", StrId::STR_CUSTOMISE_STATUS_BAR),
@@ -524,7 +541,9 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
 }
 
 inline bool isSettingAvailableOnBoard(const SettingInfo& setting) {
-  if (!BoardConfig::hasTouch() && setting.nameId == StrId::STR_TOUCH_READER_CONTROLS) return false;
+  if (!BoardConfig::hasTouch() &&
+      (setting.nameId == StrId::STR_TOUCH_READER_CONTROLS || setting.nameId == StrId::STR_SWIPE_TO_TURN_PAGE))
+    return false;
   if (!BoardConfig::hasHomeKey() && setting.nameId == StrId::STR_TAP_FOR_READER_MENU) return false;
   const bool frontlightSetting = setting.valuePtr == &CrossPointSettings::frontlightBrightness ||
                                  setting.valuePtr == &CrossPointSettings::frontlightOn ||

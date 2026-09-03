@@ -42,6 +42,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     QUICK_RESUME = 6,
     TRANSPARENT = 7,
     CLOCK = 8,
+    CALENDAR = 9,  // Month grid + lunar (CN builds; needs a trustworthy clock)
+    COUNTDOWN = 10,  // Days remaining until the Countdown app's target date
     SLEEP_SCREEN_MODE_COUNT
   };
   enum SLEEP_SCREEN_COVER_MODE { FIT = 0, CROP = 1, SLEEP_SCREEN_COVER_MODE_COUNT };
@@ -293,8 +295,17 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t clockAutoSync = 1;
   // Text rendering settings
   uint8_t extraParagraphSpacing = 0;
-  // 0 = off, 1 = two-pass overlay (default), 2 = M4 combined single waveform.
-  enum TEXT_AA : uint8_t { TEXT_AA_OFF = 0, TEXT_AA_OVERLAY = 1, TEXT_AA_COMBINED = 2, TEXT_AA_COUNT = 3 };
+  // 0 = off, 1 = two-pass overlay (default), 2 = M4 combined single waveform,
+  // 3 = M4 direct: one absolute gray refresh per turn (experimental),
+  // 4 = M4 swift: differential repaint base + weak edge pass (experimental).
+  enum TEXT_AA : uint8_t {
+    TEXT_AA_OFF = 0,
+    TEXT_AA_OVERLAY = 1,
+    TEXT_AA_COMBINED = 2,
+    TEXT_AA_DIRECT = 3,
+    TEXT_AA_SWIFT = 4,
+    TEXT_AA_COUNT = 5
+  };
   uint8_t textAntiAliasing = TEXT_AA_OVERLAY;
   uint8_t fakeBold = SYNTHETIC_BOLD_STANDARD;
   uint8_t readingBackgroundEnabled = 0;
@@ -330,6 +341,15 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
   uint8_t sleepTimeoutMinutes = 10;
+  // Lock-screen password (4 digits). Waking from a sleep screen asks for the
+  // PIN before entering the system — anti-mistouch, not security: the code is
+  // stored plainly in settings.bin and a cold boot is not gated.
+  // lockScreenPasswordEnabled persists via the SettingsList toggle; the PIN
+  // itself is a uint16_t, which the uint8_t SettingInfo member pointer cannot
+  // address, so it persists manually in toJson/fromJson.
+  uint8_t lockScreenPasswordEnabled = 0;
+  uint16_t lockScreenPin = 0;
+  uint8_t lockScreenPinIsSet = 0;
   // E-ink refresh frequency (default 15 pages)
   uint8_t refreshFrequency = REFRESH_15;
   uint8_t hyphenationEnabled = 0;
@@ -401,6 +421,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t tiltPageTurn = TILT_OFF;
   // Touch screen reader zones/gestures on boards with a touch controller.
   uint8_t touchReaderControls = TOUCH_READER_ON;
+  // Horizontal swipes turn pages in addition to the selected tap zones.
+  uint8_t swipeToTurnPage = 0;
   // Packed 3x3 reader tap actions, 2 bits each. See readerTapActionAt().
   uint32_t readerTapZones = DEFAULT_READER_TAP_ZONES;
   uint8_t readerTapActionAt(uint8_t index) const {

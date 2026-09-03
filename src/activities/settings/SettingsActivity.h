@@ -31,6 +31,7 @@ enum class SettingAction {
   TextSettings,
   ReaderTapZones,
   FrontlightPanel,
+  SetLockPassword,
   About,
 };
 
@@ -237,6 +238,9 @@ class SettingsActivity final : public UiTabListActivity {
   void openOtaUpdate();
   void openSleepTimeoutPicker();
   void openReadingBackgroundMenu();
+  // Runs the PIN pad in Set mode; a completed double-entry saves the code and
+  // turns the lock on, a cancel leaves the toggle untouched (off).
+  void openLockPasswordSetup();
   void openReadingBackgroundPicker();
   void rebuildSettingsLists();
   void syncQuickResumeTimeoutForSleepScreen(bool sleepScreenChanged, bool quickResumeTimeoutChanged);

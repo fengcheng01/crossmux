@@ -37,6 +37,7 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/FrontlightPanelActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
+#include "activities/util/PinEntryActivity.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
@@ -252,6 +253,9 @@ void SettingsActivity::rebuildSettingsLists() {
       controlsSettings.push_back(tapZones);
     }
   }
+  // Lock-screen PIN management sits with its toggle (the System settings rows
+  // draw before the appended actions, so this lands directly under it).
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_SET_LOCK_PASSWORD, SettingAction::SetLockPassword));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_APP_VISIBILITY, SettingAction::AppVisibility));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_DATE_AND_TIME, SettingAction::DateTime));
@@ -589,6 +593,14 @@ void SettingsActivity::toggleCurrentSetting() {
     return;
   }
 
+  if (setting.valuePtr == &CrossPointSettings::lockScreenPasswordEnabled && !SETTINGS.lockScreenPasswordEnabled &&
+      !SETTINGS.lockScreenPinIsSet) {
+    // First enable must route through the PIN setup: the lock cannot arm
+    // without a code. A cancel keeps the toggle off; success turns it on.
+    openLockPasswordSetup();
+    return;
+  }
+
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     // Toggle the boolean value using the member pointer
     const bool currentValue = SETTINGS.*(setting.valuePtr);
@@ -713,6 +725,9 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::FrontlightPanel:
         startActivityForResultWith<FrontlightPanelActivity>(resultHandler);
         break;
+      case SettingAction::SetLockPassword:
+        openLockPasswordSetup();
+        break;
       case SettingAction::Language:
         // Row labels are translated once in rebuildRowItems() and don't
         // re-run on Pop (see ActivityManager::loop()), so a language switch
@@ -805,6 +820,21 @@ void SettingsActivity::openSleepTimeoutPicker() {
       "SleepTimeoutInterval", StrId::STR_TIME_TO_SLEEP, SETTINGS.sleepTimeoutMinutes,
       CrossPointSettings::MIN_SLEEP_TIMEOUT_MINUTES, CrossPointSettings::MAX_SLEEP_TIMEOUT_MINUTES, 1, 5,
       StrId::STR_SLEEP_TIMER_VALUE_FORMAT, false, StrId::STR_SLEEP_NEVER);
+}
+
+void SettingsActivity::openLockPasswordSetup() {
+  startActivityForResultWith<PinEntryActivity>(
+      [this](const ActivityResult& result) {
+        const auto* pin = std::get_if<PinResult>(&result.data);
+        // A completed double-entry also arms the lock: opening setup while
+        // disabled and picking a code is an enable gesture. A cancel (or a
+        // failed launch) leaves the previous state untouched.
+        if (pin != nullptr && pin->verified) SETTINGS.lockScreenPasswordEnabled = 1;
+        SETTINGS.saveToFile();
+        rebuildSettingsLists();
+        requestUpdate();
+      },
+      PinEntryActivity::Mode::Set);
 }
 
 void SettingsActivity::openReadingBackgroundMenu() {

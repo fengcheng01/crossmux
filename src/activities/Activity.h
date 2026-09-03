@@ -58,6 +58,10 @@ class Activity {
   virtual bool handleForcedRefresh() { return false; }
   virtual bool isHomeActivity() const { return false; }
   virtual bool handleHomeGesture() { return false; }
+  // True while this activity must not be escaped by system-level gestures
+  // (swipe-up home, swipe-down frontlight panel). The lock screen returns
+  // true: a gesture that goHome()s from the PIN pad would bypass the lock.
+  virtual bool blocksSystemGestures() const { return false; }
   virtual MainTab mainTab() const { return MainTab::None; }
   virtual bool mainTabBackReturnsToTabs() const { return true; }
   virtual void selectMainTabContentEdge(MainTabContentEdge) {}
