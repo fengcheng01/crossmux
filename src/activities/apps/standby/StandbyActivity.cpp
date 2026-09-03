@@ -392,7 +392,9 @@ void StandbyActivity::loop() {
   if (mappedInput.wasScreenTapped(touchX, touchY)) {
     lastInputMs_ = millis();
     if (mode_ == DisplayMode::Immersive) {
-      mode_ = DisplayMode::Normal;
+      mode_ = DisplayMode::Normal;  // first tap wakes the face, like a swipe
+    } else if (currentFace_ && currentFace_->onTap(touchX, touchY)) {
+      // Face claimed the tap (calendar: month-grid toggle).
     } else {
       inverseMode_ = !inverseMode_;
     }

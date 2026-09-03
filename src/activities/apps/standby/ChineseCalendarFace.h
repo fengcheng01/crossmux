@@ -31,6 +31,8 @@ class ChineseCalendarFace final : public StandbyFace {
   // Up → previous day; Down → next day. Clamped to 1900-01-01 / 2100-12-31.
   void onPagePrev() override;
   void onPageNext() override;
+  bool onTap(int x, int y) override;
+  void drawMonthGrid(GfxRenderer& renderer, const Rect& viewport);
 
  private:
   std::unique_ptr<sloppy::Style> heroStyle_;
@@ -38,6 +40,12 @@ class ChineseCalendarFace final : public StandbyFace {
 
   // Day navigation: relative to today in the configured fixed offset.
   int32_t dayOffset_ = 0;
+
+  // Month-grid view (tap toggles). Cursor follows the viewed month; day
+  // paging above keeps working in the day view.
+  bool monthView_ = false;
+  int monthCursorYear_ = 0;
+  unsigned monthCursorMonth_ = 0;
   AlmanacDay cachedDay_{};
   bool cacheValid_ = false;
   // Cached "what day was today the last time we refreshed?" so `tick()` can

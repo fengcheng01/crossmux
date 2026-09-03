@@ -124,7 +124,16 @@ void ReadingDateSelectionActivity::loop() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int listHeight = metrics.listWithSubtitleRowHeight * FIELD_COUNT;
-  if (handleListTouch(selectedField, FIELD_COUNT, contentTop, listHeight, true) != ListTouchResult::None) {
+  const auto listTouch = handleListTouch(selectedField, FIELD_COUNT, contentTop, listHeight, true);
+  if (listTouch == ListTouchResult::Activated) {
+    // A quick tap lands down+up inside one loop pass, so only the Activated
+    // branch runs — it moves the selection without a repaint, and the field
+    // frame looked stuck until the next +/- press. This is an editor, not a
+    // launcher: select-and-redraw instead of activating.
+    requestUpdate();
+    return;
+  }
+  if (listTouch != ListTouchResult::None) {
     return;
   }
 
@@ -186,6 +195,19 @@ void ReadingDateSelectionActivity::render(RenderLock&&) {
         return std::to_string(year);
       },
       [](int) { return UIIcon::Recent; }, nullptr, false);
+
+  // This is a field editor, not a navigation list: the selected row is the
+  // target of -/+ and must always be visible. The INX touch policy hides the
+  // list selection cursor (SelectionCursorPolicy), which left no indication
+  // at all, so draw a frame around the active field in that case. Row step
+  // mirrors whatever the active theme's drawList used.
+  if (!UITheme::getInstance().showSelectionCursor()) {
+    const int rowStep = UITheme::getInstance().getTheme().getListRowStep(true);
+    if (rowStep > 0) {
+      const int rowY = contentTop + selectedField * rowStep;
+      renderer.drawRect(4, rowY + 2, pageWidth - 8, rowStep - 4, 3, true);
+    }
+  }
 
   const int hintTop = contentTop + listHeight + metrics.verticalSpacing;
   const int hintWidth = pageWidth - sidePadding * 2;

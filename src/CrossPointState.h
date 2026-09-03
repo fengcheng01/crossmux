@@ -30,6 +30,9 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   // Reading Analytics suite to bucket reading time into days when the live
   // clock is temporarily unavailable (RTC-less boots before NTP sync).
   uint32_t lastKnownValidTimestamp = 0;
+  // Standby 传统日历 face: 1 = month-grid view was last shown (persisted so
+  // the face reopens the way the user left it).
+  uint8_t standbyCalendarMonthView = 0;
 
   static const char* getFilePath() { return "/.crosspoint/state.json"; }
   bool loadFromFile();

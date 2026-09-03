@@ -36,7 +36,8 @@ enum class AppId : uint8_t {
   OpdsBrowser = 14,
   Calculator = 15,
   Woodfish = 16,
-  Count = 17,
+  Countdown = 17,
+  Count = 18,
 };
 
 struct AppEntry {
@@ -66,6 +67,7 @@ constexpr AppEntry kAppEntries[] = {
     {AppId::Buddy, StrId::STR_BUDDY_TITLE, UIIcon::Buddy, &ActivityManager::goToBuddy},
     {AppId::PixelSwitch, StrId::STR_PIXEL_SWITCH_TITLE, UIIcon::PixelSwitch, &ActivityManager::goToPixelSwitch},
     {AppId::Calculator, StrId::STR_CALCULATOR_TITLE, UIIcon::Calculator, &ActivityManager::goToCalculator},
+    {AppId::Countdown, StrId::STR_COUNTDOWN_TITLE, UIIcon::Countdown, &ActivityManager::goToCountdown},
     {AppId::Woodfish, StrId::STR_WOODFISH_TITLE, UIIcon::Woodfish, &ActivityManager::goToWoodfish},
     {AppId::Standby, StrId::STR_STANDBY_TITLE, UIIcon::Standby, &ActivityManager::goToStandby},
 };
@@ -202,7 +204,9 @@ int AppsMenuActivity::iconIndexFromPoint(const int x, const int y) const {
 
 void AppsMenuActivity::openSelected() {
   const int appIndex = getAppIndexForVisibleIndex(selected);
-  if (appIndex >= 0) (activityManager.*kAppEntries[appIndex].open)();
+  if (appIndex >= 0) {
+    (activityManager.*kAppEntries[appIndex].open)();
+  }
 }
 
 void AppsMenuActivity::loop() {

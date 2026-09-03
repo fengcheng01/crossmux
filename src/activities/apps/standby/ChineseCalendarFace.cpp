@@ -12,6 +12,8 @@
 
 #include "../../../util/TimeUtils.h"
 #include "ChineseAlmanac.h"
+#include "ChineseMonthGrid.h"
+#include "CrossPointState.h"
 #include "I18nKeys.h"
 #include "fontIds.h"
 
@@ -304,6 +306,7 @@ bool getTodayLocal(struct tm& out) {
 }  // namespace
 
 void ChineseCalendarFace::onEnter() {
+  monthView_ = APP_STATE.standbyCalendarMonthView != 0;  // reopen the view the user left
   heroStyle_ = makeUniqueNoThrow<sloppy::Style>();
   heroSeeds_ = makeUniqueNoThrow<sloppy::Seeds>();
   if (!heroStyle_ || !heroSeeds_) {
@@ -354,7 +357,41 @@ bool ChineseCalendarFace::refreshCachedDay() {
   return true;
 }
 
+bool ChineseCalendarFace::onTap(int x, int y) {
+  (void)x;
+  (void)y;
+  monthView_ = !monthView_;
+  APP_STATE.standbyCalendarMonthView = monthView_ ? 1 : 0;
+  APP_STATE.saveToFile();
+  if (monthView_) {
+    // Seed the grid on the currently displayed day's month (today unless the
+    // user is paging through the almanac).
+    if (cacheValid_) {
+      monthCursorYear_ = cachedDay_.gregYear;
+      monthCursorMonth_ = cachedDay_.gregMonth;
+    } else {
+      struct tm today;
+      if (getTodayLocal(today)) {
+        monthCursorYear_ = today.tm_year + 1900;
+        monthCursorMonth_ = today.tm_mon + 1;
+      }
+    }
+  }
+  LOG_DBG("STANDBY", "Calendar: %s view", monthView_ ? "month" : "day");
+  return true;
+}
+
 void ChineseCalendarFace::onPagePrev() {
+  if (monthView_) {
+    // Up → previous month.
+    if (monthCursorMonth_ == 1) {
+      monthCursorMonth_ = 12;
+      --monthCursorYear_;
+    } else {
+      --monthCursorMonth_;
+    }
+    return;
+  }
   // Up → previous day.
   const int32_t prev = dayOffset_ - 1;
   const int32_t saved = dayOffset_;
@@ -367,6 +404,16 @@ void ChineseCalendarFace::onPagePrev() {
 }
 
 void ChineseCalendarFace::onPageNext() {
+  if (monthView_) {
+    // Down → next month.
+    if (monthCursorMonth_ == 12) {
+      monthCursorMonth_ = 1;
+      ++monthCursorYear_;
+    } else {
+      ++monthCursorMonth_;
+    }
+    return;
+  }
   // Down → next day.
   const int32_t next = dayOffset_ + 1;
   const int32_t saved = dayOffset_;
@@ -405,5 +452,13 @@ void ChineseCalendarFace::render(GfxRenderer& renderer, const Rect& viewport) {
     // yet ready). Best-effort: if it still fails, leave the page blank.
     if (!refreshCachedDay()) return;
   }
+  if (monthView_) {
+    drawMonthGrid(renderer, viewport);
+    return;
+  }
   drawAlmanacPage(renderer, viewport, cachedDay_, *heroStyle_, *heroSeeds_);
+}
+
+void ChineseCalendarFace::drawMonthGrid(GfxRenderer& renderer, const Rect& viewport) {
+  drawChineseMonthGrid(renderer, viewport, monthCursorYear_, monthCursorMonth_);
 }

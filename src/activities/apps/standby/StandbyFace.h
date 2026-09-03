@@ -38,6 +38,11 @@ class StandbyFace {
   virtual void onPagePrev() {}
   virtual void onPageNext() {}
 
+  // Plain tap (no swipe). The Chinese calendar face consumes taps to toggle
+  // its month-grid view (return true); unclaimed taps fall back to the
+  // legacy black/white inverse toggle.
+  virtual bool onTap(int /*x*/, int /*y*/) { return false; }
+
   // Called once per StandbyActivity::loop() tick. Returns true if the screen
   // needs to be redrawn (e.g. the minute boundary moved). Face owns the
   // "did anything change since last render" decision.

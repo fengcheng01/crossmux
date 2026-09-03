@@ -61,6 +61,7 @@ void CrossPointState::toJson(JsonDocument& doc) const {
   doc["showBootScreen"] = showBootScreen;
   doc["clockSleepActive"] = clockSleepActive;
   doc["lastKnownValidTimestamp"] = lastKnownValidTimestamp;
+  doc["standbyCalendarMonthView"] = standbyCalendarMonthView;
 }
 
 bool CrossPointState::fromJson(JsonVariantConst doc) {
@@ -100,6 +101,7 @@ bool CrossPointState::fromJson(JsonVariantConst doc) {
   showBootScreen = doc["showBootScreen"] | true;
   clockSleepActive = doc["clockSleepActive"] | false;
   lastKnownValidTimestamp = doc["lastKnownValidTimestamp"] | static_cast<uint32_t>(0);
+  standbyCalendarMonthView = doc["standbyCalendarMonthView"] | static_cast<uint8_t>(0);
   return true;
 }
 
