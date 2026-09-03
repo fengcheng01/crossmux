@@ -70,7 +70,28 @@ class OptionPopup {
       }
       ignoreInitialTouchContact = false;
     }
-    if (snap.touchPressed || snap.touchReleased || snap.touchHeld) {
+    if (snap.touchPressed) {
+      // Gesture start: remember the anchor; a tap keeps working as before,
+      // a drag past the slop turns into scrolling (see the held branch).
+      dragAnchorY = snap.touchY;
+      dragLastY = snap.touchY;
+      dragMoved = false;
+    }
+    if (snap.touchHeld) {
+      // Drag scrolling for the windowed INX popup (and harmless elsewhere):
+      // every rowHeight of finger travel moves the selection one row, which
+      // scrolls the window. Without this, a swipe over the list either
+      // selected the row the press landed on or dismissed the popup.
+      handleDragHeld(snap, count, requestUpdate);
+      return true;
+    }
+    if (snap.touchReleased && dragMoved) {
+      // Scroll gesture ended: consume the release so it neither selects the
+      // row under the finger nor dismisses the dialog.
+      dragMoved = false;
+      return true;
+    }
+    if (snap.touchPressed || snap.touchReleased) {
       // Interactions are registered on the render task; only route once the
       // first render after show() has populated the table (uiReady handshake).
       if (uiReady) {
@@ -276,6 +297,42 @@ class OptionPopup {
     ignoreInitialTouchContact = true;
     uiReady = false;
     active = true;
+    dragMoved = false;
+  }
+
+  // Finger travel → row steps. The selection (and the INX window) follow the
+  // drag; content moves with the finger, so dragging down selects earlier
+  // options and dragging up later ones. Slop separates a scroll from a tap.
+  void handleDragHeld(const freeink::ui::InputSnapshot& snap, const int count,
+                      const std::function<void()>& requestUpdate) {
+    constexpr int16_t kDragSlopPx = 14;
+    const int rowHeight = InxOptionGeometry::rowHeight;
+    if (snap.touchY < dragAnchorY - kDragSlopPx || snap.touchY > dragAnchorY + kDragSlopPx) dragMoved = true;
+    if (!dragMoved) return;
+
+    dragAccumY += snap.touchY - dragLastY;
+    dragLastY = snap.touchY;
+    bool changed = false;
+    while (dragAccumY >= rowHeight) {
+      if (selectedIndex > 0) {
+        selectedIndex--;
+        changed = true;
+      }
+      dragAccumY -= rowHeight;
+    }
+    while (dragAccumY <= -rowHeight) {
+      if (selectedIndex < count - 1) {
+        selectedIndex++;
+        changed = true;
+      }
+      dragAccumY += rowHeight;
+    }
+    // Clamped at either end: drop the leftover travel so a flick against the
+    // end doesn't jump rows once the direction reverses.
+    const bool atStart = selectedIndex <= 0;
+    const bool atEnd = selectedIndex >= count - 1;
+    if ((atStart && dragAccumY > 0) || (atEnd && dragAccumY < 0)) dragAccumY = 0;
+    if (changed) requestUpdate();
   }
 
   // The dialog has no scrolling, so options past MAX_OPTIONS would render off
@@ -293,6 +350,12 @@ class OptionPopup {
   std::function<void(int)> onSelectCallback;
   bool ignoreInitialConfirmRelease = false;
   bool ignoreInitialTouchContact = false;
+  // Drag-scroll gesture state (see handleDragHeld); anchor/last are int16_t to
+  // mirror InputSnapshot's coordinate type.
+  int16_t dragAnchorY = 0;
+  int16_t dragLastY = 0;
+  int dragAccumY = 0;
+  bool dragMoved = false;
   // Written by the render task (frame registration), routed by the loop task;
   // uiReady closes the rebuild window exactly like UiListActivity::uiReady.
   mutable freeink::ui::InteractionBuffer<INTERACTION_CAPACITY> interactions;
