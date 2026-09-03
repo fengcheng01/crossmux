@@ -53,7 +53,8 @@ const char* matchMethodName(const DocumentMatchMethod method) {
 KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                            const std::string& epubPath, int currentSpineIndex, int currentPage,
                                            int totalPagesInSpine, SavedProgressPosition localKoPos,
-                                           std::string localChapterName, std::optional<uint16_t> currentParagraphIndex)
+                                           std::string localChapterName, std::optional<uint16_t> currentParagraphIndex,
+                                           ExitMode exitMode, bool forceSmart)
     : Activity("KOReaderSync", renderer, mappedInput),
       UiAppHost(renderer),
       epubPath(epubPath),
@@ -62,6 +63,8 @@ KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputMan
       currentPage(currentPage),
       totalPagesInSpine(totalPagesInSpine),
       currentParagraphIndex(currentParagraphIndex),
+      exitMode_(exitMode),
+      forceSmart_(forceSmart),
       remoteProgress{},
       remotePosition{},
       localProgress(std::move(localKoPos)) {}
@@ -105,10 +108,21 @@ void KOReaderSyncActivity::saveProgressAndReturn(int spineIndex, int page) {
   returnToReader();
 }
 
-void KOReaderSyncActivity::returnToReader() { activityManager.goToReader(epubPath); }
+void KOReaderSyncActivity::returnToReader() {
+  if (exitMode_ == ExitMode::ExitHome) {
+    // Exit-time sync: the user already left the book — land on home instead of
+    // reopening it.
+    activityManager.goHome();
+    return;
+  }
+  activityManager.goToReader(epubPath);
+}
 
 bool KOReaderSyncActivity::smartSyncEnabled() const {
-  return KOREADER_STORE.getSyncBehavior() == KOReaderSyncBehavior::SMART;
+  // The exit-time path always resolves with Smart semantics so a further
+  // remote progress is applied rather than overwritten, regardless of the
+  // stored Sync Behavior (no second dialog while leaving a book).
+  return forceSmart_ || KOREADER_STORE.getSyncBehavior() == KOReaderSyncBehavior::SMART;
 }
 
 void KOReaderSyncActivity::markAutoReturn() { autoReturnAt = millis() + AUTO_RETURN_DELAY_MS; }
@@ -413,7 +427,11 @@ void KOReaderSyncActivity::onExit() {
   if (wifiActivated) {
     WiFi.disconnect(false);
     delay(30);
-    silentRestartToReader();
+    // Exit-time sync just continues to home (the caller navigated there); only
+    // the reading-session flow needs the silent reboot back into the book.
+    if (exitMode_ == ExitMode::ReturnToReader) {
+      silentRestartToReader();
+    }
   }
 }
 

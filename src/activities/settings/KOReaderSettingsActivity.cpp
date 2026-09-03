@@ -15,9 +15,15 @@
 namespace fui = freeink::ui;
 
 namespace {
-const StrId menuNames[KOReaderSettingsActivity::MENU_ITEMS] = {
-    StrId::STR_USERNAME,      StrId::STR_PASSWORD,      StrId::STR_SYNC_SERVER_URL, StrId::STR_DOCUMENT_MATCHING,
-    StrId::STR_SEND_METADATA, StrId::STR_SYNC_BEHAVIOR, StrId::STR_SIGN_UP,         StrId::STR_AUTHENTICATE};
+const StrId menuNames[KOReaderSettingsActivity::MENU_ITEMS] = {StrId::STR_USERNAME,
+                                                               StrId::STR_PASSWORD,
+                                                               StrId::STR_SYNC_SERVER_URL,
+                                                               StrId::STR_DOCUMENT_MATCHING,
+                                                               StrId::STR_SEND_METADATA,
+                                                               StrId::STR_SYNC_BEHAVIOR,
+                                                               StrId::STR_EXIT_SYNC_PROMPT_SETTING,
+                                                               StrId::STR_SIGN_UP,
+                                                               StrId::STR_AUTHENTICATE};
 }  // namespace
 
 KOReaderSettingsActivity::KOReaderSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -96,12 +102,17 @@ void KOReaderSettingsActivity::activateIndex(const int index) {
     KOREADER_STORE.saveToFile();
     requestUpdate();
   } else if (index == 6) {
+    // Exit sync prompt - toggle asking to sync on book exit
+    KOREADER_STORE.setExitSyncPrompt(!KOREADER_STORE.getExitSyncPrompt());
+    KOREADER_STORE.saveToFile();
+    requestUpdate();
+  } else if (index == 7) {
     // Sign Up - create a new account on the sync server with the entered credentials
     if (!KOREADER_STORE.hasCredentials()) {
       return;
     }
     startActivityForResultWith<KOReaderAuthActivity>([](const ActivityResult&) {}, KOReaderAuthActivity::Mode::SIGN_UP);
-  } else if (index == 7) {
+  } else if (index == 8) {
     // Authenticate
     if (!KOREADER_STORE.hasCredentials()) {
       // Can't authenticate without credentials - just show message briefly
@@ -147,6 +158,8 @@ void KOReaderSettingsActivity::buildScreen(UiScreen& screen) {
     } else if (i == 5) {
       rowValues_[i] =
           KOREADER_STORE.getSyncBehavior() == KOReaderSyncBehavior::SMART ? tr(STR_SMART_SYNC) : tr(STR_ASK_EVERY_TIME);
+    } else if (i == 6) {
+      rowValues_[i] = KOREADER_STORE.getExitSyncPrompt() ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
     } else {
       rowValues_[i] = KOREADER_STORE.hasCredentials() ? "" : std::string("[") + tr(STR_SET_CREDENTIALS_FIRST) + "]";
     }

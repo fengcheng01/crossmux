@@ -22,10 +22,16 @@
  */
 class KOReaderSyncActivity final : public Activity, private UiAppHost {
  public:
+  // Where the activity lands when the sync finishes. ReturnToReader (default)
+  // reopens the book; ExitHome is for the exit-time sync (the reader chose to
+  // leave the book and just wants the progress pushed/applied first).
+  enum class ExitMode { ReturnToReader, ExitHome };
+
   explicit KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
                                 int currentSpineIndex, int currentPage, int totalPagesInSpine,
                                 SavedProgressPosition localKoPos, std::string localChapterName,
-                                std::optional<uint16_t> currentParagraphIndex = std::nullopt);
+                                std::optional<uint16_t> currentParagraphIndex = std::nullopt,
+                                ExitMode exitMode = ExitMode::ReturnToReader, bool forceSmart = false);
 
   void onEnter() override;
   void onExit() override;
@@ -79,6 +85,12 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
   // WiFi.getMode() because performUpload() calls esp_wifi_stop() on the way out,
   // which makes WiFi.getMode() return WIFI_MODE_NULL.
   bool wifiActivated = false;
+
+  // Exit-time sync: land on home instead of reopening the book, and resolve
+  // differences with Smart semantics regardless of the stored Sync Behavior so
+  // a further remote progress is applied rather than overwritten.
+  ExitMode exitMode_ = ExitMode::ReturnToReader;
+  bool forceSmart_ = false;
 
   void onWifiSelectionComplete(bool success);
   void performSync();
