@@ -117,6 +117,14 @@ meaning: left-edge right swipe is Back, top-edge down swipe is Menu, and
 bottom-edge up swipe is Home on every touch device. A hardware Home key remains
 an additional input path and does not change those screen gestures.
 
+Reader page-turn touch input is one mode of `touchReaderControls`
+(`ReaderUtils::detectTouchPageTurn`): tap zones, pure swipe
+(`TOUCH_READER_SWIPE`, taps stay free for the reader-menu zone), inverted tap,
+or off. The separate `swipeToTurnPage` toggle adds horizontal swipes
+(left = next, right = previous) on top of the tap-zone modes; swipe travel
+clears the tap slop, so a swipe release never also registers as a tap, and its
+`heldMs` stays 0 so it can't hand off to the long-press chapter skip.
+
 ## Long-Press Pattern
 
 Start timing on `wasPressed()`. While `isPressed()` remains true, fire the

@@ -141,7 +141,15 @@ void HalDisplay::copyGrayscaleMsbBuffers(const uint8_t* msbBuffer) { einkDisplay
 
 void HalDisplay::cleanupGrayscaleBuffers(const uint8_t* bwBuffer) { einkDisplay.cleanupGrayscaleBuffers(bwBuffer); }
 
+void HalDisplay::seedBaselineFromBuffer(const uint8_t* fb) { einkDisplay.seedBaselineFromBuffer(fb); }
+
 void HalDisplay::displayGrayBuffer(bool turnOffScreen) { einkDisplay.displayGrayBuffer(turnOffScreen); }
+
+bool HalDisplay::supportsSwiftAa() const { return einkDisplay.supportsSwiftAa(); }
+
+void HalDisplay::displaySwiftAa(const uint8_t* edgePlane, bool turnOffScreen) {
+  einkDisplay.displaySwiftAaBuffer(edgePlane, turnOffScreen);
+}
 
 void HalDisplay::displayGrayBufferAbsolute(bool turnOffScreen, bool cleanWhite) {
   einkDisplay.displayGrayBuffer(turnOffScreen, nullptr, true, cleanWhite);

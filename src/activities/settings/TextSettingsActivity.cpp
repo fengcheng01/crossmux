@@ -46,7 +46,8 @@ constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING,
                                         StrId::STR_FAKE_BOLD,
                                         StrId::STR_TEXT_AA};
 #if FREEINK_DEVICE_MURPHY_M4
-constexpr StrId AA_MODE_IDS[] = {StrId::STR_STATE_OFF, StrId::STR_AA_OVERLAY, StrId::STR_AA_COMBINED};
+constexpr StrId AA_MODE_IDS[] = {StrId::STR_STATE_OFF, StrId::STR_AA_OVERLAY, StrId::STR_AA_COMBINED,
+                                 StrId::STR_AA_DIRECT, StrId::STR_AA_SWIFT};
 #endif
 
 constexpr StrId LINE_SPACING_IDS[] = {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE, StrId::STR_EXTRA_WIDE};
@@ -111,6 +112,14 @@ void TextSettingsActivity::onEnter() {
       fonts_.push_back({families[i].name, false, static_cast<uint8_t>(CrossPointSettings::BUILTIN_FONT_COUNT + i)});
     }
   }
+  // The tagged labels are referenced by pointer from rowItems_, so they live
+  // here for the activity's lifetime rather than in rebuildRowItems()
+  // temporaries.
+  familyLabels_.clear();
+  familyLabels_.resize(fonts_.size());
+  for (int i = 0; i < static_cast<int>(fonts_.size()); i++) {
+    if (!fonts_[i].isBuiltin) familyLabels_[i] = sdFontLabel(fonts_[i].name);
+  }
 
   rebuildSizeList();
 
@@ -159,7 +168,7 @@ void TextSettingsActivity::rebuildRowItems() {
         if (fonts_[i].isBuiltin) {
           item.label = fonts_[i].name.c_str();
         } else {
-          item.label = sdFontLabel(fonts_[i].name).c_str();
+          item.label = familyLabels_[i].c_str();
         }
         break;
       case Tab::Size:

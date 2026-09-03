@@ -20,13 +20,13 @@ namespace {
 
 constexpr char kMqttHost[] = "mqtt-cn.uipcat.com";
 constexpr uint16_t kMqttPort = 1883;
-constexpr uint16_t kMqttSocketTimeoutSeconds = 5;
+constexpr uint16_t kMqttSocketTimeoutSeconds = 2;
 constexpr uint16_t kMqttKeepAliveSeconds = 57;
 constexpr char kMqttOnline[] = "online";
 constexpr char kMqttOffline[] = "offline";
 constexpr uint32_t kWifiConnectTimeoutMs = 15000u;
-constexpr uint32_t kLiveRetryWindowMs = 120000u;
-constexpr uint32_t kRetryDelaysMs[] = {5000u, 10000u, 20000u, 30000u};
+constexpr uint32_t kLiveRetryWindowMs = 45000u;
+constexpr uint32_t kRetryDelaysMs[] = {10000u, 20000u, 40000u};
 
 // PubSubClient invokes this callback synchronously from mqtt_.loop().
 volatile bool sPushPending = false;

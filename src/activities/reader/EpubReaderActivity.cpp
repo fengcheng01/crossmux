@@ -612,6 +612,25 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+  // The exit-sync prompt must own every input edge before anything below can
+  // react: the menu-gesture check used to run first, so a center-zone tap
+  // (or a swipe-release landing there) opened the reader menu ON TOP of the
+  // just-shown popup — the popup "vanished" until the menu was backed out,
+  // and clicking a popup option could push the menu in the same frame.
+  if (exitSyncPopup_.isActive()) {
+    exitSyncPopup_.handleInput(mappedInput, [this] { requestUpdate(); });
+    if (exitSyncPopup_.isActive()) return;
+    // Popup closed this frame: option 0 = sync then home, option 1 or a Back
+    // dismissal = plain exit. Navigation happens here, outside the popup's
+    // callback, so we never touch this activity after it has been replaced.
+    if (exitSyncChoice_ == 0) {
+      launchKOReaderSync(pendingExitDestination_);
+      return;
+    }
+    executeExitDestination(pendingExitDestination_);
+    return;
+  }
+
   if (confirmReleased || ReaderUtils::isTouchMenuGesture(renderer, mappedInput)) {
     openReaderMenu();
   }
@@ -622,7 +641,12 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  if (handleBackNavigation()) {
+  ReaderUtils::BackDestination backDestination = ReaderUtils::BackDestination::Home;
+  if (ReaderUtils::handleBackNavigation(mappedInput, activityManager, epub->getPath().c_str(),
+                                        {this, [](void* ctx) { static_cast<EpubReaderActivity*>(ctx)->onGoHome(); }},
+                                        &backDestination)) {
+    if (maybePromptExitSync(backDestination)) return;
+    executeExitDestination(backDestination);
     return;
   }
 
@@ -943,6 +967,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       break;
     }
     case EpubReaderMenuActivity::MenuAction::GO_HOME: {
+      // Same prompt as the Back-button exit: the reader menu is the primary
+      // exit path on touch devices.
+      if (maybePromptExitSync(ReaderUtils::BackDestination::Home)) break;
       onGoHome();
       return;
     }
@@ -995,7 +1022,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
   }
 }
 
-bool EpubReaderActivity::launchKOReaderSync() {
+bool EpubReaderActivity::launchKOReaderSync() { return launchKOReaderSync(std::nullopt); }
+
+bool EpubReaderActivity::launchKOReaderSync(std::optional<ReaderUtils::BackDestination> exitDestination) {
   if (!KOREADER_STORE.hasCredentials()) return false;
 
   const int currentPage = section ? section->currentPage : nextPageNumber;
@@ -1034,9 +1063,43 @@ bool EpubReaderActivity::launchKOReaderSync() {
   }
   LOG_DBG("KOSync", "Epub released (heap after: %u)", (unsigned)ESP.getFreeHeap());
 
+  if (exitDestination.has_value()) {
+    // Exit-time sync: forced Smart resolution (a further remote progress is
+    // applied, never overwritten) and land on home instead of the book.
+    return activityManager.replaceActivityWith<KOReaderSyncActivity>(
+        savedEpubPath, currentSpineIndex, currentPage, totalPages, std::move(localKoPos), std::move(localChapterName),
+        paragraphIndex, KOReaderSyncActivity::ExitMode::ExitHome, /*forceSmart=*/true);
+  }
   return activityManager.replaceActivityWith<KOReaderSyncActivity>(savedEpubPath, currentSpineIndex, currentPage,
                                                                    totalPages, std::move(localKoPos),
                                                                    std::move(localChapterName), paragraphIndex);
+}
+
+bool EpubReaderActivity::handleHomeGesture() {
+  // Swallow further home gestures while the prompt is up so a second swipe
+  // can't reset it mid-choice.
+  if (exitSyncPopup_.isActive()) return true;
+  if (maybePromptExitSync(ReaderUtils::BackDestination::Home)) return true;
+  return false;  // default behavior: ActivityManager performs goHome
+}
+
+bool EpubReaderActivity::maybePromptExitSync(ReaderUtils::BackDestination destination) {
+  if (!KOREADER_STORE.getExitSyncPrompt() || !KOREADER_STORE.hasCredentials()) return false;
+  pendingExitDestination_ = destination;
+  exitSyncChoice_ = -1;
+  static const StrId exitSyncOptions[] = {StrId::STR_EXIT_SYNC_CONFIRM, StrId::STR_EXIT_SYNC_SKIP};
+  exitSyncPopup_.show(StrId::STR_EXIT_SYNC_ASK, exitSyncOptions, 2, 0, [this](int index) { exitSyncChoice_ = index; });
+  requestUpdate();
+  return true;
+}
+
+void EpubReaderActivity::executeExitDestination(ReaderUtils::BackDestination destination) {
+  if (destination == ReaderUtils::BackDestination::FileBrowser) {
+    const std::string path = epub ? epub->getPath() : APP_STATE.openEpubPath;
+    activityManager.goToFileBrowser(path);
+    return;
+  }
+  onGoHome();
 }
 
 #ifdef ENABLE_CHINESE_VERSION
@@ -1207,6 +1270,15 @@ bool EpubReaderActivity::skipLoopDelay() {
 
 void EpubReaderActivity::renderBook() {
   if (!epub) return;
+
+  // The exit-sync prompt renders over the intact page: re-rendering the page
+  // first would run the full grayscale pipeline (a visible flash on M4's
+  // direct-AA tier) before the popup appears. The framebuffer still holds the
+  // current B/W page, so the popup can draw straight onto it.
+  if (exitSyncPopup_.isActive()) {
+    exitSyncPopup_.processRender(renderer, mappedInput);
+    return;
+  }
 
   const auto showPendingSyncSaveError = [this]() {
     if (pendingSyncSaveError) {
@@ -1682,6 +1754,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // Combined AA is a FAST 1-bit paint. Background pages stay on the two-pass
   // overlay path so the wallpaper is not wiped.
   const bool combinedAa = ReaderUtils::usesCombinedAa() && !SETTINGS.readingBackgroundEnabled;
+  // Direct AA is one absolute gray refresh per turn — no B/W paint at all.
+  // Background pages fall back to the overlay path for the same reason.
+  const bool directAa = ReaderUtils::usesDirectGrayAa() && !SETTINGS.readingBackgroundEnabled;
+  // Swift AA: differential repaint base + weak edge pass (TW recipe). No B/W
+  // display here either — the tiled pass below commits both passes at once.
+  const bool swiftAa = ReaderUtils::usesSwiftAa() && !SETTINGS.readingBackgroundEnabled &&
+                       !pageHasImages && renderer.supportsSwiftAa();
   const bool needsAnyGrayscale = needsTextGrayscale || pageHasImages;
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
   // Paper Mono only (no other panel combines): defer the B/W base activation so
@@ -1759,6 +1838,15 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     } else {
       pagesUntilFullRefresh--;
     }
+  } else if (directAa || swiftAa) {
+    // No B/W paint: the tiled pass below displays the page (direct = one
+    // absolute refresh; swift = repaint + weak edge passes). The repaint
+    // self-cleans every turn, so the scheduled refresh just resets cadence.
+    if (pagesUntilFullRefresh <= 1) {
+      pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+    } else {
+      pagesUntilFullRefresh--;
+    }
   } else if (combinedGrayscaleBase) {
     // Stash the base without activating; displayGrayBuffer() below commits
     // base + grays as one waveform.
@@ -1782,6 +1870,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       GfxRenderer& r;
       ~ClearAbsoluteGray() { r.setAbsoluteGrayPlanes(false); }
     } clearAbsoluteGray{renderer};
+    // Direct and Swift AA need the absolute four-level plane encoding
+    // (black=11 … white=00); the overlay encoding maps black and white both
+    // to 00 and relies on the B/W paint these modes skip. Swift uses only the
+    // MSB plane (black + dark-gray edges carry the edge bit). The RAII above
+    // restores the overlay encoding on every exit path.
+    if (directAa || swiftAa) renderer.setAbsoluteGrayPlanes(true);
     constexpr int STRIP_ROWS = 80;
     const int gh = renderer.getDisplayHeight();
     const int gwBytes = renderer.getDisplayWidthBytes();
@@ -1815,12 +1909,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       }
       return memory::ByteBuffer{};
     };
-    auto lsbPlaneBuf = overlapRefresh ? allocatePlane() : memory::ByteBuffer{};
-    auto msbPlaneBuf = lsbPlaneBuf ? allocatePlane() : memory::ByteBuffer{};
+    const bool needsEdgePlane = overlapRefresh || directAa || swiftAa;
+    auto lsbPlaneBuf = needsEdgePlane ? allocatePlane() : memory::ByteBuffer{};
+    auto msbPlaneBuf = (lsbPlaneBuf && !swiftAa) ? allocatePlane() : memory::ByteBuffer{};
 
     if (lsbPlaneBuf) {
-      renderPlaneToBuffer(true, lsbPlaneBuf.get());
-      if (msbPlaneBuf) renderPlaneToBuffer(false, msbPlaneBuf.get());
+      if (swiftAa) {
+        // Swift renders only the MSB (edge) plane into lsbPlaneBuf.
+        renderPlaneToBuffer(false, lsbPlaneBuf.get());
+      } else {
+        renderPlaneToBuffer(true, lsbPlaneBuf.get());
+        if (msbPlaneBuf) renderPlaneToBuffer(false, msbPlaneBuf.get());
+      }
       const auto tGrayRender = millis();
 
       renderer.waitRefreshComplete();
@@ -1833,17 +1933,25 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         return;
       }
 
-      renderer.writeGrayscalePlaneStrip(true, lsbPlaneBuf.get(), 0, gh);
-      if (msbPlaneBuf) {
-        renderer.writeGrayscalePlaneStrip(false, msbPlaneBuf.get(), 0, gh);
-      } else {
-        renderPlaneToBuffer(false, lsbPlaneBuf.get());
-        renderer.writeGrayscalePlaneStrip(false, lsbPlaneBuf.get(), 0, gh);
+      const auto tGrayWrite = millis();  // swift/driver-owned plane writes happen in the display call
+      if (!swiftAa) {
+        renderer.writeGrayscalePlaneStrip(true, lsbPlaneBuf.get(), 0, gh);
+        if (msbPlaneBuf) {
+          renderer.writeGrayscalePlaneStrip(false, msbPlaneBuf.get(), 0, gh);
+        } else {
+          renderPlaneToBuffer(false, lsbPlaneBuf.get());
+          renderer.writeGrayscalePlaneStrip(false, lsbPlaneBuf.get(), 0, gh);
+        }
       }
-      const auto tGrayWrite = millis();
 
       renderer.setRenderMode(GfxRenderer::BW);
-      renderer.displayGrayBuffer();
+      if (swiftAa) {
+        renderer.displaySwiftAa(lsbPlaneBuf.get());
+      } else if (directAa) {
+        renderer.displayGrayBufferAbsolute(cleanImageBasePending);
+      } else {
+        renderer.displayGrayBuffer();
+      }
       const auto tGrayDisplay = millis();
 
       renderer.cleanupGrayscaleWithFrameBuffer();
@@ -1869,6 +1977,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
           // never displayed the 1-bit frame, so this is its only path to the
           // panel.
           renderer.cleanupGrayscaleWithFrameBuffer();
+        } else if (directAa || swiftAa) {
+          // Direct/Swift AA also never painted the B/W frame; the grayscale
+          // refresh was skipped, so a plain FAST turn is this page's only path
+          // to the panel (RED still holds the previous page's resynced baseline).
+          renderer.displayBuffer(HalDisplay::FAST_REFRESH);
         }
       } else {
         renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
@@ -1904,7 +2017,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         const auto tGrayMsb = millis();
 
         renderer.setRenderMode(GfxRenderer::BW);
-        renderer.displayGrayBuffer();
+        if (directAa) {
+          renderer.displayGrayBufferAbsolute(cleanImageBasePending);
+        } else {
+          renderer.displayGrayBuffer();
+        }
         const auto tGrayDisplay = millis();
 
         renderer.cleanupGrayscaleWithFrameBuffer();

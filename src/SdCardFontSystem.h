@@ -17,7 +17,12 @@ class SdCardFontSystem {
   SdCardFontSystem(const SdCardFontSystem&) = delete;
   SdCardFontSystem& operator=(const SdCardFontSystem&) = delete;
   /// Discover SD card fonts and load user's saved selection. Call once during setup.
-  void begin(GfxRenderer& renderer);
+  /// deferFamilyLoad: keep discovery + the settings resolver registration but
+  /// skip loading the selected family — the first consumer's ensureLoaded()
+  /// loads it (and re-registers the UI fallbacks). Used on lock-screen wake
+  /// boots, where the first screen (PIN pad) needs no SD fonts and the load
+  /// (~100ms + PSRAM setup) sits on the power-key-to-screen path.
+  void begin(GfxRenderer& renderer, bool deferFamilyLoad = false);
 
   /// Ensure the correct SD font family is loaded for the current settings.
   /// Call before entering the reader or after settings change.

@@ -94,12 +94,19 @@ class HalDisplay {
   void copyGrayscaleLsbBuffers(const uint8_t* lsbBuffer);
   void copyGrayscaleMsbBuffers(const uint8_t* msbBuffer);
   void cleanupGrayscaleBuffers(const uint8_t* bwBuffer);
+  // Seed both controller planes from a frame the panel is physically showing
+  // (wake-boot sleep frame); see PanelDriver::seedBaseline.
+  void seedBaselineFromBuffer(const uint8_t* fb);
 
   void displayGrayBuffer(bool turnOffScreen = false);
   // Absolute 4-level waveform (no B/W overlay pass). Murphy M4 combined AA.
   // cleanWhite=false picks the fast tier (00/white LUT group idle — smooth
   // turn, ghosts cleared by the periodic cleanWhite=true pass).
   void displayGrayBufferAbsolute(bool turnOffScreen = false, bool cleanWhite = true);
+  // Swift two-pass AA (repaint base + weak edge pass); edgePlane = the new
+  // frame's AA-edge MSB plane (absolute encoding), panel orientation.
+  void displaySwiftAa(const uint8_t* edgePlane, bool turnOffScreen = false);
+  bool supportsSwiftAa() const;
 
   // Tiled grayscale: stream one band of a plane (lsbPlane selects LSB/MSB RAM)
   // straight to the controller; supportsStripGrayscale() gates the path. See

@@ -2479,11 +2479,41 @@ void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuff
 
 void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(fadingFix); }
 
+void GfxRenderer::displaySwiftAa(const uint8_t* edgePlane) const {
+#if defined(SIMULATOR)
+  // The desktop shim has no repaint/edge waveforms. Preview via the gray
+  // compositor: refresh the B/W base snapshot (the swift path never runs a
+  // plain B/W display), load the MSB/edge plane, then compose — the same
+  // stand-in displayGrayBufferAbsolute uses for the absolute waveform.
+  (void)fadingFix;
+  display.displayBuffer(HalDisplay::FAST_REFRESH);
+  display.copyGrayscaleMsbBuffers(edgePlane);
+  display.displayGrayBuffer(false);
+#else
+  display.displaySwiftAa(edgePlane, fadingFix);
+#endif
+}
+
+bool GfxRenderer::supportsSwiftAa() const {
+#if defined(SIMULATOR)
+  return true;  // UI flow runs; the preview above stands in for the hardware
+#else
+  return display.supportsSwiftAa();
+#endif
+}
+
 void GfxRenderer::displayGrayBufferAbsolute(const bool cleanWhite) const {
 #if defined(SIMULATOR)
   // The desktop shim has no absolute-waveform variant; the gray preview
-  // compositor is close enough for UI development.
+  // compositor is close enough for UI development. It composites the gray
+  // planes over a B/W base snapshot that is only refreshed by a B/W display —
+  // and the direct-AA path never displays B/W, so without this refresh the
+  // first absolute render composites over the previous screen (library/menu
+  // ghost) and only the next render looks right. Displaying the intact B/W
+  // framebuffer first refreshes that snapshot (present is instant in the shim,
+  // the gray compose replaces it immediately).
   (void)cleanWhite;
+  display.displayBuffer(HalDisplay::FAST_REFRESH);
   display.displayGrayBuffer(fadingFix);
 #else
   display.displayGrayBufferAbsolute(fadingFix, cleanWhite);
@@ -2583,6 +2613,16 @@ void GfxRenderer::cleanupGrayscaleWithFrameBuffer() const {
   if (frameBuffer) {
     display.cleanupGrayscaleBuffers(frameBuffer);
   }
+}
+
+void GfxRenderer::seedBaselineFromFrameBuffer() const {
+#if !defined(SIMULATOR)
+  // The simulator's HalDisplay shim has no plane-RAM seeding; it repaints the
+  // whole frame every refresh anyway, so there is nothing to seed.
+  if (frameBuffer) {
+    display.seedBaselineFromBuffer(frameBuffer);
+  }
+#endif
 }
 
 void GfxRenderer::getOrientedViewableTRBL(int* outTop, int* outRight, int* outBottom, int* outLeft) const {

@@ -44,3 +44,4 @@ boot_app0-m4.bin
 /sdkconfig.*
 flake.*
 dist/
+.zcode/

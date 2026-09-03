@@ -114,6 +114,11 @@ class TextSettingsActivity final : public UiTabListActivity {
   const SdCardFontRegistry* registry_;
   OptionPopup optionPopup_;
   std::vector<FontEntry> fonts_;
+  // Owned storage for the tagged SD-family labels: ListItem::label is a raw
+  // const char*, so the composed "name · tag" strings must outlive
+  // rebuildRowItems(). Pointing a label at a temporary leaves rows blank
+  // whenever the freed heap gets reused before the list is drawn.
+  std::vector<std::string> familyLabels_;
   std::vector<SizeEntry> sizes_;
   textsettings::PreviewLayout previewLayout_;  // cached preview line layout; relaid only on setting/geometry change
 

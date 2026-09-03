@@ -20,6 +20,14 @@
 
 RTC_NOINIT_ATTR char panicMessage[256];
 RTC_NOINIT_ATTR HalSystem::StackFrame panicStack[MAX_PANIC_STACK_DEPTH];
+// RISC-V exception registers from the faulting frame. panicMessage stays empty
+// on the CPU-fault path (print_backtrace without panic_abort), and the stack
+// dump alone can't identify the faulting code — mepc (faulting PC), mcause and
+// mtval (faulting address) can, once symbolized against the ELF.
+RTC_NOINIT_ATTR uint32_t panicMepc;
+RTC_NOINIT_ATTR uint32_t panicMcause;
+RTC_NOINIT_ATTR uint32_t panicMtval;
+RTC_NOINIT_ATTR uint32_t panicRegsMarker;
 // RTC_NOINIT is uninitialized on cold boot, so only this exact marker proves a
 // panic diagnostic was captured before the reset.
 RTC_NOINIT_ATTR volatile uint32_t panicCaptureMarker;
@@ -58,7 +66,14 @@ void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
   }
 
   // Copied from components/esp_system/port/arch/riscv/panic_arch.c
-  uint32_t sp = (uint32_t)((RvExcFrame*)frame)->sp;
+  RvExcFrame* exc = (RvExcFrame*)frame;
+  uint32_t sp = exc->sp;
+  // Register capture must happen before the marker: a reset between the two
+  // would otherwise report garbage registers as real.
+  panicMepc = exc->mepc;
+  panicMcause = exc->mcause;
+  panicMtval = exc->mtval;
+  panicRegsMarker = PANIC_CAPTURE_MAGIC;
   const int per_line = 8;
   int depth = 0;
   for (int x = 0; x < 1024; x += per_line * sizeof(uint32_t)) {
@@ -126,6 +141,7 @@ void checkPanic() {
 
 void clearPanic() {
   panicCaptureMarker = 0;
+  panicRegsMarker = 0;
   panicMessage[0] = '\0';
   for (size_t i = 0; i < MAX_PANIC_STACK_DEPTH; i++) {
     panicStack[i].sp = 0;
@@ -195,10 +211,76 @@ std::string getPanicInfo(bool full) {
   if (!full) {
     return panicMessage;
   } else {
+    // Faults that route through the panic handler's print_backtrace path set
+    // the capture marker without ever calling panic_abort, leaving
+    // panicMessage empty and the report's reason line blank. Name the
+    // hardware reset reason so those reports still say what kind of reset it
+    // was (empty-reason crash reported 2026-09-03).
+    const char* resetReasonLabel = "other";
+    switch (esp_reset_reason()) {
+      case ESP_RST_PANIC:
+        resetReasonLabel = "panic";
+        break;
+      case ESP_RST_CPU_LOCKUP:
+        resetReasonLabel = "cpu lockup";
+        break;
+      case ESP_RST_INT_WDT:
+        resetReasonLabel = "interrupt watchdog";
+        break;
+      case ESP_RST_TASK_WDT:
+        resetReasonLabel = "task watchdog";
+        break;
+      case ESP_RST_WDT:
+        resetReasonLabel = "rtc watchdog";
+        break;
+      case ESP_RST_BROWNOUT:
+        resetReasonLabel = "brownout";
+        break;
+      case ESP_RST_PWR_GLITCH:
+        resetReasonLabel = "power glitch";
+        break;
+      default:
+        break;
+    }
+    char reasonLine[160] = {};
+    if (panicMessage[0] == '\0') {
+      snprintf(reasonLine, sizeof(reasonLine), "(no abort message; reset reason: %s)", resetReasonLabel);
+    } else {
+      snprintf(reasonLine, sizeof(reasonLine), "%s (reset reason: %s)", panicMessage, resetReasonLabel);
+    }
+
+    // Faulting instruction + cause from the RISC-V exception frame. mcause low
+    // nibble: 2=illegal instruction, 5=load access fault, 7=store access fault,
+    // 11=environment call (mtval then holds the faulting address for 5/7).
+    char excLine[160] = {};
+    if (panicRegsMarker == PANIC_CAPTURE_MAGIC) {
+      const char* cause = "exception";
+      switch (panicMcause & 0xF) {
+        case 2:
+          cause = "illegal instruction";
+          break;
+        case 5:
+          cause = "load access fault";
+          break;
+        case 7:
+          cause = "store access fault";
+          break;
+        case 11:
+          cause = "environment call";
+          break;
+        default:
+          break;
+      }
+      snprintf(excLine, sizeof(excLine), "\n\nCPU exception: %s (mcause=0x%08lX) at mepc=0x%08lX, mtval=0x%08lX", cause,
+               static_cast<unsigned long>(panicMcause), static_cast<unsigned long>(panicMepc),
+               static_cast<unsigned long>(panicMtval));
+    }
+
     std::string info;
 
     info += "CrossPoint version: " CROSSPOINT_VERSION;
-    info += "\n\nPanic reason: " + std::string(panicMessage);
+    info += "\n\nPanic reason: " + std::string(reasonLine);
+    info += excLine;
     info += "\n\nLast logs:\n" + getLastLogs();
     info += "\n\nStack memory:\n";
 

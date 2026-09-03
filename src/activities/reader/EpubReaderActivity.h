@@ -13,6 +13,8 @@
 #include "EpubReaderMenuActivity.h"
 #include "ProgressMapper.h"
 #include "ReaderActivity.h"
+#include "ReaderUtils.h"
+#include "components/OptionPopup.h"
 
 class EpubReaderActivity final : public ReaderActivity {
   std::shared_ptr<Epub> epub;
@@ -41,6 +43,12 @@ class EpubReaderActivity final : public ReaderActivity {
   bool automaticPageTurnActive = false;
   bool showBookmarkMessage = false;
   bool showDictionaryMessage = false;
+  // Exit-time sync prompt (KOReader exitSyncPrompt setting): shown when Back
+  // is released on the reading surface; 同步并退出 syncs (forced Smart, lands
+  // on home), 直接退出 / Back-dismissal exits without syncing.
+  OptionPopup exitSyncPopup_;
+  int exitSyncChoice_ = -1;  // -1 = dismissed via Back; 0/1 = selected option
+  ReaderUtils::BackDestination pendingExitDestination_ = ReaderUtils::BackDestination::Home;
   unsigned long dictionaryMessageTime = 0UL;
   bool currentPageBookmarked = false;
   int idlePrewarmSpine = -1;
@@ -102,6 +110,16 @@ class EpubReaderActivity final : public ReaderActivity {
   void openReaderMenu();
   void openDictionaryWordSelect();
   bool launchKOReaderSync();
+  // Exit-time variant: syncs with forced Smart semantics and lands on home
+  // instead of reopening the book.
+  bool launchKOReaderSync(std::optional<ReaderUtils::BackDestination> exitDestination);
+  void executeExitDestination(ReaderUtils::BackDestination destination);
+  // Shows the exit-sync confirmation when the toggle is on and credentials
+  // exist; returns true when the popup took over (caller just returns).
+  bool maybePromptExitSync(ReaderUtils::BackDestination destination);
+  // The bottom-edge swipe-up is the primary exit gesture on touch boards —
+  // route it through the same exit-sync prompt as the Back exit.
+  bool handleHomeGesture() override;
 #ifdef ENABLE_CHINESE_VERSION
   bool launchWeReadSync();
 #endif

@@ -26,6 +26,7 @@
 #include <cstring>
 
 #include "AchievementsStore.h"
+#include "CountdownStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "KOReaderCredentialStore.h"
@@ -39,9 +40,12 @@
 #include "activities/boot_sleep/SleepActivity.h"
 #include "activities/reader/ReaderUtils.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "activities/usb/UsbTransferActivity.h"
+#include "activities/util/PinEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
+#include "usb/UsbMassStorageControl.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 #include "util/TimeUtils.h"
@@ -266,38 +270,6 @@ enum class BootResume : uint8_t {
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
 
-void silentRestart() {
-  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
-  silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
-  LOG_DBG("MAIN", "Silent restart (target=home)");
-  // E-ink retains the previous frame until Home's first paint lands (~2-3s).
-  // Without an overlay, users don't see the reboot and fire input through to
-  // Home. Select on the default selectorIndex=0 then opens the most-recent
-  // book, looking like a trampoline back to the reader they just exited.
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-  delay(50);
-  ESP.restart();
-}
-
-void silentRestartToReader() {
-  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
-  silentRebootTarget = SILENT_REBOOT_TARGET_READER;
-  silentRebootMagic = SILENT_REBOOT_MAGIC;
-  LOG_DBG("MAIN", "Silent restart (target=reader)");
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-  delay(50);
-  ESP.restart();
-}
-
-void waitForPowerRelease() {
-  gpio.update();
-  while (gpio.isPressed(HalGPIO::BTN_POWER)) {
-    delay(50);
-    gpio.update();
-  }
-}
-
 constexpr char SLEEP_FRAME_FILE[] = "/.crosspoint/sleep_frame.bin";
 
 static void saveSleepFrameBuffer() {
@@ -321,12 +293,68 @@ static bool loadSleepFrameBuffer(const bool remove = true) {
   return true;
 }
 
+void silentRestart() {
+  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
+  silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  LOG_DBG("MAIN", "Silent restart (target=home)");
+  // E-ink retains the previous frame until Home's first paint lands (~2-3s).
+  // Without an overlay, users don't see the reboot and fire input through to
+  // Home. Select on the default selectorIndex=0 then opens the most-recent
+  // book, looking like a trampoline back to the reader they just exited.
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  // Seed the post-reboot differential baseline AFTER the popup: drawPopup()
+  // refreshes the panel from the framebuffer, so the frame file must be saved
+  // once it holds the popup too, or the panel and the saved baseline diverge —
+  // Silent-resume's FAST diff then never drives the popup ink away and the
+  // eject/loading text ghosts (photo-confirmed 2026-09-03, again on v40safe).
+  saveSleepFrameBuffer();
+  delay(50);
+  ESP.restart();
+}
+
+void silentRestartToReader() {
+  if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
+  silentRebootTarget = SILENT_REBOOT_TARGET_READER;
+  silentRebootMagic = SILENT_REBOOT_MAGIC;
+  LOG_DBG("MAIN", "Silent restart (target=reader)");
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  saveSleepFrameBuffer();  // after the popup — see silentRestart()
+  delay(50);
+  ESP.restart();
+}
+
+void waitForPowerRelease() {
+  gpio.update();
+  while (gpio.isPressed(HalGPIO::BTN_POWER)) {
+    delay(50);
+    gpio.update();
+  }
+}
+
+// The lock-screen password gates wake-from-sleep entry into the system (the
+// clock-family unlock and quick-resume boots). Cold boots (Splash), panic
+// recovery, and in-session silent restarts stay ungated — the lock is an
+// anti-mistouch barrier, not device encryption.
+bool lockGateNeeded(const BootResume resume) {
+  return SETTINGS.lockScreenPasswordEnabled && SETTINGS.lockScreenPinIsSet != 0 &&
+         (resume == BootResume::ClockUnlock || resume == BootResume::QuickResume);
+}
+
+
 // Enter deep sleep mode
 uint64_t clockSleepTimerUs() { return static_cast<uint64_t>(TimeUtils::secondsUntilNextLocalMinute()) * 1000000ULL; }
 
 // A clock-less device would wake every minute just to paint a blank face;
 // fall back to an hourly re-check until the clock becomes valid.
 uint64_t clockSleepWakeUs() { return TimeUtils::isClockValid() ? clockSleepTimerUs() : 60ULL * 60 * 1000000ULL; }
+
+// CALENDAR sleep screen: the grid only changes at midnight, so the tick wake
+// is daily instead of per-minute.
+uint64_t calendarSleepWakeUs() {
+  return TimeUtils::isClockValid() ? static_cast<uint64_t>(TimeUtils::secondsUntilNextLocalMidnight()) * 1000000ULL
+                                   : 60ULL * 60 * 1000000ULL;
+}
 
 // The desktop shim models deep sleep without the M4 clock-timer argument.
 void startDeepSleepWithTimer(HalPowerManager& pm, HalGPIO& gpio, const uint64_t timerUs) {
@@ -339,6 +367,16 @@ void startDeepSleepWithTimer(HalPowerManager& pm, HalGPIO& gpio, const uint64_t 
 }
 
 void enterDeepSleep(bool fromTimeout = false) {
+#if defined(FREEINK_CAP_USB_MSC) && FREEINK_CAP_USB_MSC
+  // A USB Mass Storage session owns the SD card with the FAT volume detached:
+  // every write below would land on a dead filesystem. The activity blocks
+  // auto-sleep and the power long-press for the same reason. Sleep after the
+  // session ends (eject) — the activity reboots instead of returning here.
+  if (usbMscActive()) {
+    LOG_INF("SLP", "Deep sleep deferred: USB Mass Storage session is active");
+    return;
+  }
+#endif
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
@@ -347,8 +385,10 @@ void enterDeepSleep(bool fromTimeout = false) {
       (fromTimeout &&
        SETTINGS.quickResumeSleepScreen == CrossPointSettings::QUICK_RESUME_SLEEP_SCREEN::QUICK_RESUME_AFTER_TIMEOUT);
   const bool clockSleep = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK;
+  const bool calendarSleep = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CALENDAR;
+  const bool countdownSleep = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COUNTDOWN;
   APP_STATE.showBootScreen = !isQuickResumeSleep;
-  APP_STATE.clockSleepActive = clockSleep;
+  APP_STATE.clockSleepActive = clockSleep || calendarSleep || countdownSleep;
 
   APP_STATE.saveToFile();
 
@@ -364,7 +404,12 @@ void enterDeepSleep(bool fromTimeout = false) {
     LOG_ERR("ACH", "Failed to save achievements before deep sleep");
   }
 
-  if (isQuickResumeSleep || clockSleep) {
+  // Save the unlock frame for every clock-family lock (clock/calendar/
+  // countdown): BootResume::ClockUnlock seeds RED from this file so the
+  // first FAST home paint drives the lock's ink away. Calendar/countdown
+  // were missing here — their unlock diffed against unseeded RAM and the
+  // lock screen stayed on as a ghost.
+  if (isQuickResumeSleep || APP_STATE.clockSleepActive) {
     saveSleepFrameBuffer();
   }
 
@@ -380,10 +425,12 @@ void enterDeepSleep(bool fromTimeout = false) {
   display.deepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  startDeepSleepWithTimer(powerManager, gpio, clockSleep ? clockSleepWakeUs() : 0);
+  startDeepSleepWithTimer(
+      powerManager, gpio,
+      calendarSleep || countdownSleep ? calendarSleepWakeUs() : (clockSleep ? clockSleepWakeUs() : 0));
 }
 
-bool setupDisplayAndFonts(bool seamless = false, bool skipSdFonts = false) {
+bool setupDisplayAndFonts(bool seamless = false, bool skipSdFonts = false, bool deferSdFamilyLoad = false) {
 #if FREEINK_DEVICE_X4PRO
   // X4 Pro batches use SSD1677 or UC81xx. Resolve the controller before
   // display.begin(); C3 X3/X4 already do this once in HalGPIO::begin().
@@ -433,7 +480,7 @@ bool setupDisplayAndFonts(bool seamless = false, bool skipSdFonts = false) {
   renderer.insertFont(CHINESE_CHESS_FONT_ID, chineseChessPieceFontFamily);
 #endif
 
-  if (!skipSdFonts) sdFontSystem.begin(renderer);
+  if (!skipSdFonts) sdFontSystem.begin(renderer, deferSdFamilyLoad);
 
   LOG_DBG("MAIN", "Fonts setup");
   return fontDecompressorReady;
@@ -449,8 +496,15 @@ void setup() {
   // USB Serial/JTAG peripheral finish power-on and lets the host complete USB
   // enumeration before we touch the CDC state — otherwise cold boot races
   // and the host has to be physically replugged for logs to flow. Warm reboot
-  // worked without the delay because USB was already enumerated.
+  // worked without the delay because USB was already enumerated. A deep-sleep
+  // wake is a warm reboot, and this stall sits directly on the
+  // power-key-to-screen path, so skip it there (wake-boot live serial may be
+  // flaky until replug; the on-device log ring is unaffected).
+#if !defined(SIMULATOR)
+  if (esp_reset_reason() != ESP_RST_DEEPSLEEP) delay(250);
+#else
   delay(250);
+#endif
   Serial.begin(115200);
 #if LOG_SERIAL_HAS_TX_TIMEOUT
   logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
@@ -494,16 +548,19 @@ void setup() {
   }
 
   HalSystem::checkPanic();
+  LOG_DBG("MAIN", "Boot timing: SD ready");
 
   SETTINGS.loadFromFile();
   APP_STATE.loadFromFile();
+  LOG_DBG("MAIN", "Boot timing: settings loaded");
   const auto wakeupReason = gpio.getWakeupReason();
   // A clock tick repaints and goes straight back to sleep; keep the frontlight
   // off for it so it does not flash once during the repaint boot.
   const bool clockTickWake =
 #if !defined(SIMULATOR)
       wakeupReason == HalGPIO::WakeupReason::Timer && APP_STATE.clockSleepActive &&
-      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK;
+      (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK ||
+       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CALENDAR);
 #else
       false;
 #endif
@@ -516,7 +573,9 @@ void setup() {
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   KOREADER_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();
+  COUNTDOWN_STORE.loadFromFile();
   UITheme::getInstance().reload();
+  LOG_DBG("MAIN", "Boot timing: stores loaded");
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   bool clockUnlock = false;
@@ -525,7 +584,12 @@ void setup() {
       LOG_DBG("MAIN", "Verifying power button press duration");
       if (!gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
                                         SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP)) {
-        startDeepSleepWithTimer(powerManager, gpio, APP_STATE.clockSleepActive ? clockSleepWakeUs() : 0);
+        startDeepSleepWithTimer(
+            powerManager, gpio,
+            APP_STATE.clockSleepActive
+                ? (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CALENDAR ? calendarSleepWakeUs()
+                                                                                           : clockSleepWakeUs())
+                : 0);
       }
       if (APP_STATE.clockSleepActive) {
         APP_STATE.clockSleepActive = false;
@@ -542,28 +606,64 @@ void setup() {
 #else
       // If USB power caused a cold boot, go back to sleep
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
-      startDeepSleepWithTimer(powerManager, gpio, APP_STATE.clockSleepActive ? clockSleepWakeUs() : 0);
+      startDeepSleepWithTimer(
+          powerManager, gpio,
+          APP_STATE.clockSleepActive
+              ? (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CALENDAR ? calendarSleepWakeUs()
+                                                                                         : clockSleepWakeUs())
+              : 0);
       break;
 #endif
 #if !defined(SIMULATOR)
-    case HalGPIO::WakeupReason::Timer:
-      if (APP_STATE.clockSleepActive && SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK) {
-        LOG_DBG("MAIN", "Clock sleep tick");
+    case HalGPIO::WakeupReason::Timer: {
+      const bool calendarTick = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CALENDAR;
+      if (APP_STATE.clockSleepActive &&
+          (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK || calendarTick ||
+           SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COUNTDOWN)) {
+        const char* tickName = calendarTick ? "Calendar sleep tick"
+                                            : (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COUNTDOWN
+                                                   ? "Countdown sleep tick"
+                                                   : "Clock sleep tick");
+        LOG_DBG("MAIN", "%s", tickName);
         setupDisplayAndFonts(true, true);
         if (APP_STATE.lastSleepFromReader) {
           ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
         }
-        if (loadSleepFrameBuffer(false)) {
-          renderer.cleanupGrayscaleWithFrameBuffer();
+        const bool countdownTick = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COUNTDOWN;
+        if (calendarTick || countdownTick) {
+          // Daily modes fully redraw — no saved-frame base needed.
+          if (countdownTick) {
+            SleepActivity::paintCountdownSleep(renderer, /*dailyTick=*/true);
+          } else {
+            SleepActivity::paintCalendarSleep(renderer, /*dailyTick=*/true);
+          }
+          // Keep the unlock frame in sync with the panel: BootResume::ClockUnlock
+          // seeds RED from this file, and a stale frame leaves the repainted
+          // day's ink as a ghost under the first FAST home/reader paint.
+          saveSleepFrameBuffer();
+        } else {
+          // Step logs: a reset anywhere in this silent stretch reboots before
+          // anything else can be logged — without these the crash report ends
+          // at "Fonts setup" and the failing step is unidentifiable (device
+          // crash 2026-09-03, empty panic reason = CPU-fault path).
+          LOG_DBG("MAIN", "Clock tick: loading sleep frame");
+          if (loadSleepFrameBuffer(false)) {
+            LOG_DBG("MAIN", "Clock tick: seeding planes");
+            renderer.cleanupGrayscaleWithFrameBuffer();
+          }
+          LOG_DBG("MAIN", "Clock tick: painting clock");
+          SleepActivity::paintClock(renderer, true);
+          LOG_DBG("MAIN", "Clock tick: saving sleep frame");
+          saveSleepFrameBuffer();
+          LOG_DBG("MAIN", "Clock tick: entering deep sleep");
         }
-        SleepActivity::paintClock(renderer, true);
-        saveSleepFrameBuffer();
         halTiltSensor.deepSleep();
         Frontlight.setOn(false);
         display.deepSleep();
-        startDeepSleepWithTimer(powerManager, gpio, clockSleepWakeUs());
+        startDeepSleepWithTimer(powerManager, gpio, countdownTick ? calendarSleepWakeUs() : clockSleepWakeUs());
       }
       break;
+    }
 #endif
     case HalGPIO::WakeupReason::AfterFlash:
       // After flashing, just proceed to boot
@@ -591,8 +691,10 @@ void setup() {
     }
   }
 
-  // First serial output only here to avoid timing inconsistencies for power button press duration verification
-  LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
+  // First serial output only here to avoid timing inconsistencies for power button press duration verification.
+  // The build timestamp lets a log trace prove which binary produced it — a
+  // rebuilt program on disk does not replace an already-running process.
+  LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION " (built " __DATE__ " " __TIME__ ")");
 
   // Resolve the single boot-presentation decision. Skipping the splash also
   // skips the panel-clearing pass and the X3 initial-full-sync arming (see
@@ -604,14 +706,31 @@ void setup() {
                                                         : BootResume::Splash;
   bool allowFastInitialReaderRefresh = false;
 
-  const bool fontsReady = setupDisplayAndFonts(resume != BootResume::Splash);
+  const bool fontsReady = setupDisplayAndFonts(resume != BootResume::Splash, false,
+                                               /*deferSdFamilyLoad=*/lockGateNeeded(resume));
+  LOG_DBG("MAIN", "Boot timing: display+fonts ready");
   const bool postOtaBoot = otaPendingAtBoot && fontsReady && activityManager.goToPostOtaBoot(!recoveryFirmwareMode);
 
   if (!postOtaBoot) {
     switch (resume) {
       case BootResume::Silent:
         // Splash skipped: the routing block below picks the target activity; the
-        // panel keeps showing the pre-reboot popup until that first paint lands.
+        // panel keeps showing the pre-reboot frame until that first paint lands.
+        // Seed RED from the frame saved at the restart so that first FAST
+        // paint drives the old screen's ink away instead of ghosting it.
+        if (loadSleepFrameBuffer()) {
+          renderer.cleanupGrayscaleWithFrameBuffer();
+        }
+        // The pre-reboot screen (USB transfer, WiFi teardown) sat displayed
+        // for minutes and the loading popup was painted right before the
+        // reset — both leave physical residue that the single-pass HALF
+        // first paint does not fully bleach (eject ghost persisted through
+        // the v38/v43 baseline fixes; device photos 2026-09-03). Force the
+        // first HOME paint through the multi-inversion FULL clean. Reader
+        // targets keep their own AA/refresh cadence and skip the override.
+        if (snapshotTarget == SILENT_REBOOT_TARGET_HOME) {
+          renderer.requestNextFullRefresh();
+        }
         break;
       case BootResume::QuickResume:
         // One-shot flag: re-arm the splash for the next non-quick-resume boot. Save
@@ -644,7 +763,17 @@ void setup() {
         // drives the old digits to white. Without this, FAST diffs against
         // empty RAM and the time stays as a ghost.
         if (loadSleepFrameBuffer()) {
+#if FREEINK_DEVICE_MURPHY_M4
+          // The saved frame is exactly what the panel physically shows (an
+          // absolute lock-entry refresh painted it), so seed BOTH planes and
+          // let the first paint — the PIN pad or Home — be a fast
+          // differential. The default path would promote it to a ~1s HALF
+          // absolute, which is most of the perceived power-key-to-screen
+          // latency (device feedback 2026-09-03).
+          renderer.seedBaselineFromFrameBuffer();
+#else
           renderer.cleanupGrayscaleWithFrameBuffer();
+#endif
         }
         break;
       case BootResume::Splash:
@@ -661,6 +790,18 @@ void setup() {
     activityManager.goToCrashReport();
   } else if (postOtaBoot) {
     activityManager.goHome();
+  } else if (lockGateNeeded(resume)) {
+    // Wake-from-sleep with the lock armed: park on the PIN pad and defer the
+    // home/reader decision main.cpp would have taken. The pad runs that
+    // navigation itself once the code checks out.
+    PinEntryActivity::WakeTarget target;
+    target.toReader = !(APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
+                        mappedInputManager.isPressed(MappedInputManager::Button::Back) ||
+                        APP_STATE.readerActivityLoadCount > 0);
+    target.allowFastRefresh = allowFastInitialReaderRefresh;
+    if (!activityManager.replaceActivityWith<PinEntryActivity>(PinEntryActivity::Mode::Unlock, std::move(target))) {
+      activityManager.goHome();  // OOM fallback: never strand the user at a blank screen
+    }
   } else if (resume == BootResume::Silent && snapshotTarget == SILENT_REBOOT_TARGET_READER &&
              !APP_STATE.openEpubPath.empty()) {
     activityManager.goToReader(APP_STATE.openEpubPath);
@@ -758,6 +899,13 @@ void loop() {
   static bool screenshotButtonsReleased = true;
   static bool screenshotComboActive = false;
   if (gpio.isPressed(HalGPIO::BTN_POWER) && gpio.isPressed(HalGPIO::BTN_DOWN)) {
+#if defined(FREEINK_CAP_USB_MSC) && FREEINK_CAP_USB_MSC
+    // A screenshot writes the BMP to the SD card — forbidden while the USB
+    // host owns the volume (would race the host's raw sector writes).
+    if (usbMscActive()) {
+      return;
+    }
+#endif
     screenshotComboActive = true;
     if (screenshotButtonsReleased) {
       screenshotButtonsReleased = false;
@@ -793,6 +941,13 @@ void loop() {
     if (gpio.isPressed(HalGPIO::BTN_DOWN)) {
       return;
     }
+#if defined(FREEINK_CAP_USB_MSC) && FREEINK_CAP_USB_MSC
+    // The USB host owns the SD card in MSC mode; this path bypasses
+    // preventAutoSleep(), so it needs the explicit guard (see enterDeepSleep).
+    if (usbMscActive()) {
+      return;
+    }
+#endif
     enterDeepSleep();
     // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
     return;

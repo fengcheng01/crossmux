@@ -12,6 +12,8 @@ class SleepActivity final : public Activity {
       : Activity("Sleep", renderer, mappedInput), fromTimeout(fromTimeout) {}
   void onEnter() override;
   static void paintClock(GfxRenderer& renderer, bool minuteTick = false);
+  static void paintCalendarSleep(GfxRenderer& renderer, bool dailyTick = false);
+  static void paintCountdownSleep(GfxRenderer& renderer, bool dailyTick = false);
 
  private:
   void renderDefaultSleepScreen() const;

@@ -37,7 +37,7 @@ constexpr UiFontSize kUiFontSizes[] = {
 
 }  // namespace
 
-void SdCardFontSystem::begin(GfxRenderer& renderer) {
+void SdCardFontSystem::begin(GfxRenderer& renderer, bool deferFamilyLoad) {
   registry_.discover();
   adoptCompleteChineseNotoSans();
 
@@ -49,7 +49,7 @@ void SdCardFontSystem::begin(GfxRenderer& renderer) {
   SETTINGS.sdFontResolverCtx = this;
 
   // If user has a saved SD font selection, load it
-  if (SETTINGS.sdFontFamilyName[0] != '\0') {
+  if (!deferFamilyLoad && SETTINGS.sdFontFamilyName[0] != '\0') {
     const auto* family = registry_.findFamily(SETTINGS.sdFontFamilyName);
     if (family) {
       if (manager_.loadFamily(*family, renderer, SETTINGS.fontPointSize, SETTINGS.sdFontFlashPreload != 0)) {

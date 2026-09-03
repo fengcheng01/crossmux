@@ -74,16 +74,20 @@ inline TouchPageTurn detectTouchPageTurn(GfxRenderer& renderer, const MappedInpu
     return result;
   }
 
-  if (SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_SWIPE) {
-    // Horizontal swipes turn pages; taps remain free for the centered reader-menu
-    // zone. A slow swipe never becomes a long-press chapter skip.
+  const bool swipeMode = SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_SWIPE;
+  if (swipeMode || SETTINGS.swipeToTurnPage) {
+    // Horizontal swipes turn pages; in pure swipe mode taps remain free for the
+    // centered reader-menu zone. A slow swipe never becomes a long-press chapter
+    // skip, and swipe travel clears the tap slop, so the two never fire together.
     const auto dir = input.wasSwipe();
     if (dir == MappedInputManager::SwipeDir::Left) {
       result.next = true;
     } else if (dir == MappedInputManager::SwipeDir::Right) {
       result.prev = true;
     }
-    return result;
+    if (swipeMode) {
+      return result;
+    }
   }
 
   int x = 0;
@@ -249,10 +253,41 @@ inline bool usesCombinedAa() {
 #endif
 }
 
+// Direct AA: one absolute gray refresh per page turn — 2-bit planes written
+// with the absolute four-level encoding, driven by the M4 direct LUT
+// (lut_m4_aa_direct; weak-white 00 clean). No B/W paint, so nothing flashes;
+// the periodic cleanWhite pass runs the factory tier. Night mode skips (the
+// gray pipeline deliberately renders crisp B/W when inverted).
+// Swift AA: the TW recipe — differential repaint base pass (whites re-drive
+// clean every turn, no inversion flash) plus a ~7-frame weak edge pass. The
+// scheduled full-refresh cadence still applies through the normal reader path.
+inline bool usesSwiftAa() {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (SETTINGS.screenInverted) return false;
+  return SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SWIFT;
+#else
+  return false;
+#endif
+}
+
+inline bool usesDirectGrayAa() {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (SETTINGS.screenInverted) return false;
+  return SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_DIRECT;
+#else
+  return false;
+#endif
+}
+
 struct BackNavCallback {
   void* ctx;
   void (*fn)(void*);
 };
+
+// Where a Back press from the reading surface wants to land. Resolved by
+// handleBackNavigation; callers either let it execute the navigation directly
+// or take the destination via destinationOut to act on it themselves.
+enum class BackDestination { Home, FileBrowser };
 
 // Returns true if the back button was consumed (caller should return).
 // Long press (>= GO_BACK_OR_HOME_MS):
@@ -261,8 +296,12 @@ struct BackNavCallback {
 // Short press (< GO_BACK_OR_HOME_MS):
 // - default: go home
 // - with backShortToFileBrowser: go to file browser.
+// Pass destinationOut to resolve the destination without executing it — the
+// caller then performs the navigation itself (e.g. after an exit confirmation
+// dialog).
 inline bool handleBackNavigation(const MappedInputManager& mappedInput, ActivityManager& activityManager,
-                                 const char* filePath, BackNavCallback goHome) {
+                                 const char* filePath, BackNavCallback goHome,
+                                 BackDestination* destinationOut = nullptr) {
   // The reading surface deliberately has no left-edge swipe-to-exit path: in
   // swipe page-turn mode a right swipe must page back instead. Home remains
   // available through the board's dedicated Home gesture/key. Back swipes stay
@@ -276,6 +315,12 @@ inline bool handleBackNavigation(const MappedInputManager& mappedInput, Activity
   if (!mappedInput.wasReleased(MappedInputManager::Button::Back)) return false;
 
   const bool longPress = mappedInput.getHeldTime() >= GO_BACK_OR_HOME_MS;
+  const BackDestination destination =
+      (longPress != SETTINGS.backShortToFileBrowser) ? BackDestination::FileBrowser : BackDestination::Home;
+  if (destinationOut != nullptr) {
+    *destinationOut = destination;
+    return true;
+  }
   if (longPress != SETTINGS.backShortToFileBrowser) {
     activityManager.goToFileBrowser(filePath);
   } else {

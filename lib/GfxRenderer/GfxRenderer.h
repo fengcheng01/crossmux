@@ -438,6 +438,8 @@ class GfxRenderer {
   // cleanWhite=false: fast AA tier — the white LUT group stays idle so page
   // turns drive only ink pixels (ghosts cleared by the periodic clean pass).
   void displayGrayBufferAbsolute(bool cleanWhite = true) const;
+  void displaySwiftAa(const uint8_t* edgePlane) const;
+  bool supportsSwiftAa() const;
 
   // Tiled grayscale (X4): stream one band of a plane straight to controller RAM
   // from `scratch` (panelWidthBytes * numRows, physical rows [yStart, yStart+
@@ -448,6 +450,11 @@ class GfxRenderer {
   bool storeBwBuffer();    // Returns true if buffer was stored successfully
   void restoreBwBuffer();  // Restore and free the stored buffer
   void cleanupGrayscaleWithFrameBuffer() const;
+  // Seed both controller planes from the current framebuffer for wake boots:
+  // the panel physically shows it, so the next FAST differential can replace
+  // the boot-time absolute refresh. Framebuffer must hold the saved sleep
+  // frame (see PanelDriver::seedBaseline's safety contract).
+  void seedBaselineFromFrameBuffer() const;
 
   // Font helpers
   const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;

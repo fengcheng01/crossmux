@@ -47,10 +47,64 @@ invalid status/event/coordinate frames are discarded without latching contact.
 
 Reader anti-aliasing on this panel:
 
+- Swift (快刷叠刷, experimental, v36): the TW recipe rebuilt as its own AA
+  mode — pass 1 is a differential REPAINT of the B/W frame with a halved-TP
+  variant of the TW repaint table (`lut_m4_repaint_swift`; every pixel is
+  driven toward its target, whites stay clean, no inversion), pass 2 is the
+  TW weak edge drive verbatim (`lut_m4_edge_weak`, ~7 frames; BW = the new
+  frame's absolute MSB plane, RED = its complement so edge bits get the
+  weak black-ward nudge and land gray). `displaySwiftAa` in the driver owns
+  both activations; the reader renders only the MSB plane. If whites dirty,
+  step `lut_m4_repaint_swift`'s TP back up toward `lut_m4_repaint_fast`.
+  EPUB-only; TXT falls back, night mode and backgrounds fall back to the
+  overlay path.
+
+
+- REVERTED (v39): v35 wired the TW repaint LUT (`lut_m4_repaint_fast`,
+  registry slot 1, byte-identical to stock v632 "B") into EVERY full-screen
+  FAST refresh — on the device this showed a black flash on every
+  interaction, so it was rolled back to the stock differential FAST
+  everywhere. The table remains available for experiments; the opt-in
+  Swift AA mode carries its own repaint tables through displaySwiftAa and
+  is unaffected by this revert.
+
+
 - Overlay (叠加): FAST 1-bit then gray `lut_grayscale` (two refreshes).
 - Combined (合成): one FAST 1-bit refresh. Absolute 4-level (factory or
   VSL-only 00) left gray shadows on white and a slow full refresh. Overlay
   is the gray-edge mode.
+- Direct (直刷, experimental): one absolute gray refresh per turn — no B/W
+  paint. The 2-bit planes use the absolute four-level encoding (11=black …
+  00=white) and `lut_m4_aa_direct` drives them — a hybrid of two vendor
+  tables, all convergent drive-toward-target groups, no inversion: 00/11
+  take vendor B's white/black REPAINT sequences (A8 00 55 / 54 00 AA,
+  real doses, no opposite-extreme swing), 01/10 keep lut_grayscale's edge
+  phases, timing is B's verbatim (TP 0C 0D …, FR 0x22, VCOM 0x30).
+  v29-v31 proved erase-class drives need the full 4A→88 inversion cycle
+  (cleaning AND flashing are inseparable that way); B's repaint drives
+  standing pixels invisibly at their endpoint, so whites stay clean every
+  turn without a flash. If the grays land too dark under B's longer TP,
+  swap in milder 55-class phases. cleanWhite=true still
+  runs the factory tier. Night mode and reading backgrounds fall back to
+  the overlay path. The desktop simulator keeps previewing 11 as dark gray
+  (its shim models lut_grayscale), so core blackness is only meaningful on
+  hardware.
+
+Silent restarts (USB eject/disconnect, web-server teardown) save the panel's
+physical frame before the undisplayed loading popup joins the framebuffer,
+and `BootResume::Silent` seeds RED from it — the first FAST home paint drives
+the pre-reboot screen's ink away instead of ghosting it (same mechanism as
+ClockUnlock). The driver's `displayWindow` streams rows with no heap buffer
+(a ~29KB std::vector aborted under -fno-exceptions in the sleep-tick boot,
+where every store has just loaded — the empty-reason panic of 2026-09-03).
+
+The CALENDAR/COUNTDOWN lock faces paint entry with HALF (one flash, the
+clock lock's choice) and the daily timer tick with `sleepCleanRefresh()`
+(FULL on M4 — a face that sits ~24h needs the deep bleach, and nobody is
+watching). Entry AND tick both save the unlock frame
+(`saveSleepFrameBuffer()`) so `BootResume::ClockUnlock` seeds RED from what
+is actually on the panel — the entry save was the missing half of the wake
+ghost fix.
 
 Opening the reader menu/settings over an AA page used HALF (0xD4), which
 black-flashes. That path now resyncs grayscale RAM then FAST. Home from
@@ -96,6 +150,55 @@ esptool --chip esp32s3 --port /dev/ttyACM0 write-flash 0 murphy-m4-backup.bin
 Do not flash an ESP32-C3 or eego A4 artifact. The first-install flow writes the
 bootloader at `0x0`, partition table at `0x8000`, `boot_app0.bin` at `0xe000`,
 and app at `0x10000` without overwriting NVS.
+
+## USB Mass Storage ("USB 传输")
+
+`env:murphy_m4_cn` builds with `FREEINK_CAP_USB_MSC=1` and
+`ARDUINO_USB_MODE=0`: the File Transfer menu's mode list gains a "USB 数据线"
+entry that hands the whole SD card to the PC as a mass-storage device
+(`UsbTransferActivity` + the SDK `UsbMassStorage` library over TinyUSB). The
+FAT volume is detached (`SDCardManager::detachFilesystemForRawAccess()`, via
+`HalStorage::detachForRawUsbAccess()`) and the card is served as raw sectors;
+the firmware must not touch the card while the session is live.
+
+Build-stack notes (why the env looks the way it does):
+
+- arduino-esp32 ships TinyUSB only in its prebuilt libs; the pioarduino
+  custom-sdkconfig core rebuild drops every `CONFIG_TINYUSB_*` symbol unless
+  the `espressif/esp_tinyusb` component is in the rebuild's component set.
+- Do NOT re-add `custom_component_add: espressif/esp_tinyusb`: registry
+  versions newer than the core's vendored tinyusb 0.20 renamed the `CFG_TUD_*`
+  config macros, and their sources fail to compile against the pristine
+  headers (or vice versa). Instead the env compiles the Arduino core against
+  the pristine `framework-arduinoespressif32-libs/esp32s3/include/arduino_tinyusb`
+  headers (first in the include path) and defines
+  `CONFIG_TINYUSB_{ENABLED,CDC_ENABLED,MSC_ENABLED}=1` on the command line;
+  the pristine `sdkconfig` lines in `custom_sdkconfig` only exist to force the
+  one-time core rebuild and to restore the symbols if the rebuild repeats.
+- `ARDUINO_USB_MODE=0` makes `Serial` the TinyUSB CDC instead of the hardware
+  USB-Serial/JTAG (`lib/Logging/Logging.h` binds `logSerial` accordingly).
+  Flashing is unaffected — the ROM's USJ owns the USB pads until the app runs —
+  but the serial console speaks TinyUSB CDC while the app is running.
+
+Session rules (enforced by `UsbTransferActivity`):
+
+- Entry is the File Transfer mode list only, so no reader activity with an
+  open chapter-build handle can be on the stack. SD-font caches are released
+  and stats/state stores flushed before the volume detaches.
+- `preventAutoSleep()` blocks the idle timer; the power long-press and
+  `enterDeepSleep()` additionally check `usbMscActive()`
+  (`src/usb/UsbMassStorageControl.h`) because that path bypasses
+  `preventAutoSleep()` and would write `APP_STATE` onto a detached volume.
+- The home gesture is consumed while the session is live; Back cancels only
+  before a host has ever connected (in-place re-mount via `Storage.begin()`).
+  After a host connected, eject/disconnect/error always ends in
+  `silentRestart()` — the SDK-documented reboot-or-remount contract, matching
+  the web-server activity's teardown precedent.
+- The no-ESD hardware constraint above applies to plugging/unplugging the
+  cable as to any USB event.
+- The entry also appears on `simulator_murphy_m4` as a stub screen ("needs
+  real hardware"): a host build has no USB OTG controller or SD block device,
+  so only the menu flow is exercisable there.
 
 ## Hardware release gate
 

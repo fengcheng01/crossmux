@@ -24,8 +24,10 @@
 #include <limits>
 #include <string>
 
+#include "CountdownStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "activities/apps/standby/ChineseMonthGrid.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -45,6 +47,22 @@ HalDisplay::RefreshMode sleepCleanRefresh() {
   return HalDisplay::HALF_REFRESH;
 #endif
 }
+
+#if FREEINK_DEVICE_MURPHY_M4
+// Entering sleep straight from the reader with hardware AA active: the panel
+// still holds gray-driven ink (overlay planes / custom-LUT drives) that the
+// HALF entry refresh cannot clear, and the whole page ghosts under the lock
+// face (photo 2026-09-03). Only that transition pays for the FULL clean;
+// entries from plain B/W screens (home, menus, non-AA reading) keep the
+// gentle HALF.
+bool sleepEntryFromAaReader() {
+  if (!APP_STATE.lastSleepFromReader) return false;
+  return ReaderUtils::usesCombinedAa() || ReaderUtils::usesDirectGrayAa() || ReaderUtils::usesSwiftAa() ||
+         SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_OVERLAY;
+}
+#else
+bool sleepEntryFromAaReader() { return false; }
+#endif
 
 // Kept separate from /sleep.bmp and /.sleep so alpha-overlay art does not mix with full-screen wallpapers.
 constexpr char TRANSPARENT_SLEEP_ROOT_BMP[] = "/sleep-overlay.bmp";
@@ -539,7 +557,9 @@ void SleepActivity::onEnter() {
       renderQuickResume || SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT;
   if (frameWasInverted && preservesCurrentFrame) renderer.invertScreen();
 
-  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK) {
+  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK ||
+      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CALENDAR ||
+      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COUNTDOWN) {
     if (APP_STATE.lastSleepFromReader) {
       ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
     } else {
@@ -548,7 +568,13 @@ void SleepActivity::onEnter() {
 #if FREEINK_DEVICE_MURPHY_M4
     renderer.cleanupGrayscaleWithFrameBuffer();
 #endif
-    paintClock(renderer, false);
+    if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CALENDAR) {
+      paintCalendarSleep(renderer);
+    } else if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COUNTDOWN) {
+      paintCountdownSleep(renderer);
+    } else {
+      paintClock(renderer, false);
+    }
     return;
   }
 
@@ -692,10 +718,25 @@ void SleepActivity::paintClock(GfxRenderer& renderer, const bool minuteTick) {
     halEnvironment.begin();
     haveEnv = halEnvironment.read(tempC, humidityPct);
   }
+  // Nearest upcoming countdown: the clock lock surfaces the next thing being
+  // counted down to (device request 2026-09-03). Expired entries never show.
+  const CountdownStore::Entry* nearestCountdown = nullptr;
+  uint32_t countdownToday = 0;
+  if (haveTime) {
+    countdownToday = TimeUtils::getDayOrdinalForDate(civil.tm_year + 1900, civil.tm_mon + 1, civil.tm_mday);
+    for (size_t i = 0; i < COUNTDOWN_STORE.count(); ++i) {
+      const auto& entry = COUNTDOWN_STORE.at(i);
+      if (entry.targetDayOrdinal < countdownToday) continue;
+      if (nearestCountdown == nullptr || entry.targetDayOrdinal < nearestCountdown->targetDayOrdinal) {
+        nearestCountdown = &entry;
+      }
+    }
+  }
   const int metaLineH = renderer.getTextHeight(UI_12_FONT_ID);
   int metaH = 0;
   if (haveTime && use12Hour) metaH += metaLineH + 10;
   if (haveTime) metaH += metaLineH + 18;
+  if (nearestCountdown != nullptr) metaH += metaLineH + 12;
   if (haveEnv) metaH += metaLineH + 4;
 
   const int blockH = digitH + 36 + metaH;
@@ -739,6 +780,17 @@ void SleepActivity::paintClock(GfxRenderer& renderer, const bool minuteTick) {
     contentBottom = metaY + metaLineH;
     metaY += metaLineH + 18;
   }
+  if (nearestCountdown != nullptr) {
+    const char* label =
+        nearestCountdown->label.empty() ? tr(STR_COUNTDOWN_TITLE) : nearestCountdown->label.c_str();
+    char countdownBuf[160];
+    snprintf(countdownBuf, sizeof(countdownBuf), tr(STR_CLOCK_COUNTDOWN_FMT), label,
+             static_cast<int>(nearestCountdown->targetDayOrdinal - countdownToday));
+    const std::string countdownLine = renderer.truncatedText(UI_12_FONT_ID, countdownBuf, pageWidth - 48);
+    renderer.drawCenteredText(UI_12_FONT_ID, metaY, countdownLine.c_str(), true, EpdFontFamily::BOLD);
+    contentBottom = metaY + metaLineH;
+    metaY += metaLineH + 12;
+  }
   if (haveEnv) {
     drawCelsiusHumidity(renderer, UI_12_FONT_ID, metaY, tempC, humidityPct);
     contentBottom = metaY + renderer.getLineHeight(UI_12_FONT_ID);
@@ -751,17 +803,185 @@ void SleepActivity::paintClock(GfxRenderer& renderer, const bool minuteTick) {
   // deep-sleep init the unused BW RAM is white, so anything outside this
   // window would be driven to white against leftover RED clock pixels.
   if (minuteTick) {
-    const int pad = 12;
-    const int winY = std::max(0, digitTop - pad);
-    const int winBottom = std::min(pageHeight, contentBottom + pad);
-    renderer.displayWindow(0, winY, pageWidth, winBottom - winY);
+    if (haveTime && minute == 0) {
+      // Hourly re-bleach: the windowed FAST ticks never re-drive the white
+      // outside the time block, and even inside it the differential updates
+      // leave a little residue each minute. One full HALF repaint per hour
+      // (same waveform as lock entry) caps the buildup before it's visible.
+      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    } else {
+      const int pad = 12;
+      const int winY = std::max(0, digitTop - pad);
+      const int winBottom = std::min(pageHeight, contentBottom + pad);
+      renderer.displayWindow(0, winY, pageWidth, winBottom - winY);
+    }
   } else {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    // Lock entry. From an AA reader the panel holds gray-driven ink that HALF
+    // cannot clear (the page then ghosts under the clock); pay the FULL clean
+    // for that transition only.
+    renderer.displayBuffer(sleepEntryFromAaReader() ? sleepCleanRefresh() : HalDisplay::HALF_REFRESH);
   }
 #else
   (void)minuteTick;
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 #endif
+}
+
+void SleepActivity::paintCalendarSleep(GfxRenderer& renderer, const bool dailyTick) {
+#ifdef ENABLE_CHINESE_VERSION
+  renderer.clearScreen();
+
+  const uint32_t now = TimeUtils::getCurrentValidTimestamp();
+  std::tm civil{};
+  int year = 0;
+  unsigned month = 0;
+  unsigned day = 0;
+  const bool haveDate =
+      TimeUtils::isClockValid(now) && TimeUtils::getLocalDateTime(now, civil) &&
+      TimeUtils::getDateFromDayOrdinal(
+          TimeUtils::getDayOrdinalForDate(civil.tm_year + 1900, civil.tm_mon + 1, civil.tm_mday), year, month, day);
+
+  int weekdayCol = 0;
+  if (haveDate) {
+    // Monday-first label for the header date line, in sync with the grid.
+    weekdayCol = static_cast<int>(civil.tm_wday == 0 ? 6 : civil.tm_wday - 1);
+  }
+
+  const int pageWidth = renderer.getScreenWidth();
+  char header[40] = {};
+  if (haveDate) {
+    static const char* const kWEEKDAY_NAMES[7] = {"一", "二", "三", "四", "五", "六", "日"};
+    std::snprintf(header, sizeof(header), "%d月%u日 周%s", civil.tm_mon + 1, day, kWEEKDAY_NAMES[weekdayCol]);
+  } else {
+    std::snprintf(header, sizeof(header), "--");
+  }
+  const int headerW = renderer.getTextWidth(UI_12_FONT_ID, header, EpdFontFamily::BOLD);
+  const int headerY = 24;
+  renderer.drawText(UI_12_FONT_ID, (pageWidth - headerW) / 2, headerY, header, true, EpdFontFamily::BOLD);
+
+  // Almanac strip: 农历 · 日柱 · 节气 on one line, 宜/忌 highlights below.
+  int contentTop = headerY + renderer.getLineHeight(UI_12_FONT_ID) + 8;
+#if defined(ENABLE_CHINESE_VERSION)
+  if (haveDate) {
+    AlmanacDay almanac{};
+    if (computeAlmanac(civil, almanac)) {
+      char lunar[24] = {};
+      std::snprintf(lunar, sizeof(lunar), "%s%s%s", almanac.lunarLeap ? "闰" : "",
+                    chinese_almanac::kLunarMonthNames[(almanac.lunarMonth - 1) % 12],
+                    chinese_almanac::kLunarDayNames[(almanac.lunarDay - 1) % 30]);
+      char line1[64] = {};
+      std::snprintf(line1, sizeof(line1), "%s %s%s日 %s", lunar, chinese_almanac::kStemNames[almanac.dayStemIdx],
+                    chinese_almanac::kBranchNames[almanac.dayBranchIdx],
+                    chinese_almanac::kSolarTermNames[almanac.termCurrentIdx]);
+      char line2[64] = {};
+      std::snprintf(line2, sizeof(line2), "宜:%s %s   忌:%s %s", chinese_almanac::kYiPool[almanac.yiIdx % 12][0],
+                    chinese_almanac::kYiPool[almanac.yiIdx % 12][1], chinese_almanac::kJiPool[almanac.jiIdx % 12][0],
+                    chinese_almanac::kJiPool[almanac.jiIdx % 12][1]);
+      const int lineH = renderer.getLineHeight(SMALL_FONT_ID);
+      const int w1 = renderer.getTextWidth(UI_10_FONT_ID, line1);
+      const int w2 = renderer.getTextWidth(SMALL_FONT_ID, line2);
+      renderer.drawText(UI_10_FONT_ID, (pageWidth - w1) / 2, contentTop, line1, true);
+      renderer.drawText(SMALL_FONT_ID, (pageWidth - w2) / 2, contentTop + lineH + 4, line2);
+      contentTop += lineH * 2 + 12;
+    }
+  }
+#endif
+
+  if (haveDate) {
+    const Rect viewport{0, contentTop, pageWidth, renderer.getScreenHeight() - contentTop - 8};
+    // No standby face header over the lock screen — reserveHeaderSpace=false
+    // removes the ~90px blank band the default inset left under the header.
+    drawChineseMonthGrid(renderer, viewport, year, month, /*reserveHeaderSpace=*/false);
+  }
+
+  // A plain FAST (the displayBuffer default) never bleaches the white field,
+  // and each lock cycle leaves residue that slowly builds into ghosting.
+  // Entry takes HALF (one flash, the clock lock's verified choice); the
+  // daily tick takes the thorough clean because nobody is watching, and a
+  // face that sits for ~24h needs the deep bleach.
+  renderer.displayBuffer((dailyTick || sleepEntryFromAaReader()) ? sleepCleanRefresh() : HalDisplay::HALF_REFRESH);
+#else
+  // CALENDAR mode is CN-only (SettingsList gates the enum entry); global
+  // builds never select this face, so there is nothing to paint.
+  (void)renderer;
+  (void)dailyTick;
+#endif
+}
+
+void SleepActivity::paintCountdownSleep(GfxRenderer& renderer, const bool dailyTick) {
+  renderer.clearScreen();
+
+  const bool countdownSet = COUNTDOWN_STORE.count() > 0;
+  const uint32_t now = TimeUtils::getCurrentValidTimestamp();
+  std::tm civil{};
+  const bool haveClock = TimeUtils::isClockValid(now) && TimeUtils::getLocalDateTime(now, civil);
+  const int64_t today =
+      haveClock
+          ? static_cast<int64_t>(TimeUtils::getDayOrdinalForDate(civil.tm_year + 1900, civil.tm_mon + 1, civil.tm_mday))
+          : 0;
+
+  const int pageWidth = renderer.getScreenWidth();
+  const int contentTop = 90;
+
+  if (!countdownSet) {
+    const char* hint = tr(STR_COUNTDOWN_EMPTY);
+    const int hintW = renderer.getTextWidth(UI_12_FONT_ID, hint);
+    renderer.drawText(UI_12_FONT_ID, (pageWidth - hintW) / 2, contentTop + 60, hint, true, EpdFontFamily::BOLD);
+    renderer.displayBuffer((dailyTick || sleepEntryFromAaReader()) ? sleepCleanRefresh() : HalDisplay::HALF_REFRESH);
+    return;
+  }
+
+  // Gather events sorted by remaining days (expired last).
+  struct Row {
+    const CountdownStore::Entry* entry;
+    int days;
+  };
+  Row rows[CountdownStore::MAX_COUNTDOWNS];
+  size_t rowCount = 0;
+  for (size_t i = 0; i < COUNTDOWN_STORE.count(); ++i) {
+    rows[rowCount].entry = nullptr;  // filled below
+    const auto& entry = COUNTDOWN_STORE.at(i);
+    const int64_t remaining = static_cast<int64_t>(entry.targetDayOrdinal) - today;
+    rows[rowCount].entry = &entry;
+    rows[rowCount].days = static_cast<int>(remaining);
+    ++rowCount;
+  }
+  std::stable_sort(rows, rows + rowCount, [](const Row& a, const Row& b) { return a.days < b.days; });
+
+  int y = contentTop;
+  for (size_t i = 0; i < rowCount; ++i) {
+    const auto& row = rows[i];
+    const bool expired = row.days < 0;
+    const int days = std::max(0, row.days);
+
+    const std::string label = row.entry->label.empty() ? std::string(tr(STR_COUNTDOWN_TITLE)) : row.entry->label;
+    renderer.drawText(UI_12_FONT_ID, 20, y + 10, label.c_str(), true, EpdFontFamily::BOLD);
+
+    char daysBuf[32] = {};
+    if (expired) {
+      std::snprintf(daysBuf, sizeof(daysBuf), "%s", tr(STR_COUNTDOWN_PAST));
+    } else {
+      std::snprintf(daysBuf, sizeof(daysBuf), tr(STR_COUNTDOWN_DAYS_FMT), days);
+    }
+    const int daysW = renderer.getTextWidth(UI_12_FONT_ID, daysBuf, EpdFontFamily::BOLD);
+    renderer.drawText(UI_12_FONT_ID, pageWidth - 20 - daysW, y + 10, daysBuf, true, EpdFontFamily::BOLD);
+
+    char dateBuf[32] = {};
+    int y2 = 0;
+    unsigned m2 = 0;
+    unsigned d2 = 0;
+    if (TimeUtils::getDateFromDayOrdinal(row.entry->targetDayOrdinal, y2, m2, d2)) {
+      std::snprintf(dateBuf, sizeof(dateBuf), tr(STR_COUNTDOWN_TARGET_FMT), y2, m2, d2);
+      renderer.drawText(SMALL_FONT_ID, 20, y + 48, dateBuf);
+    }
+
+    renderer.drawLine(20, y + 84, pageWidth - 20, y + 84, true);
+    y += 96;
+    if (y > renderer.getScreenHeight() - 60) break;  // safety: never overflow the panel
+  }
+
+  // Clean paint per lock — see paintCalendarSleep for the FAST-residue rationale.
+  renderer.displayBuffer((dailyTick || sleepEntryFromAaReader()) ? sleepCleanRefresh() : HalDisplay::HALF_REFRESH);
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool preserveBackground) const {

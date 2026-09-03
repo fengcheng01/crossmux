@@ -740,6 +740,7 @@ void TxtReaderActivity::renderPage() {
   // BW rendering
   if (SETTINGS.readingBackgroundEnabled && !readingBackground::load(renderer)) renderer.clearScreen();
   const bool combinedAa = ReaderUtils::usesCombinedAa();
+  const bool directAa = ReaderUtils::usesDirectGrayAa() && !SETTINGS.readingBackgroundEnabled;
   renderLines();
   renderStatusBar();
   const auto tBwRender = millis();
@@ -775,6 +776,20 @@ void TxtReaderActivity::renderPage() {
     } else {
       pagesUntilFullRefresh--;
     }
+  } else if (directAa) {
+    // One absolute gray refresh, no B/W paint. The scheduled full refresh
+    // (cleanWhite) selects the factory clean tier; the status bar joins the
+    // gray planes because the absolute waveform drives undrawn pixels white.
+    const bool cleanWhite = pagesUntilFullRefresh <= 1;
+    (void)ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
+    ReaderUtils::renderAntiAliased(
+        renderer,
+        [this, &renderLines]() {
+          renderLines();
+          renderStatusBar();
+        },
+        true, cleanWhite);
+    renderer.cleanupGrayscaleWithFrameBuffer();
   } else {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
     if (SETTINGS.textAntiAliasing) {
