@@ -54,7 +54,8 @@ void ReadingStatsMenuActivity::openSelected() {
   // Leaves call finish() on Back, so pushing them returns control here.
   switch (kEntries[selected].screen) {
     case StatsScreen::Stats:
-      startActivityForResultWith<ReadingStatsActivity>([](const ActivityResult&) {});
+      startActivityForResultWith<ReadingStatsActivity>([](const ActivityResult&) {},
+                                                       /*mainTabEnabled=*/true);
       break;
     case StatsScreen::Heatmap:
       startActivityForResultWith<ReadingHeatmapActivity>([](const ActivityResult&) {});

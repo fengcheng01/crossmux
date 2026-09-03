@@ -24,7 +24,7 @@
 
 namespace {
 constexpr unsigned long BOOK_LONG_PRESS_MS = 1000;
-constexpr int SUMMARY_CARD_HEIGHT = 76;
+constexpr int SUMMARY_CARD_HEIGHT = 70;
 constexpr int SUMMARY_GAP = 10;
 constexpr int DETAILS_BUTTON_HEIGHT = 58;
 constexpr int LIST_HEADER_HEIGHT = 34;
@@ -131,7 +131,12 @@ void drawBookRow(const GfxRenderer& renderer, const Rect& rect, const ReadingBoo
 }  // namespace
 
 void ReadingStatsActivity::selectMainTabContentEdge(const MainTabContentEdge edge) {
-  selectedIndex = MainTabs::contentEdgeIndex(edge, static_cast<int>(READING_STATS.getBooks().size()) + 1);
+  (void)edge;
+  // This screen draws no per-entry state, so a silently retargeted
+  // selectedIndex would point taps and Confirm at a different detail screen
+  // with nothing visible having changed. Stats content is fixed here; books
+  // are reachable through the extended list.
+  selectedIndex = 0;
 }
 
 void ReadingStatsActivity::onEnter() {
@@ -388,6 +393,19 @@ void ReadingStatsActivity::renderInx() {
   const char* volLabels[] = {tr(STR_TODAY_READING), tr(STR_LAST_7_DAYS), tr(STR_THIS_MONTH_READING)};
   const uint64_t volMs[] = {READING_STATS.getTodayReadingMs(), READING_STATS.getRecentReadingMs(7),
                             READING_STATS.getRecentReadingMs(30)};
+  // Reading-streak badge, centered in the header band between clock and
+  // battery: the one metric this tab otherwise hides behind "更多". Centered
+  // rather than trailing the clock — the left-side run-on read as cluttered
+  // (device feedback 2026-09-03).
+  const uint32_t streakDays = READING_STATS.getCurrentStreakDays();
+  if (streakDays > 0) {
+    char streakBuf[24] = {};
+    snprintf(streakBuf, sizeof(streakBuf), tr(STR_STREAK_DAYS_FMT), static_cast<int>(streakDays));
+    const int streakW = renderer.getTextWidth(UI_10_FONT_ID, streakBuf, EpdFontFamily::BOLD);
+    renderer.drawText(UI_10_FONT_ID, (screenWidth - streakW) / 2, contentTop + 4, streakBuf, true,
+                      EpdFontFamily::BOLD);
+  }
+
   const int labelY = vol.y + 12;
   const int numY = labelY + renderer.getLineHeight(SMALL_FONT_ID) + 10;
   for (int i = 0; i < 3; ++i) {
@@ -407,9 +425,8 @@ void ReadingStatsActivity::renderInx() {
   const int valueH = renderer.getLineHeight(SMALL_FONT_ID);
   renderer.drawText(UI_12_FONT_ID, chart.x + 14, headerY, tr(STR_LAST_7D), true, EpdFontFamily::BOLD);
   const char* more = tr(STR_MORE);
-  const int moreW = renderer.getTextWidth(UI_10_FONT_ID, more);
-  detailsHitRect_ = Rect{chart.x + chart.width - 16 - moreW, headerY, moreW + 10, moreH + 8};
-  renderer.drawText(UI_10_FONT_ID, detailsHitRect_.x, headerY, more);
+  renderer.drawText(UI_10_FONT_ID, chart.x + chart.width - 16 - renderer.getTextWidth(UI_10_FONT_ID, more), headerY,
+                    more);
 
   const auto& days = READING_STATS.getReadingDays();
   uint32_t refDay = TimeUtils::getLocalDayOrdinal(READING_STATS.getDisplayTimestamp());
@@ -439,10 +456,16 @@ void ReadingStatsActivity::renderInx() {
 
   const int headerBottom = headerY + std::max(titleH, moreH);
   const int plotTop = headerBottom + valueH + 6;
-  const int plotBottom = chart.y + chart.height - 28;
+  const int plotBottom = chart.y + chart.height - 34;
   const int plotH = std::max(20, plotBottom - plotTop);
   const int gap = 8;
   const int barW = std::max(8, (chart.width - 28 - gap * 6) / 7);
+  // Minute labels only on today and the peak bar: seven stacked numbers read
+  // as noise on the 1-bit panel.
+  int peakIndex = -1;
+  for (int i = 0; i < 7; ++i) {
+    if (dayMs[i] > 0 && dayMs[i] == maxMs) peakIndex = i;
+  }
   for (int i = 0; i < 7; ++i) {
     const int x = chart.x + 14 + i * (barW + gap);
     int barH = static_cast<int>(dayMs[i] * static_cast<uint64_t>(plotH) / maxMs);
@@ -450,7 +473,8 @@ void ReadingStatsActivity::renderInx() {
     if (barH < 3) barH = 3;
     if (barH > plotH) barH = plotH;
     renderer.fillRect(x, plotBottom - barH, barW, barH);
-    if (topLabel[i][0] != '\0') {
+    const bool showMinutes = topLabel[i][0] != '\0' && (i == 6 || i == peakIndex);
+    if (showMinutes) {
       const int tw = renderer.getTextWidth(SMALL_FONT_ID, topLabel[i], EpdFontFamily::BOLD);
       const int labelY = plotBottom - barH - valueH;
       renderer.drawText(SMALL_FONT_ID, x + (barW - tw) / 2, std::max(headerBottom + 2, labelY), topLabel[i], true,
@@ -458,7 +482,7 @@ void ReadingStatsActivity::renderInx() {
     }
     if (dayLabel[i][0] != '\0') {
       const int tw = renderer.getTextWidth(SMALL_FONT_ID, dayLabel[i]);
-      renderer.drawText(SMALL_FONT_ID, x + (barW - tw) / 2, plotBottom + 6, dayLabel[i]);
+      renderer.drawText(SMALL_FONT_ID, x + (barW - tw) / 2, plotBottom + 4, dayLabel[i]);
     }
   }
 

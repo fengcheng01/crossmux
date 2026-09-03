@@ -31,7 +31,7 @@ namespace {
 constexpr int COVER_WIDTH = 96;
 constexpr int COVER_HEIGHT = 140;
 constexpr int PROGRESS_BLOCK_HEIGHT = 38;
-constexpr int METRIC_CARD_HEIGHT = 78;
+constexpr int METRIC_CARD_HEIGHT = 70;
 constexpr int METRIC_CARD_GAP = 8;
 constexpr int DETAIL_FOCUS_ITEM_COUNT = 2;
 constexpr int DETAIL_ADJUST_FOCUS_INDEX = 1;

@@ -12,7 +12,6 @@ class ReadingStatsActivity final : public Activity {
   bool waitForConfirmRelease = false;
   bool waitForBackRelease = false;
   bool mainTabEnabled = false;
-  Rect detailsHitRect_{};
   void openSelectedEntry();
   void confirmRemoveSelectedBook();
   void guardBackReturn();

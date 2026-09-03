@@ -23,6 +23,10 @@ class ReadingStatsExtendedActivity final : public Activity {
   explicit ReadingStatsExtendedActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
       : Activity("ReadingStatsExtended", renderer, mappedInput) {}
 
+  // INX: share the tab-bar header with the stats tab instead of the plain
+  // text header.
+  MainTab mainTab() const override { return MainTab::Statistics; }
+
   void onEnter() override;
   void loop() override;
   void render(RenderLock&&) override;

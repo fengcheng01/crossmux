@@ -22,11 +22,12 @@ enum class LabelMode {
 };
 
 struct Options {
-  int paddingX = 12;        // left inset for the value and label
-  int contentInset = 24;    // value/label fit width = rect.width - contentInset
-  int labelMaxLines = 2;    // max wrapped label lines (LabelMode::Wrap)
-  bool shrinkValue = true;  // drop the value to the small font if it would overflow
-  bool showCheck = false;   // draw a goal-met check badge in the top-right corner
+  int paddingX = 12;            // left inset for the value and label
+  int contentInset = 24;        // value/label fit width = rect.width - contentInset
+  int labelMaxLines = 2;        // max wrapped label lines (LabelMode::Wrap)
+  bool shrinkValue = true;      // drop the value to the small font if it would overflow
+  bool showCheck = false;       // draw a goal-met check badge in the top-right corner
+  bool flatBackground = false;  // INX: white card + border instead of dithered fill
   LabelMode labelMode = LabelMode::Wrap;
 };
 

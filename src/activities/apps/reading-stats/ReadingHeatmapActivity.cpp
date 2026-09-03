@@ -21,7 +21,7 @@
 namespace {
 constexpr int SECTION_GAP = 10;
 constexpr int MONTH_HEADER_HEIGHT = 34;
-constexpr int SUMMARY_CARD_HEIGHT = 66;
+constexpr int SUMMARY_CARD_HEIGHT = 70;
 constexpr int SUMMARY_CARD_GAP = 8;
 constexpr int HEATMAP_GRID_GAP = 6;
 constexpr int LEGEND_HEIGHT = 30;
@@ -143,10 +143,11 @@ int getHeatLevel(const uint64_t readingMs) {
     return 0;
   }
 
+  // Four visually distinct ink levels (white / light dither / dark dither /
+  // solid): the 1-bit panel cannot render five distinguishable dither grades,
+  // and any reading at all must show as at least level 1 so light days don't
+  // look empty.
   const uint64_t totalMinutes = readingMs / 60000ULL;
-  if (totalMinutes < 15ULL) {
-    return 0;
-  }
   if (totalMinutes < 30ULL) {
     return 1;
   }
@@ -156,16 +157,16 @@ int getHeatLevel(const uint64_t readingMs) {
   if (totalMinutes < 120ULL) {
     return 3;
   }
-  if (totalMinutes < 240ULL) {
-    return 4;
-  }
-  return 5;
+  return 4;
 }
 
 void drawMetricCard(const GfxRenderer& renderer, const Rect& rect, const char* label, const std::string& value) {
   AppMetricCard::Options options;
   options.paddingX = 10;
   options.contentInset = 20;
+  // Flat white + border: the dithered fill turns muddy on this panel's
+  // HALF_REFRESH passes (see InxInkCards.h).
+  options.flatBackground = true;
   AppMetricCard::draw(renderer, rect, label, value, options);
 }
 
@@ -193,16 +194,13 @@ void drawHeatCell(const GfxRenderer& renderer, const Rect& rect, const HeatmapCe
       renderer.fillRectDither(fillRect.x, fillRect.y, fillRect.width, fillRect.height, Color::LightGray);
       break;
     case 2:
-      renderer.fillRectDither(fillRect.x, fillRect.y, fillRect.width, fillRect.height, Color::LightGray);
+      renderer.fillRectDither(fillRect.x, fillRect.y, fillRect.width, fillRect.height, Color::DarkGray);
       break;
     case 3:
       renderer.fillRectDither(fillRect.x, fillRect.y, fillRect.width, fillRect.height, Color::DarkGray);
-      break;
-    case 4:
-      renderer.fillRectDither(fillRect.x, fillRect.y, fillRect.width, fillRect.height, Color::DarkGray);
       textBlack = false;
       break;
-    case 5:
+    case 4:
       renderer.fillRect(fillRect.x, fillRect.y, fillRect.width, fillRect.height);
       textBlack = false;
       break;
@@ -239,15 +237,12 @@ void drawLegendSwatch(const GfxRenderer& renderer, const Rect& rect, const int l
       renderer.fillRectDither(heatRect.x, heatRect.y, heatRect.width, heatRect.height, Color::LightGray);
       break;
     case 2:
-      renderer.fillRectDither(heatRect.x, heatRect.y, heatRect.width, heatRect.height, Color::LightGray);
+      renderer.fillRectDither(heatRect.x, heatRect.y, heatRect.width, heatRect.height, Color::DarkGray);
       break;
     case 3:
       renderer.fillRectDither(heatRect.x, heatRect.y, heatRect.width, heatRect.height, Color::DarkGray);
       break;
     case 4:
-      renderer.fillRectDither(heatRect.x, heatRect.y, heatRect.width, heatRect.height, Color::DarkGray);
-      break;
-    case 5:
       renderer.fillRect(heatRect.x, heatRect.y, heatRect.width, heatRect.height);
       break;
     default:
@@ -321,7 +316,7 @@ void drawLegend(const GfxRenderer& renderer, const Rect& rect) {
     int level;
     const char* label;
   };
-  static constexpr LegendLevel LEVELS[] = {{1, "15m+"}, {2, "30m+"}, {3, "60m+"}, {4, "120m+"}, {5, "240m+"}};
+  static constexpr LegendLevel LEVELS[] = {{1, "1-29m"}, {2, "30-59m"}, {3, "60-119m"}, {4, "120m+"}};
   constexpr int LEVEL_COUNT = sizeof(LEVELS) / sizeof(LEVELS[0]);
 
   const int itemWidth = rect.width / LEVEL_COUNT;

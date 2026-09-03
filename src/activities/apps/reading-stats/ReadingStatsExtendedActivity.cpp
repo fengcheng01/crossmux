@@ -546,8 +546,9 @@ void ReadingStatsExtendedActivity::renderInx() {
       ReadingStatsAnalytics::formatDurationHm(todayMs) + " / " + ReadingStatsAnalytics::formatDurationHm(goalMs);
   const int goalPad = 14;
   renderer.drawText(UI_12_FONT_ID, goal.x + goalPad, goal.y + 10, tr(STR_DAILY_GOAL), true, EpdFontFamily::BOLD);
-  const int goalValueW = renderer.getTextWidth(UI_12_FONT_ID, goalValue.c_str());
-  renderer.drawText(UI_12_FONT_ID, goal.x + goal.width - goalPad - goalValueW, goal.y + 10, goalValue.c_str());
+  const int goalValueW = renderer.getTextWidth(UI_12_FONT_ID, goalValue.c_str(), EpdFontFamily::BOLD);
+  renderer.drawText(UI_12_FONT_ID, goal.x + goal.width - goalPad - goalValueW, goal.y + 10, goalValue.c_str(), true,
+                    EpdFontFamily::BOLD);
 
   const uint8_t goalPercent =
       goalMs == 0 ? 0 : static_cast<uint8_t>(std::min<uint64_t>(100, todayMs * 100ULL / goalMs));
