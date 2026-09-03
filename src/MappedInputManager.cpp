@@ -6,9 +6,13 @@
 #include <HalFrontlight.h>
 
 #include <algorithm>
+#include <cstdlib>
 
 #include "CrossPointSettings.h"
 #include "components/UITheme.h"
+#if defined(SIMULATOR)
+#include <Logging.h>
+#endif
 
 namespace fui = freeink::ui;
 
@@ -135,11 +139,66 @@ void MappedInputManager::rememberTouchHeldTime() const {
 bool MappedInputManager::wasScreenTapped(int& x, int& y) const {
   float nx = 0.0f;
   float ny = 0.0f;
-  if (!gpio.wasTouchTap(nx, ny)) return false;
+  if (!gpio.wasTouchTap(nx, ny)) {
+#if defined(SIMULATOR)
+    return reconstructSimulatorTap(x, y);
+#else
+    return false;
+#endif
+  }
+#if defined(SIMULATOR)
+  simContactTracked = false;
+#endif
   renderer.tapToLogical(nx, ny, x, y);
+#if defined(SIMULATOR)
+  LOG_DBG("INP", "sim tap: gpio accepted at (%d,%d)", x, y);
+#endif
   rememberTouchHeldTime();
   return true;
 }
+
+#if defined(SIMULATOR)
+namespace {
+// Mirrors the on-device tap-release slop: a release that moved less than the
+// swipe threshold is a tap; anything further is a swipe and stays one.
+constexpr int SIM_TAP_RELEASE_MAX_DRIFT_PX = 60;
+}  // namespace
+
+bool MappedInputManager::reconstructSimulatorTap(int& x, int& y) const {
+  float hnx = 0.0f;
+  float hny = 0.0f;
+  if (gpio.isTouchHeldAt(hnx, hny)) {
+    int lx = 0;
+    int ly = 0;
+    renderer.tapToLogical(hnx, hny, lx, ly);
+    if (!simContactTracked) {
+      simContactTracked = true;
+      simContactStartX = simContactLastX = lx;
+      simContactStartY = simContactLastY = ly;
+    } else {
+      simContactLastX = lx;
+      simContactLastY = ly;
+    }
+    return false;
+  }
+  if (!gpio.wasTouchReleased()) {
+    simContactTracked = false;
+    return false;
+  }
+  const bool tracked = simContactTracked;
+  simContactTracked = false;  // one-shot for this release frame
+  const int dx = std::abs(simContactLastX - simContactStartX);
+  const int dy = std::abs(simContactLastY - simContactStartY);
+  const bool honored = tracked && dx < SIM_TAP_RELEASE_MAX_DRIFT_PX && dy < SIM_TAP_RELEASE_MAX_DRIFT_PX;
+  LOG_DBG("INP", "sim release: tracked=%d start=(%d,%d) last=(%d,%d) dx=%d dy=%d tap=%d", tracked ? 1 : 0,
+          simContactStartX, simContactStartY, simContactLastX, simContactLastY, dx, dy, honored ? 1 : 0);
+  if (!honored) return false;
+  x = simContactStartX;
+  y = simContactStartY;
+  rememberTouchHeldTime();
+  return true;
+}
+#endif
 
 bool MappedInputManager::wasScreenTouchDown(int& x, int& y) const {
   float nx = 0.0f;

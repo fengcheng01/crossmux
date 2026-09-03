@@ -148,4 +148,20 @@ class MappedInputManager {
 #if FREEINK_CAP_TOUCH
   bool powerConfirmClickFrame = false;
 #endif
+
+#if defined(SIMULATOR)
+  // crosspoint-simulator cancels a tap once the pointer drifts past the 28px
+  // stationary slop but only classifies swipes from 60px, so releases in the
+  // 29..59px band are dropped while the 90ms touch-down highlight already
+  // showed — it reads as "the icon highlighted but nothing opened". The
+  // on-device InputManager instead honors a tap release up to the swipe
+  // threshold; reconstruct that here from the held-contact samples + release
+  // edge. Compiled out on hardware, where the SDK already reports these taps.
+  bool reconstructSimulatorTap(int& x, int& y) const;
+  mutable bool simContactTracked = false;
+  mutable int simContactStartX = 0;
+  mutable int simContactStartY = 0;
+  mutable int simContactLastX = 0;
+  mutable int simContactLastY = 0;
+#endif
 };
