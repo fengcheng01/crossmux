@@ -16,6 +16,11 @@
 namespace {
 void drawHeaderTopLine(const GfxRenderer& renderer, const ThemeMetrics& metrics, const int pageWidth,
                        const std::string& dateText, const std::string& reminderText) {
+  // Tab-bar themes (INX on M4) draw their own clock inside the content area;
+  // the classic date/reminder strip above the header is noise there.
+  if (UITheme::getInstance().hasMainTabs()) {
+    return;
+  }
   const bool showBatteryPercentage =
       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS;
   const int batteryX = pageWidth - 12 - metrics.batteryWidth;

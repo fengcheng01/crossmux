@@ -168,6 +168,7 @@ enum UIIcon {
   Achievements,
   Calculator,
   Woodfish,
+  Countdown,
 };
 
 // Default theme implementation (Classic Theme)

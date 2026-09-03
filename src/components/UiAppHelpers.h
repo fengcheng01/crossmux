@@ -100,6 +100,10 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
         return freeink::ui::bitmapFromIcon(icon_radio_tower_32);
       case UIIcon::Bookmark:
         return freeink::ui::bitmapFromIcon(icon_bookmark_32);
+      case UIIcon::Transfer:
+        // The File Transfer list's "USB data cable" row: a USB glyph, not the
+        // home screen's arrow glyph that UIIcon::Transfer maps to elsewhere.
+        return freeink::ui::bitmapFromIcon(icon_usb_32);
       default:
         return {};
     }
@@ -123,6 +127,9 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
       return freeink::ui::bitmapFromIcon(icon_radio_tower_24);
     case UIIcon::Bookmark:
       return freeink::ui::bitmapFromIcon(icon_bookmark_24);
+    case UIIcon::Transfer:
+      // USB data-cable row glyph (see the 32px branch above).
+      return freeink::ui::bitmapFromIcon(icon_usb_24);
     default:
       return {};
   }

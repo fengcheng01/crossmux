@@ -20,6 +20,7 @@
 #include "components/icons/bookmark.h"
 #include "components/icons/buddy.h"
 #include "components/icons/calculator.h"
+#include "components/icons/countdown.h"
 #include "components/icons/sokoban.h"
 #ifdef ENABLE_CHINESE_VERSION
 #include "components/icons/chinese_chess.h"
@@ -133,6 +134,8 @@ const uint8_t* LyraTheme::iconForName(UIIcon icon, int size) {
         return PixelSwitchIcon;
       case UIIcon::Calculator:
         return CalculatorIcon;
+      case UIIcon::Countdown:
+        return CountdownIcon;
       case UIIcon::Woodfish:
         return WoodfishIcon;
       default:

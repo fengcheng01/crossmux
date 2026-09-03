@@ -16,6 +16,7 @@ file = file
 wifi = wifi
 library = library
 radio-tower = radio-tower
+usb = usb
 sun = sun
 moon = moon
 upload = upload
