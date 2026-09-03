@@ -539,6 +539,12 @@ void WifiSelectionActivity::checkConnectionStatus() {
       requestUpdate();
     } else {
       // Using saved password or open network - complete immediately
+      if (!usedSavedPassword && !WIFI_STORE.hasSavedCredential(selectedSSID)) {
+        // Remember open networks too: without a stored credential the next
+        // session's auto-connect finds nothing and has to ask again.
+        RenderLock lock(*this);
+        WIFI_STORE.addCredential(selectedSSID, "");
+      }
       LOG_DBG("WIFI",
               "Connected with saved/open credentials, "
               "completing immediately");

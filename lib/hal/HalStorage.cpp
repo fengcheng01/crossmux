@@ -22,6 +22,16 @@ bool HalStorage::begin() { return SDCard.begin(); }
 
 bool HalStorage::ready() const { return SDCard.ready(); }
 
+#if FREEINK_CAP_USB_MSC && FREEINK_SD_SDMMC
+FsBlockDeviceInterface* HalStorage::detachForRawUsbAccess() {
+  // Called once per USB session from the main task, after every other SD
+  // consumer has been quiesced; the volume is being torn down, so taking the
+  // mutex here only guards against an in-flight call from a straggler task.
+  StorageLock lock;
+  return SDCard.detachFilesystemForRawAccess();
+}
+#endif
+
 // For the rest of the methods, we acquire the mutex to ensure thread safety
 
 HalStorage::StorageLock::StorageLock() {

@@ -11,11 +11,28 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr StrId menuItems[NetworkModeSelectionActivity::MENU_ITEM_COUNT] = {
-    StrId::STR_JOIN_NETWORK, StrId::STR_CALIBRE_WIRELESS, StrId::STR_CREATE_HOTSPOT};
+    StrId::STR_JOIN_NETWORK,
+    StrId::STR_CALIBRE_WIRELESS,
+    StrId::STR_CREATE_HOTSPOT,
+#if NETWORK_MODE_HAS_USB
+    StrId::STR_USB_TRANSFER,
+#endif
+};
 constexpr StrId menuDescs[NetworkModeSelectionActivity::MENU_ITEM_COUNT] = {
-    StrId::STR_JOIN_DESC, StrId::STR_CALIBRE_DESC, StrId::STR_HOTSPOT_DESC};
+    StrId::STR_JOIN_DESC,
+    StrId::STR_CALIBRE_DESC,
+    StrId::STR_HOTSPOT_DESC,
+#if NETWORK_MODE_HAS_USB
+    StrId::STR_USB_TRANSFER_DESC,
+#endif
+};
 constexpr UIIcon menuIcons[NetworkModeSelectionActivity::MENU_ITEM_COUNT] = {UIIcon::Wifi, UIIcon::Library,
-                                                                             UIIcon::Hotspot};
+                                                                             UIIcon::Hotspot
+#if NETWORK_MODE_HAS_USB
+                                                                             ,
+                                                                             UIIcon::Transfer
+#endif
+};
 }  // namespace
 
 NetworkModeSelectionActivity::NetworkModeSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -47,6 +64,11 @@ void NetworkModeSelectionActivity::activateIndex(const int index) {
   } else if (index == 2) {
     mode = NetworkMode::CREATE_HOTSPOT;
   }
+#if NETWORK_MODE_HAS_USB
+  else if (index == 3) {
+    mode = NetworkMode::USB_TRANSFER;
+  }
+#endif
   onModeSelected(mode);
 }
 

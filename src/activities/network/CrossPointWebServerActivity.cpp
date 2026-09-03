@@ -17,6 +17,9 @@
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
 #include "activities/network/CalibreConnectActivity.h"
+#if NETWORK_MODE_HAS_USB
+#include "activities/usb/UsbTransferActivity.h"
+#endif
 #include "components/SubpageLayout.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -123,6 +126,15 @@ void CrossPointWebServerActivity::onExit() {
 }
 
 void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) {
+#if NETWORK_MODE_HAS_USB
+  if (mode == NetworkMode::USB_TRANSFER) {
+    // Hand the SD card to USB before any WiFi bring-up: WiFi stays off, so
+    // this activity's onExit teardown branch is a no-op when we get replaced.
+    LOG_INF("WEBACT", "Network mode selected: USB Transfer");
+    activityManager.replaceActivityWith<UsbTransferActivity>();
+    return;
+  }
+#endif
   const char* modeName = "Join Network";
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     modeName = "Connect to Calibre";

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <BoardConfig.h>
 #include <Print.h>
 #include <common/FsApiConstants.h>  // for oflag_t
 #include <freertos/semphr.h>
@@ -8,6 +9,10 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#if FREEINK_CAP_USB_MSC && FREEINK_SD_SDMMC
+class FsBlockDeviceInterface;  // SdFat forward declaration
+#endif
 
 class HalFile;
 
@@ -46,6 +51,14 @@ class HalStorage {
   bool openFileForWrite(const char* moduleName, const std::string& path, HalFile& file);
   bool openFileForWrite(const char* moduleName, const String& path, HalFile& file);
   bool removeDir(const char* path);
+
+#if FREEINK_CAP_USB_MSC && FREEINK_SD_SDMMC
+  // Raw block-device handoff for the USB Mass Storage session: ends the
+  // mounted FAT volume while keeping the SDMMC host alive, and returns the
+  // sector-level device for the USB owner. Storage is unusable until begin()
+  // is called again after the USB owner releases the card.
+  FsBlockDeviceInterface* detachForRawUsbAccess();
+#endif
 
   static HalStorage& getInstance() { return instance; }
 

@@ -2,8 +2,24 @@
 
 #include <Arduino.h>
 #include <HardwareSerial.h>
-#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+
+// logSerial binds the concrete Serial implementation before the #define Serial
+// proxy below. Three cases:
+//   * Hardware CDC (ARDUINO_USB_MODE=1, default): USB-Serial/JTAG HWCDC.
+//   * TinyUSB CDC (ARDUINO_USB_MODE=0, murphy_m4_cn USB-MSC build): OTG USBCDC.
+//     API-compatible with HWCDC (setTxTimeoutMs/begin/end/operator bool).
+//   * Plain UART: HardwareSerial.
+#if defined(ARDUINO_USB_MODE) && !ARDUINO_USB_MODE && defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+#include <USBCDC.h>
+static USBCDC& logSerial = Serial;
+#define LOG_SERIAL_HAS_TX_TIMEOUT 1
+#elif defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
 #include <HWCDC.h>
+static HWCDC& logSerial = Serial;
+#define LOG_SERIAL_HAS_TX_TIMEOUT 1
+#else
+static HardwareSerial& logSerial = Serial;
+#define LOG_SERIAL_HAS_TX_TIMEOUT 0
 #endif
 
 #include <string>
@@ -29,14 +45,6 @@ won't trigger deprecation warnings.
 
 #ifndef LOG_LEVEL
 #define LOG_LEVEL 0
-#endif
-
-#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
-static HWCDC& logSerial = Serial;
-#define LOG_SERIAL_HAS_TX_TIMEOUT 1
-#else
-static HardwareSerial& logSerial = Serial;
-#define LOG_SERIAL_HAS_TX_TIMEOUT 0
 #endif
 
 void logPrintf(const char* level, const char* origin, const char* format, ...);
