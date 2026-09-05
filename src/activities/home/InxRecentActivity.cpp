@@ -33,10 +33,9 @@ constexpr int kHomeBatteryHeight = 12;
 constexpr int kHomeBatteryRightMargin = 12;
 
 Rect contentRect(const GfxRenderer& renderer) {
+  const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
   const auto& metrics = UITheme::getInstance().getMetrics();
-  const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int hintH = GUI.buttonHintsVisible() ? metrics.buttonHintsHeight : 0;
-  return Rect{0, top, renderer.getScreenWidth(), renderer.getScreenHeight() - top - hintH - metrics.verticalSpacing};
+  return Rect{content.x, content.y, content.width, std::max(0, content.height - metrics.verticalSpacing)};
 }
 
 const char* titleOf(const RecentBook& book) { return book.title.empty() ? book.path.c_str() : book.title.c_str(); }
@@ -523,6 +522,131 @@ void InxRecentActivity::drawFlow(const Rect& content) {
 
   const int start = InxRecentGeometry::pageStart(selected, bookCount, InxRecentLayout::Flow);
   const int visible = std::min(InxRecentGeometry::itemsPerPage(InxRecentLayout::Flow), std::max(0, bookCount - start));
+
+  if (visible == 1) {
+    const int index = start;
+    const int heroH = 260;
+    const Rect heroPanel{content.x + pad, content.y + clockH, content.width - pad * 2, heroH};
+    InxInkCards::drawCard(renderer, heroPanel);
+
+    renderer.drawText(UI_12_FONT_ID, heroPanel.x + 14, heroPanel.y + 12, tr(STR_NOW_READING), true, EpdFontFamily::BOLD);
+
+    const char* more = tr(STR_MORE);
+    const int moreW = renderer.getTextWidth(UI_10_FONT_ID, more);
+    moreHitRect_ = Rect{heroPanel.x + heroPanel.width - 14 - moreW, heroPanel.y + 10, moreW + 10,
+                        renderer.getLineHeight(UI_10_FONT_ID) + 10};
+    renderer.drawText(UI_10_FONT_ID, moreHitRect_.x, heroPanel.y + 12, more);
+
+    // Book Cover (prominent hero aspect ratio)
+    const int coverTop = heroPanel.y + 12 + renderer.getLineHeight(UI_12_FONT_ID) + 10;
+    const int coverH = heroPanel.y + heroPanel.height - 18 - coverTop;
+    const int coverW = coverH * 70 / 100;
+    const Rect cover{heroPanel.x + 14, coverTop, coverW, coverH};
+    setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(coverH));
+    drawBookCover(index, cover);
+    renderer.drawRect(cover.x, cover.y, cover.width, cover.height);
+
+    // Text details on the right
+    const int textX = cover.x + cover.width + 16;
+    const int textW = heroPanel.x + heroPanel.width - 14 - textX;
+    int ty = coverTop + 2;
+
+    // Title (bold, up to 2 lines)
+    const auto titleLines =
+        renderer.wrappedText(titleFont, titleOf((*books)[index]), textW, 2, EpdFontFamily::BOLD);
+    for (const auto& line : titleLines) {
+      renderer.drawText(titleFont, textX, ty, line.c_str(), true, EpdFontFamily::BOLD);
+      ty += titleLineH;
+    }
+
+    // Author
+    if (!(*books)[index].author.empty()) {
+      const std::string authorText = renderer.truncatedText(SMALL_FONT_ID, (*books)[index].author.c_str(), textW);
+      renderer.drawText(SMALL_FONT_ID, textX, ty + 2, authorText.c_str());
+      ty += renderer.getLineHeight(SMALL_FONT_ID) + 6;
+    }
+
+    // Progress text
+    const ReadingBookStats* stats = statsAt(index);
+    char progBuf[48] = {};
+    if (stats && stats->completed && progressOf(stats) >= 99) {
+      snprintf(progBuf, sizeof(progBuf), "%s", tr(STR_DONE));
+    } else if (stats && !stats->chapterTitle.empty()) {
+      const std::string cut = renderer.truncatedText(chapterFont, stats->chapterTitle.c_str(), textW);
+      snprintf(progBuf, sizeof(progBuf), "%s (%u%%)", cut.c_str(), static_cast<unsigned>(progressOf(stats)));
+    } else {
+      snprintf(progBuf, sizeof(progBuf), "已读 %u%%", static_cast<unsigned>(progressOf(stats)));
+    }
+    renderer.drawText(chapterFont, textX, ty + 4, progBuf);
+    ty += chapterH + 8;
+
+    // Progress bar
+    InxInkCards::drawProgress(renderer, Rect{textX, ty, textW, 6}, progressOf(stats));
+    ty += 12;
+
+    // Reading duration
+    char durationBuf[32] = {};
+    ReadingStatsAnalytics::formatDurationLabel(stats ? stats->totalReadingMs : 0, durationBuf, sizeof(durationBuf));
+    char durLine[48] = {};
+    snprintf(durLine, sizeof(durLine), "已读 %s", durationBuf);
+    // "继续阅读" pill button at bottom right
+    const char* continueText = "继续阅读 >";
+    const int btnW = renderer.getTextWidth(SMALL_FONT_ID, continueText, EpdFontFamily::BOLD) + 16;
+    const int btnH = renderer.getLineHeight(SMALL_FONT_ID) + 8;
+    const int btnX = heroPanel.x + heroPanel.width - 14 - btnW;
+    const int btnY = heroPanel.y + heroPanel.height - 14 - btnH;
+    renderer.fillRoundedRect(btnX, btnY, btnW, btnH, 6, Color::White);
+    renderer.drawRoundedRect(btnX, btnY, btnW, btnH, 1, 6, true);
+    renderer.drawText(SMALL_FONT_ID, btnX + 8, btnY + 4, continueText, true, EpdFontFamily::BOLD);
+
+    flowListTop_ = heroPanel.y;
+    flowRowStep_ = heroPanel.height;
+    flowVisible_ = 1;
+
+    // Bottom Reading Overview section (fills the previously empty void!)
+    const int statsY = heroPanel.y + heroPanel.height + 12;
+    const int remainH = content.y + content.height - statsY - 6;
+    if (remainH >= 80) {
+      const int gap = 12;
+      const int cardW = (content.width - pad * 2 - gap) / 2;
+      const int cardH = std::min(105, (remainH - gap) / 2);
+
+      // Card 1: Today
+      char todayVal[24] = {};
+      ReadingStatsAnalytics::formatDurationLabel(READING_STATS.getTodayReadingMs(), todayVal, sizeof(todayVal));
+      InxInkCards::drawMetricCard(renderer, Rect{content.x + pad, statsY, cardW, cardH}, todayVal, tr(STR_TODAY_READING));
+
+      // Card 2: Streak or 7-day total
+      char streakVal[24] = {};
+      const uint32_t streakDays = READING_STATS.getCurrentStreakDays();
+      if (streakDays > 0) {
+        snprintf(streakVal, sizeof(streakVal), "%u 天", streakDays);
+        InxInkCards::drawMetricCard(renderer, Rect{content.x + pad + cardW + gap, statsY, cardW, cardH}, streakVal, "连续阅读");
+      } else {
+        ReadingStatsAnalytics::formatDurationLabel(READING_STATS.getRecentReadingMs(7), streakVal, sizeof(streakVal));
+        InxInkCards::drawMetricCard(renderer, Rect{content.x + pad + cardW + gap, statsY, cardW, cardH}, streakVal, tr(STR_LAST_7D));
+      }
+
+      // Bottom Banner
+      const int bannerY = statsY + cardH + gap;
+      const int bannerH = remainH - cardH - gap;
+      if (bannerH >= 50) {
+        const Rect banner{content.x + pad, bannerY, content.width - pad * 2, bannerH};
+        InxInkCards::drawCard(renderer, banner);
+
+        char monthVal[24] = {};
+        ReadingStatsAnalytics::formatDurationLabel(READING_STATS.getRecentReadingMs(30), monthVal, sizeof(monthVal));
+        char monthSummary[64] = {};
+        snprintf(monthSummary, sizeof(monthSummary), "本月已累计阅读 %s", monthVal);
+
+        renderer.drawText(UI_10_FONT_ID, banner.x + 14, banner.y + 12, monthSummary, true, EpdFontFamily::BOLD);
+        renderer.drawText(SMALL_FONT_ID, banner.x + 14, banner.y + 12 + renderer.getLineHeight(UI_10_FONT_ID) + 4,
+                          "保持良好阅读习惯，享受安静阅读时光");
+      }
+    }
+    return;
+  }
+
   const int listTop = panel.y + 6 + headH;
   const int listH = std::max(1, panel.y + panel.height - 6 - listTop);
   const int rowStep = listH / 4;

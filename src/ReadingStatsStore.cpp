@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <iterator>
 
 #include "CrossPointState.h"
 #include "util/BookCacheUtils.h"
@@ -468,14 +469,27 @@ void ReadingStatsStore::recordReadingTime(ReadingBookStats& book, const uint32_t
 
   getOrCreateBookReadingDay(book, epochSeconds).readingMs += readingMs;
   getOrCreateReadingDay(epochSeconds).readingMs += readingMs;
+  std::tm local{};
+  if (TimeUtils::getLocalDateTime(epochSeconds, local) && local.tm_hour >= 0 && local.tm_hour <= 23) {
+    const uint8_t hour = static_cast<uint8_t>(local.tm_hour);
+    hourMs[hour] += readingMs;
+    const uint32_t dayOrdinal = TimeUtils::getLocalDayOrdinal(epochSeconds);
+    if (dayOrdinal == dayHourOrdinal) {
+      dayHourMs[hour] += readingMs;
+    } else if (dayOrdinal > dayHourOrdinal) {
+      std::fill(std::begin(dayHourMs), std::end(dayHourMs), 0ULL);
+      dayHourOrdinal = dayOrdinal;
+      dayHourMs[hour] += readingMs;
+    }
+  }
 }
 
-void ReadingStatsStore::appendSessionLogEntry(const uint32_t dayOrdinal, const uint32_t sessionMs) {
+void ReadingStatsStore::appendSessionLogEntry(const uint32_t dayOrdinal, const uint32_t sessionMs, const uint8_t hour) {
   if (dayOrdinal == 0 || sessionMs == 0) {
     return;
   }
 
-  sessionLog.push_back(ReadingSessionLogEntry{dayOrdinal, sessionMs});
+  sessionLog.push_back(ReadingSessionLogEntry{dayOrdinal, sessionMs, hour > 23 ? static_cast<uint8_t>(255) : hour});
   if (sessionLog.size() > MAX_SESSION_LOG_ENTRIES) {
     sessionLog.erase(sessionLog.begin(),
                      sessionLog.begin() + static_cast<std::ptrdiff_t>(sessionLog.size() - MAX_SESSION_LOG_ENTRIES));
@@ -909,7 +923,12 @@ void ReadingStatsStore::endSession() {
     book.lastSessionMs = sessionMs;
     const uint32_t sessionTimestamp = getReferenceTimestamp(TimeUtils::getAuthoritativeTimestamp(), book.lastReadAt);
     if (isClockValid(sessionTimestamp)) {
-      appendSessionLogEntry(TimeUtils::getLocalDayOrdinal(sessionTimestamp), sessionMs);
+      uint8_t hour = 255;
+      std::tm local{};
+      if (TimeUtils::getLocalDateTime(sessionTimestamp, local) && local.tm_hour >= 0 && local.tm_hour <= 23) {
+        hour = static_cast<uint8_t>(local.tm_hour);
+      }
+      appendSessionLogEntry(TimeUtils::getLocalDayOrdinal(sessionTimestamp), sessionMs, hour);
     }
     markDirty();
   }
@@ -1053,6 +1072,9 @@ void ReadingStatsStore::reset() {
   legacyReadingDays.clear();
   readingDays.clear();
   sessionLog.clear();
+  std::fill(std::begin(hourMs), std::end(hourMs), 0ULL);
+  std::fill(std::begin(dayHourMs), std::end(dayHourMs), 0ULL);
+  dayHourOrdinal = 0;
   activeSession = {};
   lastSessionSnapshot = {};
   markDirty();

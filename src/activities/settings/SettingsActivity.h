@@ -181,7 +181,7 @@ class SettingsActivity final : public UiTabListActivity {
   int selectedCategoryIndex = 0;  // Currently selected category
   int settingsCount = 0;
   uint8_t expandedCategories = 0;
-
+  int inxCategory_ = -1;  // -1 = Category Hub, 0..3 = Category Detail
   // Per-category settings derived from shared list + device-only actions
   std::vector<SettingInfo> displaySettings;
   std::vector<SettingInfo> readerSettings;
@@ -206,6 +206,12 @@ class SettingsActivity final : public UiTabListActivity {
   std::vector<freeink::ui::ListItem> rowItems_;
   void rebuildRowItems();
   void rebuildAccordionRows();
+  void rebuildHubCards();
+  void rebuildCategoryDetailRows();
+  void toggleInxSetting(int settingIndex);
+  void onBackHub();
+  static void onBackHubActionTrampoline(const freeink::ui::ActionEvent& event, void* user);
+  static constexpr freeink::ui::ActionId ACTION_BACK_HUB = freeink::ui::ActionId(ACTION_USER);
 
   static constexpr int categoryCount = 4;
   static const StrId categoryNames[categoryCount];
@@ -251,6 +257,6 @@ class SettingsActivity final : public UiTabListActivity {
   void onExit() override;
   void render(RenderLock&&) override;
   MainTab mainTab() const override { return MainTab::Settings; }
-  bool mainTabBackReturnsToTabs() const override { return !usesAccordion() || expandedCategories == 0; }
+  bool mainTabBackReturnsToTabs() const override { return !usesAccordion() || inxCategory_ < 0; }
   void selectMainTabContentEdge(MainTabContentEdge edge) override;
 };

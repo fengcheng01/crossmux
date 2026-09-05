@@ -49,16 +49,13 @@ HalDisplay::RefreshMode sleepCleanRefresh() {
 }
 
 #if FREEINK_DEVICE_MURPHY_M4
-// Entering sleep straight from the reader with hardware AA active: the panel
-// still holds gray-driven ink (overlay planes / custom-LUT drives) that the
-// HALF entry refresh cannot clear, and the whole page ghosts under the lock
-// face (photo 2026-09-03). Only that transition pays for the FULL clean;
-// entries from plain B/W screens (home, menus, non-AA reading) keep the
-// gentle HALF.
+// Entering sleep straight from the reader: the panel just showed a dense text
+// page, and the single-pass HALF entry can leave faint residue on some pages
+// (AA gray ink always, heavy B/W pages sometimes — "有时略带残影", device
+// 2026-09-04). Take the FULL clean for every reader exit; entries from light
+// screens (home, menus) keep the gentle HALF.
 bool sleepEntryFromAaReader() {
-  if (!APP_STATE.lastSleepFromReader) return false;
-  return ReaderUtils::usesCombinedAa() || ReaderUtils::usesDirectGrayAa() || ReaderUtils::usesSwiftAa() ||
-         SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_OVERLAY;
+  return APP_STATE.lastSleepFromReader;
 }
 #else
 bool sleepEntryFromAaReader() { return false; }

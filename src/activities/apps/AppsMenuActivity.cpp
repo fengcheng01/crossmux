@@ -292,13 +292,13 @@ void AppsMenuActivity::drawIconGrid(const Rect& rect, const int visibleCount, co
 void AppsMenuActivity::render(RenderLock&&) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int sw = renderer.getScreenWidth();
-  const int sh = renderer.getScreenHeight();
 
   renderer.clearScreen();
   drawPageHeader(Rect{0, metrics.topPadding, sw, metrics.headerHeight}, tr(STR_APPS_TITLE));
 
-  const int listY = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-  const int listH = sh - listY - metrics.buttonHintsHeight - metrics.verticalSpacing;
+  const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
+  const int listY = content.y + metrics.verticalSpacing;
+  const int listH = std::max(0, content.height - metrics.verticalSpacing);
   const int visibleCount = getVisibleAppCount();
   const auto theme = static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme);
   const bool showSelection = showMainTabContentSelection();

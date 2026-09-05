@@ -1,5 +1,7 @@
 #include "ReadingStatsAnalytics.h"
 
+#include <I18n.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <ctime>
@@ -46,6 +48,25 @@ void formatDurationParts(const uint64_t totalMs, char* number, const size_t numb
   hours = true;
   const unsigned tenths = static_cast<unsigned>((minutes * 10ULL + 3ULL) / 60ULL);
   snprintf(number, numberSize, "%u.%u", tenths / 10U, tenths % 10U);
+}
+
+void formatDurationLabel(const uint64_t totalMs, char* buffer, const size_t bufferSize) {
+  if (buffer == nullptr || bufferSize == 0) {
+    return;
+  }
+  const uint64_t minutes = totalMs / 60000ULL;
+  if (minutes < 60ULL) {
+    snprintf(buffer, bufferSize, "%llu%s", static_cast<unsigned long long>(minutes), tr(STR_MINUTES_UNIT));
+    return;
+  }
+  const uint64_t hours = minutes / 60ULL;
+  const uint64_t remainder = minutes % 60ULL;
+  if (remainder == 0) {
+    snprintf(buffer, bufferSize, "%llu%s", static_cast<unsigned long long>(hours), tr(STR_HOURS_UNIT));
+    return;
+  }
+  snprintf(buffer, bufferSize, "%llu%s%llu%s", static_cast<unsigned long long>(hours), tr(STR_HOURS_UNIT),
+           static_cast<unsigned long long>(remainder), tr(STR_MINUTES_UNIT));
 }
 
 std::string formatDayOrdinalLabel(const uint32_t dayOrdinal) {
@@ -139,6 +160,80 @@ std::vector<TimelineDayEntry> buildTimelineEntries(const size_t maxEntries) {
     }
   }
   return entries;
+}
+
+int hourToDaypart(const uint8_t hour) {
+  if (hour > 23) {
+    return -1;
+  }
+  if (hour >= 5 && hour < 11) {
+    return 0;
+  }
+  if (hour >= 11 && hour < 17) {
+    return 1;
+  }
+  if (hour >= 17 && hour < 21) {
+    return 2;
+  }
+  return 3;
+}
+
+void getLifetimeDaypartMs(uint64_t out[DAYPART_COUNT]) {
+  if (out == nullptr) {
+    return;
+  }
+  for (int i = 0; i < DAYPART_COUNT; ++i) {
+    out[i] = 0;
+  }
+  for (uint8_t hour = 0; hour < 24; ++hour) {
+    const int part = hourToDaypart(hour);
+    if (part >= 0) {
+      out[part] += READING_STATS.getHourReadingMs(hour);
+    }
+  }
+}
+
+void getDayDaypartMs(const uint32_t dayOrdinal, uint64_t out[DAYPART_COUNT]) {
+  if (out == nullptr) {
+    return;
+  }
+  for (int i = 0; i < DAYPART_COUNT; ++i) {
+    out[i] = 0;
+  }
+  if (dayOrdinal == 0) {
+    return;
+  }
+  for (uint8_t hour = 0; hour < 24; ++hour) {
+    const uint64_t ms = READING_STATS.getDayHourReadingMs(dayOrdinal, hour);
+    const int part = hourToDaypart(hour);
+    if (ms > 0 && part >= 0) {
+      out[part] += ms;
+    }
+  }
+  if (hasDaypartMs(out)) {
+    return;
+  }
+  for (const auto& session : READING_STATS.getSessionLog()) {
+    if (session.dayOrdinal != dayOrdinal) {
+      continue;
+    }
+    const int part = hourToDaypart(session.hour);
+    if (part >= 0) {
+      out[part] += session.sessionMs;
+    }
+  }
+}
+
+bool hasDaypartMs(const uint64_t dayparts[DAYPART_COUNT]) {
+  if (dayparts == nullptr) {
+    return false;
+  }
+  for (int i = 0; i < DAYPART_COUNT; ++i) {
+    if (dayparts[i] > 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace ReadingStatsAnalytics

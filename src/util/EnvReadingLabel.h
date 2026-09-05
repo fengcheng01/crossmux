@@ -22,7 +22,8 @@ inline void drawCelsiusHumidity(const GfxRenderer& renderer, const int fontId, c
   const int ringGap = std::max(2, lineH / 12);
   const int unitGap = std::max(2, lineH / 10);
   const int groupGap = std::max(10, lineH / 2);
-  const int totalW = tempW + unitGap + ringD + ringGap + cW + groupGap + humW;
+  const int sepW = renderer.getTextWidth(fontId, "|");
+  const int totalW = tempW + unitGap + ringD + ringGap + cW + groupGap + sepW + groupGap + humW;
   if (centerWidth <= 0) centerWidth = renderer.getScreenWidth();
   int x = originX + (centerWidth - totalW) / 2;
 
@@ -33,5 +34,9 @@ inline void drawCelsiusHumidity(const GfxRenderer& renderer, const int fontId, c
   x += ringD + ringGap;
   renderer.drawText(fontId, x, y, "C");
   x += cW + groupGap;
+  // Vertical bar between the two readings (device request 2026-09-04): ASCII
+  // pipe — fullwidth U+FF5C is not in the builtin Latin UI font subset.
+  renderer.drawText(fontId, x, y, "|");
+  x += sepW + groupGap;
   renderer.drawText(fontId, x, y, humBuf);
 }

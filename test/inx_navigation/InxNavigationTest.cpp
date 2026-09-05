@@ -44,12 +44,13 @@ constexpr bool isSolid(const InxAppIcons::Icon& icon, const uint8_t value) {
 }  // namespace
 
 TEST(InxNavigation, WrapsAcrossFiveTabs) {
-  EXPECT_EQ(MainTabs::adjacent(MainTab::Recent, -1), MainTab::Statistics);
-  EXPECT_EQ(MainTabs::adjacent(MainTab::Statistics, 1), MainTab::Recent);
-  EXPECT_EQ(MainTabs::adjacent(MainTab::Library, 1), MainTab::Apps);
-  EXPECT_EQ(MainTabs::fromX(0, 500), MainTab::Recent);
-  EXPECT_EQ(MainTabs::fromX(100, 500), MainTab::Library);
-  EXPECT_EQ(MainTabs::fromX(200, 500), MainTab::Apps);
+  EXPECT_EQ(MainTabs::adjacent(MainTab::Library, -1), MainTab::Statistics);
+  EXPECT_EQ(MainTabs::adjacent(MainTab::Statistics, 1), MainTab::Library);
+  EXPECT_EQ(MainTabs::adjacent(MainTab::Apps, 1), MainTab::Recent);
+  EXPECT_EQ(MainTabs::adjacent(MainTab::Recent, -1), MainTab::Apps);
+  EXPECT_EQ(MainTabs::fromX(0, 500), MainTab::Library);
+  EXPECT_EQ(MainTabs::fromX(100, 500), MainTab::Apps);
+  EXPECT_EQ(MainTabs::fromX(200, 500), MainTab::Recent);
   EXPECT_EQ(MainTabs::fromX(300, 500), MainTab::Settings);
   EXPECT_EQ(MainTabs::fromX(499, 500), MainTab::Statistics);
   EXPECT_EQ(MainTabs::fromX(500, 500), MainTab::None);

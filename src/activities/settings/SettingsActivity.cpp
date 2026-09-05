@@ -178,8 +178,21 @@ const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DIS
                                                               StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
 
 SettingsActivity::SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-    : UiTabListActivity("Settings", renderer, mappedInput) {}
+    : UiTabListActivity("Settings", renderer, mappedInput) {
+  app.on(ACTION_BACK_HUB, &SettingsActivity::onBackHubActionTrampoline, this);
+}
 
+void SettingsActivity::onBackHubActionTrampoline(const freeink::ui::ActionEvent&, void* user) {
+  static_cast<SettingsActivity*>(user)->onBackHub();
+}
+
+void SettingsActivity::onBackHub() {
+  inxCategory_ = -1;
+  nav.reset(selectedCategoryIndex);
+  rebuildRowItems();
+  requestUpdate();
+  app.clearTapFlash();
+}
 void SettingsActivity::selectMainTabContentEdge(const MainTabContentEdge edge) {
   if (usesAccordion()) {
     moveSelectionTo(MainTabs::contentEdgeIndex(edge, listCount()));
@@ -309,10 +322,10 @@ void SettingsActivity::rebuildSettingsLists() {
 
 void SettingsActivity::onEnter() {
   UiTabListActivity::onEnter();
+  app.on(ACTION_BACK_HUB, &SettingsActivity::onBackHubActionTrampoline, this);
 
-  // Reset selection to first category (ring position 0, the tab bar, comes
-  // from the base's per-tab nav reset)
   selectedCategoryIndex = 0;
+  inxCategory_ = -1;
   expandedCategories = 0;
   dictionariesLoaded = !usesAccordion();
   preserveQuickResumeTimeoutOn =
@@ -350,7 +363,11 @@ void SettingsActivity::selectCategory(const int categoryIndex) {
 // content and rowItems_[].value pointers in place.
 void SettingsActivity::rebuildRowItems() {
   if (usesAccordion()) {
-    rebuildAccordionRows();
+    if (inxCategory_ < 0) {
+      rebuildHubCards();
+    } else {
+      rebuildCategoryDetailRows();
+    }
     return;
   }
   const auto& settings = *currentSettings;
@@ -365,9 +382,60 @@ void SettingsActivity::rebuildRowItems() {
   }
 }
 
+void SettingsActivity::rebuildHubCards() {
+  rowLabels_.resize(categoryCount);
+  rowValues_.resize(categoryCount);
+  rowItems_.clear();
+  rowItems_.reserve(categoryCount);
+
+  static const char* const kSubtitlesZh[categoryCount] = {
+      "方向 · 主题 · 前光 · 局刷波形",
+      "字体排版 · 状态栏 · 词典 · 同步",
+      "按键映射 · 触控翻页区 · 电源键",
+      "时间 · 语言 · 缓存清理 · 固件升级",
+  };
+  static const char* const kSubtitlesEn[categoryCount] = {
+      "Orientation, Theme, Frontlight, Waveform",
+      "Typography, Status Bar, Dictionary, Sync",
+      "Button Remap, Tap Zones, Power Button",
+      "Date & Time, Language, Cache, Firmware",
+  };
+
+  const bool isZh = I18N.getLanguage() != Language::EN;
+  const char* const* subtitles = isZh ? kSubtitlesZh : kSubtitlesEn;
+
+  for (int i = 0; i < categoryCount; ++i) {
+    rowLabels_[i] = I18N.get(categoryNames[i]);
+    rowValues_[i] = ">";
+    fui::ListItem item;
+    item.label = rowLabels_[i].c_str();
+    item.subtitle = subtitles[i];
+    item.value = rowValues_[i].c_str();
+    item.actionValue = static_cast<int16_t>(i);
+    rowItems_.push_back(item);
+  }
+}
+
+void SettingsActivity::rebuildCategoryDetailRows() {
+  const auto& settings = *currentSettings;
+  rowValues_.assign(settings.size(), std::string());
+  rowLabels_.resize(settings.size());
+  rowItems_.clear();
+  rowItems_.reserve(settings.size());
+  for (size_t i = 0; i < settings.size(); i++) {
+    rowLabels_[i] = I18N.get(settings[i].nameId);
+    fui::ListItem item;
+    item.label = rowLabels_[i].c_str();
+    item.actionValue = static_cast<int16_t>(i);
+    rowItems_.push_back(item);
+  }
+}
+
 int SettingsActivity::listCount() const {
-  return usesAccordion() ? InxAccordionGeometry::visibleCount(accordionSettingCounts(), expandedCategories)
-                         : settingsCount;
+  if (usesAccordion()) {
+    return inxCategory_ < 0 ? categoryCount : settingsCount;
+  }
+  return settingsCount;
 }
 
 freeink::ui::ListNav& SettingsActivity::activeNav() { return usesAccordion() ? nav : UiTabListActivity::activeNav(); }
@@ -404,22 +472,31 @@ void SettingsActivity::onTabAction(const int index) {
 void SettingsActivity::activateIndex(const int index) {
   if (optionPopup.isActive()) return;
   if (usesAccordion()) {
-    const auto row = InxAccordionGeometry::rowAt(accordionSettingCounts(), expandedCategories, index);
-    if (row.isCategory())
-      toggleAccordionCategory(row.category);
-    else
-      toggleAccordionSetting(row.category, row.setting);
+    if (inxCategory_ < 0) {
+      if (index >= 0 && index < categoryCount) {
+        inxCategory_ = index;
+        selectCategory(index);
+        nav.reset(0);
+        rebuildRowItems();
+        requestUpdate();
+      }
+      app.clearTapFlash();
+      return;
+    }
+    toggleInxSetting(index);
     app.clearTapFlash();
     return;
   }
   (void)index;  // toggleCurrentSetting reads the ring position
-  // Most rows repaint a different surface (popup, sub-activity, new value);
-  // a lingering tap flash would gray an unrelated element.
   app.clearTapFlash();
   toggleCurrentSetting();
 }
 
 void SettingsActivity::onRowAction(const fui::ActionEvent& event) {
+  if (event.action == ACTION_BACK_HUB) {
+    onBackHub();
+    return;
+  }
   if (!usesAccordion()) {
     UiTabListActivity::onRowAction(event);
     return;
@@ -427,7 +504,6 @@ void SettingsActivity::onRowAction(const fui::ActionEvent& event) {
   nav.selected = event.value;
   activateIndex(event.value);
 }
-
 void SettingsActivity::onExit() {
   Activity::onExit();
 
@@ -442,14 +518,13 @@ void SettingsActivity::applyUiSettingChange(uint8_t CrossPointSettings::* valueP
   }
   RenderLock lock(*this);
   UITheme::getInstance().reload();
+  inxCategory_ = -1;
   expandedCategories = 0;
   nav.reset();
   rebuildSettingsLists();
-  // Re-derive the shared tokens for the new look; the gate stays closed until
-  // the repaint that rebuilds the interaction table in the new layout.
   resetUi();
+  app.on(ACTION_BACK_HUB, &SettingsActivity::onBackHubActionTrampoline, this);
 }
-
 bool SettingsActivity::handleCustomInput() {
   return optionPopup.handleInput(mappedInput, [this] { requestUpdate(); });
 }
@@ -480,17 +555,11 @@ bool SettingsActivity::handleButtons() {
       return true;
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-      if (expandedCategories != 0) {
-        const auto row = InxAccordionGeometry::rowAt(accordionSettingCounts(), expandedCategories, nav.selected);
-        const uint8_t mask = row.category >= 0 ? static_cast<uint8_t>(uint8_t{1} << row.category) : 0;
-        expandedCategories =
-            (mask != 0 && (expandedCategories & mask) != 0) ? static_cast<uint8_t>(expandedCategories & ~mask) : 0;
-        rebuildAccordionRows();
-        nav.selected = std::min(nav.selected, listCount() - 1);
-        nav.follow(listCount());
-        requestUpdate();
+      if (inxCategory_ >= 0) {
+        onBackHub();
+        return true;
       }
-      return true;
+      return false;
     }
     return false;
   }
@@ -553,6 +622,21 @@ void SettingsActivity::toggleAccordionCategory(const int categoryIndex) {
   requestUpdate();
 }
 
+void SettingsActivity::toggleInxSetting(const int settingIndex) {
+  if (inxCategory_ < 0 || inxCategory_ >= categoryCount) return;
+  const auto& settings = settingsForCategory(inxCategory_);
+  if (settingIndex < 0 || settingIndex >= static_cast<int>(settings.size())) return;
+  selectedCategoryIndex = inxCategory_;
+  currentSettings = &settings;
+  settingsCount = static_cast<int>(settings.size());
+  tabNavs[static_cast<size_t>(inxCategory_)].selected = settingIndex + 1;
+  toggleCurrentSetting();
+  rebuildRowItems();
+  nav.selected = settingIndex;
+  nav.followPending = false;
+  requestUpdate();
+}
+
 void SettingsActivity::toggleAccordionSetting(const int categoryIndex, const int settingIndex) {
   if (categoryIndex < 0 || categoryIndex >= categoryCount) return;
   const auto& settings = settingsForCategory(categoryIndex);
@@ -569,7 +653,6 @@ void SettingsActivity::toggleAccordionSetting(const int categoryIndex, const int
   nav.follow(listCount());
   requestUpdate();
 }
-
 void SettingsActivity::toggleCurrentSetting() {
   int selectedSetting = ringPos() - 1;
   if (selectedSetting < 0 || selectedSetting >= settingsCount) {
@@ -821,17 +904,16 @@ void SettingsActivity::openSleepTimeoutPicker() {
       CrossPointSettings::MIN_SLEEP_TIMEOUT_MINUTES, CrossPointSettings::MAX_SLEEP_TIMEOUT_MINUTES, 1, 5,
       StrId::STR_SLEEP_TIMER_VALUE_FORMAT, false, StrId::STR_SLEEP_NEVER);
 }
-
 void SettingsActivity::openLockPasswordSetup() {
+  const int savedSelected = nav.selected;
   startActivityForResultWith<PinEntryActivity>(
-      [this](const ActivityResult& result) {
+      [this, savedSelected](const ActivityResult& result) {
         const auto* pin = std::get_if<PinResult>(&result.data);
-        // A completed double-entry also arms the lock: opening setup while
-        // disabled and picking a code is an enable gesture. A cancel (or a
-        // failed launch) leaves the previous state untouched.
         if (pin != nullptr && pin->verified) SETTINGS.lockScreenPasswordEnabled = 1;
         SETTINGS.saveToFile();
         rebuildSettingsLists();
+        nav.selected = savedSelected;
+        nav.followPending = false;
         requestUpdate();
       },
       PinEntryActivity::Mode::Set);
@@ -919,27 +1001,88 @@ std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
 
 void SettingsActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  // Content below the GUI.drawHeader band, above the button hints.
-  screen.setContentMargin(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                                      static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
+  // Content between the top of the page and the INX tab bar (or hints).
+  screen.setContentMargin(fui::Insets{
+      static_cast<int16_t>(content.y), static_cast<int16_t>(renderer.getScreenWidth() - (content.x + content.width)),
+      static_cast<int16_t>(renderer.getScreenHeight() - (content.y + content.height)),
+      static_cast<int16_t>(content.x)});
 
   if (usesAccordion()) {
-    const auto counts = accordionSettingCounts();
-    for (int i = 0; i < listCount(); ++i) {
-      const auto row = InxAccordionGeometry::rowAt(counts, expandedCategories, i);
-      rowValues_[i] = row.isCategory() ? ((expandedCategories & (uint8_t{1} << row.category)) != 0 ? "-" : "+")
-                                       : settingValueText(settingsForCategory(row.category)[row.setting]);
+    if (inxCategory_ < 0) {
+      fui::HeaderProps hubHeader;
+      hubHeader.title = tr(STR_SETTINGS_TITLE);
+      hubHeader.rightLabel = "墨菲 M4";
+      hubHeader.centered = false;
+      screen.header(hubHeader);
+
+      fui::ListProps props;
+      props.items = rowItems_.data();
+      props.count = static_cast<uint16_t>(rowItems_.size());
+      props.action = ACTION_ROW;
+      props.inputMask = fui::InputTouch;
+      props.rowHeight = 120;
+      props.rowRadius = 14;
+      props.rowGap = 14;
+      props.rowInset = 16;
+      props.sidePadding = 20;
+      props.separator = fui::SeparatorStyle::None;
+      props.labelText = screen.theme().titleText;
+      props.labelText.bold = true;
+      props.subtitleText = screen.theme().bodyText;
+      props.valueText = screen.theme().titleText;
+
+      fui::StyleSet cardStyles;
+      cardStyles.explicitlySet = true;
+      cardStyles.normal.background = fui::Paint::solid(fui::Color::White);
+      cardStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
+      cardStyles.normal.border = fui::Paint::solid(fui::Color::Black);
+      cardStyles.normal.borderWidth = 1;
+      cardStyles.normal.radius = 14;
+
+      cardStyles.selected.background = fui::Paint::solid(fui::Color::White);
+      cardStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
+      cardStyles.selected.border = fui::Paint::solid(fui::Color::Black);
+      cardStyles.selected.borderWidth = 3;
+      cardStyles.selected.radius = 14;
+      cardStyles.focused = cardStyles.selected;
+
+      cardStyles.active.background = fui::Paint::solid(fui::Color::Black);
+      cardStyles.active.foreground = fui::Paint::solid(fui::Color::White);
+      cardStyles.active.border = fui::Paint::solid(fui::Color::Black);
+      cardStyles.active.borderWidth = 2;
+      cardStyles.active.radius = 14;
+
+      props.rowStyles = cardStyles;
+
+      syncListViewport(screen, props, true);
+      screen.list(props);
+      return;
+    }
+
+    fui::HeaderProps headerProps;
+    headerProps.title = I18N.get(categoryNames[inxCategory_]);
+    headerProps.centered = true;
+    headerProps.trailingLabel = tr(STR_BACK);
+    headerProps.trailingAction = ACTION_BACK_HUB;
+    headerProps.trailingRadius = 8;
+    screen.header(headerProps);
+
+    const auto& settings = *currentSettings;
+    for (size_t i = 0; i < settings.size(); i++) {
+      rowValues_[i] = settingValueText(settings[i]);
       rowItems_[i].value = rowValues_[i].empty() ? nullptr : rowValues_[i].c_str();
     }
+
     fui::ListProps props;
     props.items = rowItems_.data();
     props.count = static_cast<uint16_t>(rowItems_.size());
     props.action = ACTION_ROW;
     props.inputMask = fui::InputTouch;
+    props.valueInset = 8;
     props.labelText = screen.theme().bodyText;
-    props.valueText = screen.theme().bodyText;
+    props.labelText.maxLines = 2;
     syncListViewport(screen, props);
-    if (!showMainTabContentSelection()) props.selectedIndex = -1;
     screen.list(props);
     return;
   }
@@ -973,7 +1116,6 @@ void SettingsActivity::buildScreen(UiScreen& screen) {
   syncTabListViewport(screen, props);
   screen.list(props);
 }
-
 void SettingsActivity::render(RenderLock&&) {
   if (optionPopup.processRender(renderer, mappedInput)) return;
 
@@ -992,7 +1134,8 @@ void SettingsActivity::render(RenderLock&&) {
   renderUi();
 
   if (usesAccordion()) {
-    const auto labels = mainTabButtonLabels(tr(STR_BACK), tr(STR_TOGGLE), listCount() > 1);
+    const char* confirmLabel = (inxCategory_ < 0) ? tr(STR_SELECT) : tr(STR_TOGGLE);
+    const auto labels = mainTabButtonLabels(tr(STR_BACK), confirmLabel, listCount() > 1);
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;

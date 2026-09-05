@@ -83,8 +83,8 @@ class MappedInputManager {
   RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0) const;
 
   SwipeDir wasSwipe() const;
-  // Back = left-to-right swipe anchored at the left edge. Public so swipe-mode
-  // page turns (reader) can exclude it from a plain SwipeDir::Right.
+  // Back = horizontal inward swipe anchored at either the left or right edge.
+  // Public so swipe-mode page turns (reader) can exclude it from a plain SwipeDir.
   bool wasBackGesture() const;
   // Home-key boards use a short Home-key tap to exit; their bottom-edge swipe
   // is intentionally unused. Other boards retain the bottom-edge Home gesture.

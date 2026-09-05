@@ -48,6 +48,8 @@ struct ReadingSessionSnapshot {
 struct ReadingSessionLogEntry {
   uint32_t dayOrdinal = 0;
   uint32_t sessionMs = 0;
+  // Local hour 0..23 when the session ended; 255 if the clock was unknown.
+  uint8_t hour = 255;
 };
 
 class ReadingStatsStore;
@@ -86,6 +88,13 @@ class ReadingStatsStore {
   std::vector<ReadingDayStats> legacyReadingDays;
   std::vector<ReadingDayStats> readingDays;
   std::vector<ReadingSessionLogEntry> sessionLog;
+  // Lifetime reading time by local hour. 192 bytes on the singleton; not per-day
+  // so rebuildAggregatedReadingDays cannot wipe it, and C3 heap stays untouched.
+  uint64_t hourMs[24] = {};
+  // Hours for one civil day (the newest day we have ticked). Used by the stats
+  // tab's "today" daypart row; 192 bytes, same justification as hourMs.
+  uint32_t dayHourOrdinal = 0;
+  uint64_t dayHourMs[24] = {};
   SessionState activeSession;
   ReadingSessionSnapshot lastSessionSnapshot;
   uint32_t sessionSerialCounter = 0;
@@ -117,7 +126,7 @@ class ReadingStatsStore {
   uint32_t getReferenceDayOrdinal() const;
   void updateBookReadTimestamp(ReadingBookStats& book, uint32_t preferredTimestamp);
   void recordReadingTime(ReadingBookStats& book, uint32_t epochSeconds, uint64_t readingMs);
-  void appendSessionLogEntry(uint32_t dayOrdinal, uint32_t sessionMs);
+  void appendSessionLogEntry(uint32_t dayOrdinal, uint32_t sessionMs, uint8_t hour);
   bool convertLegacyReadingDaysToUnassigned();
   void rebuildAggregatedReadingDays();
   bool removeIgnoredBooks();
@@ -157,6 +166,13 @@ class ReadingStatsStore {
   const std::vector<ReadingBookStats>& getBooks() const { return books; }
   const std::vector<ReadingDayStats>& getReadingDays() const { return readingDays; }
   const std::vector<ReadingSessionLogEntry>& getSessionLog() const { return sessionLog; }
+  uint64_t getHourReadingMs(uint8_t hour) const { return hour < 24 ? hourMs[hour] : 0; }
+  uint64_t getDayHourReadingMs(uint32_t dayOrdinal, uint8_t hour) const {
+    if (dayOrdinal == 0 || dayOrdinal != dayHourOrdinal || hour > 23) {
+      return 0;
+    }
+    return dayHourMs[hour];
+  }
   static bool shouldIgnorePath(const std::string& path);
 
   uint32_t getBooksStartedCount() const { return static_cast<uint32_t>(books.size()); }

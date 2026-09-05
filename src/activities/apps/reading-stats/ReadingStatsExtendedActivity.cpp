@@ -48,10 +48,9 @@ void drawDurationColumn(const GfxRenderer& renderer, const int rightX, const int
 }
 
 int inxListInnerHeight(const GfxRenderer& renderer) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int hintH = GUI.buttonHintsVisible() ? metrics.buttonHintsHeight : 0;
-  const int contentTop = metrics.topPadding + metrics.headerHeight + 8;
-  const int contentBottom = renderer.getScreenHeight() - hintH - 8;
+  const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
+  const int contentTop = content.y + 8;
+  const int contentBottom = content.y + content.height - 8;
   const int listH = contentBottom - (contentTop + INX_GOAL_H + INX_LIST_GAP);
   return std::max(1, listH - 16);
 }
@@ -530,12 +529,11 @@ void ReadingStatsExtendedActivity::renderInx() {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int screenWidth = renderer.getScreenWidth();
-  const int screenHeight = renderer.getScreenHeight();
   drawPageHeader(Rect{0, metrics.topPadding, screenWidth, metrics.headerHeight}, tr(STR_MORE_DETAILS));
 
-  const int hintH = GUI.buttonHintsVisible() ? metrics.buttonHintsHeight : 0;
-  const int contentTop = metrics.topPadding + metrics.headerHeight + 8;
-  const int contentBottom = screenHeight - hintH - 8;
+  const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
+  const int contentTop = content.y + 8;
+  const int contentBottom = content.y + content.height - 8;
 
   const Rect goal{INX_PAD, contentTop, screenWidth - INX_PAD * 2, INX_GOAL_H};
   InxInkCards::drawCard(renderer, goal);

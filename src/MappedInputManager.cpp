@@ -361,7 +361,9 @@ bool MappedInputManager::wasEdgeSwipe(const freeink::ui::ScreenEdge edge) const 
 
 bool MappedInputManager::wasBackGesture() const {
   // Keep mid-screen horizontal swipes available to the active Activity.
-  return wasEdgeSwipe(fui::ScreenEdge::Left);
+  // Both left-edge (left-to-right) and right-edge (right-to-left) inward swipes
+  // trigger Back, enabling comfortable single-handed operation with either hand.
+  return wasEdgeSwipe(fui::ScreenEdge::Left) || wasEdgeSwipe(fui::ScreenEdge::Right);
 }
 
 bool MappedInputManager::wasHeaderTapBack() const {

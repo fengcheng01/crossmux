@@ -36,6 +36,7 @@
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
+#include "components/UITheme.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
@@ -249,9 +250,9 @@ bool ActivityManager::handleMainTabInput() {
   if (!currentActivity || !currentActivity->usesMainTabBar()) return false;
 
   const MainTab currentTab = currentActivity->mainTab();
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int tabTop = metrics.topPadding;
-  const int tabBottom = tabTop + metrics.headerHeight;
+  const Rect tabBar = UITheme::getInstance().getMainTabBarRect(renderer);
+  const int tabTop = tabBar.y;
+  const int tabBottom = tabBar.y + tabBar.height;
 
   int x = 0;
   int y = 0;

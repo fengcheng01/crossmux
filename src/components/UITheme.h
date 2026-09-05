@@ -25,6 +25,11 @@ class UITheme {
   bool showSelectionCursor() const;
   Rect getScreenSafeArea(const GfxRenderer& renderer, bool hasFrontButtonHints = false,
                          bool hasSideButtonHints = false);
+  // INX main-tab strip: bottom of the screen so thumbs can reach it. Empty if
+  // the current theme has no main tabs.
+  Rect getMainTabBarRect(const GfxRenderer& renderer) const;
+  // Remaining band after the tab strip (and on-screen button hints, if any).
+  Rect getMainTabContentRect(const GfxRenderer& renderer) const;
   static void drawCenteredText(const GfxRenderer& renderer, Rect screen, int fontId, int y, const char* text,
                                bool black = true, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   // Wraps only overflowing text, then aligns the complete line block within bounds.

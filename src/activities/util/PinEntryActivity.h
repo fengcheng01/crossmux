@@ -62,7 +62,8 @@ class PinEntryActivity : public Activity {
   uint16_t firstEntry = 0;
   uint8_t digits[PIN_LENGTH] = {};
   uint8_t digitCount = 0;
-  int cursorKey = 0;  // button-nav cursor on the keypad
+  // -1 = no key highlighted. Touch/button selection appears only after input.
+  int cursorKey = -1;
   bool hasMessage = false;
   StrId message = StrId::STR_CROSSPOINT;  // only read while hasMessage
   bool finished = false;                  // navigation/result already dispatched

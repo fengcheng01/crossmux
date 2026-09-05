@@ -1005,7 +1005,6 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
 
   // Draw Title
   if (!title.empty()) {
-    textY -= textYOffset;
     // Centered chapter title text
     // Page width minus existing content with 30px padding on each side
     const int rendererableScreenWidth =
@@ -1032,10 +1031,15 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
       titleWidth = renderer.getTextWidth(kTitleFontId, title.c_str());
     }
 
+    // drawText places glyphs at y + ascender. UI_10 (CJK chapter titles) has a
+    // larger ascender than the numeric status font, so the same top-Y sits the
+    // title below battery/clock/progress. Match baselines instead.
+    const int titleY = textY + renderer.getFontAscenderSize(STATUS_NUMERIC_FONT_ID) -
+                       renderer.getFontAscenderSize(kTitleFontId) - textYOffset;
     renderer.drawText(kTitleFontId,
                       titleMarginLeftAdjusted + metrics.statusBarHorizontalMargin + orientedMarginLeft +
                           (availableTitleSpace - titleWidth) / 2,
-                      textY, title.c_str());
+                      titleY, title.c_str());
   }
 }
 

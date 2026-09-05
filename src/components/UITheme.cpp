@@ -129,7 +129,28 @@ int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader
   return UITheme::getInstance().getTheme().getListPageItems(availableHeight, hasSubtitle);
 }
 
-// Screen area excluding the button hints
+Rect UITheme::getMainTabBarRect(const GfxRenderer& renderer) const {
+  if (!hasMainTabs()) return Rect(0, 0, 0, 0);
+  const ThemeMetrics& metrics = getMetrics();
+  const int height = metrics.headerHeight;
+  if (height <= 0) return Rect(0, 0, 0, 0);
+  // Sit above on-screen button hints when they are visible; on touch INX the
+  // hint height is already 0 so this is the bottom of the screen.
+  const int y = renderer.getScreenHeight() - height - metrics.buttonHintsHeight;
+  return Rect{0, std::max(0, y), renderer.getScreenWidth(), height};
+}
+
+Rect UITheme::getMainTabContentRect(const GfxRenderer& renderer) const {
+  const ThemeMetrics& metrics = getMetrics();
+  const int width = renderer.getScreenWidth();
+  const int height = renderer.getScreenHeight();
+  const int tabH = hasMainTabs() ? metrics.headerHeight : 0;
+  const int top = hasMainTabs() ? metrics.topPadding : (metrics.topPadding + metrics.headerHeight);
+  const int bottomReserve = metrics.buttonHintsHeight + tabH;
+  const int contentH = std::max(0, height - top - bottomReserve);
+  return Rect{0, top, width, contentH};
+}
+
 Rect UITheme::getScreenSafeArea(const GfxRenderer& renderer, bool hasFrontButtonHints, bool hasSideButtonHints) {
   auto orientation = renderer.getOrientation();
   const int screenWidth = renderer.getScreenWidth();

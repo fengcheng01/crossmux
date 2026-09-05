@@ -33,6 +33,15 @@ void PinEntryActivity::onEnter() {
   keyW = std::min((pageWidth - metrics.contentSidePadding * 2 - keyGap * 2) / 3, keyH * 8 / 5);
   keypadX = (pageWidth - (keyW * 3 + keyGap * 2)) / 2;
 
+  // Nudge the block down into the leftover band so the pad is not glued to
+  // the top bezel (device feedback: portrait M4 left a large empty footer).
+  const int keypadBottom = keypadY + keyH * 4 + keyGap * 3;
+  const int shift = std::clamp(std::max(0, bottom - keypadBottom) / 3, 16, 48);
+  titleTop += shift;
+  messageTop += shift;
+  boxTop += shift;
+  keypadY += shift;
+
   requestUpdate();
 }
 
@@ -67,7 +76,10 @@ void PinEntryActivity::enterDigit(const int digit) {
   digits[digitCount++] = static_cast<uint8_t>(digit);
   hasMessage = false;
   if (digitCount == PIN_LENGTH) {
-    submitEntry();  // auto-verify on the 4th digit; no confirm key needed
+    // Paint the fourth box before verify/navigation so the pad does not look
+    // stuck on three dots while home/reader is loading.
+    requestUpdateAndWait();
+    submitEntry();
   } else {
     requestUpdate();
   }
@@ -83,9 +95,14 @@ void PinEntryActivity::backspace() {
 
 void PinEntryActivity::moveCursor(const int delta) {
   int next = cursorKey;
-  do {
+  if (next < 0) {
+    next = delta >= 0 ? 0 : 11;
+  } else {
     next = (next + delta + KEY_COUNT) % KEY_COUNT;
-  } while (next == 9);  // the blank cell can never hold the cursor
+  }
+  while (next == 9) {  // the blank cell can never hold the cursor
+    next = (next + (delta >= 0 ? 1 : -1) + KEY_COUNT) % KEY_COUNT;
+  }
   if (next != cursorKey) {
     cursorKey = next;
     requestUpdate();
@@ -129,6 +146,9 @@ void PinEntryActivity::submitEntry() {
 
 void PinEntryActivity::applyUnlockSuccess() {
   finished = true;
+  // PIN already painted with FAST; keep the home/reader frame on FAST so the
+  // unlock path does not pay a FULL (black-flashing, slow) first paint.
+  renderer.requestNextRefresh(HalDisplay::FAST_REFRESH);
   if (target.toReader) {
     // Same boot-loop guard the direct wake path runs before goToReader().
     const std::string path = APP_STATE.openEpubPath;
@@ -168,7 +188,7 @@ void PinEntryActivity::loop() {
     backspace();
     return;
   }
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+  if (cursorKey >= 0 && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     pressKey(cursorKey);
     return;
   }
@@ -200,14 +220,11 @@ void PinEntryActivity::render(RenderLock&&) {
     x += boxSide + boxGap;
   }
 
-  // The cursor key stays highlighted even on touch themes: unlike a list row,
-  // the keypad has no other selection indicator, and button-only users would
-  // navigate blind without it.
   for (int i = 0; i < KEY_COUNT; i++) {
     if (i == 9) continue;
     const Rect r = keyRect(i);
     const char label[2] = {static_cast<char>(i < 9 ? '1' + i : (i == 10 ? '0' : '<')), '\0'};
-    const bool active = i == cursorKey;
+    const bool active = cursorKey >= 0 && i == cursorKey;
     if (active) {
       renderer.fillRoundedRect(r.x, r.y, r.width, r.height, radius, Color::Black);
     } else {
@@ -223,5 +240,5 @@ void PinEntryActivity::render(RenderLock&&) {
   const char* backLabel = mode == Mode::Unlock ? tr(STR_DELETE) : tr(STR_BACK);
   const auto labels = mappedInput.mapLabels(backLabel, tr(STR_CONFIRM), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-  renderer.displayBuffer();
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }

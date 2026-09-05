@@ -376,8 +376,9 @@ void InxTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, c
 
 void InxTheme::drawMainTabBar(const GfxRenderer& renderer, const Rect rect, const MainTab selected) const {
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
+  renderer.drawLine(rect.x, rect.y, rect.x + rect.width - 1, rect.y, true);
   const int tabCount = static_cast<int>(MainTabs::values.size());
-  const int iconY = rect.y + std::max(0, (rect.height - kIconSize) / 2);
+  const int iconY = rect.y + std::max(1, (rect.height - kIconSize) / 2);
 
   for (size_t i = 0; i < MainTabs::values.size(); ++i) {
     const MainTab tab = MainTabs::values[i];
@@ -386,9 +387,7 @@ void InxTheme::drawMainTabBar(const GfxRenderer& renderer, const Rect rect, cons
     const int iconX = left + (right - left - kIconSize) / 2;
     if (const uint8_t* icon = iconForTab(tab)) drawInxIcon(renderer, icon, iconX, iconY);
     if (tab == selected) {
-      renderer.fillRect(iconX, rect.y + rect.height - kUnderlineHeight, kIconSize, kUnderlineHeight);
+      renderer.fillRect(iconX, rect.y + 2, kIconSize, kUnderlineHeight);
     }
   }
-
-  renderer.drawLine(rect.x, rect.y + rect.height - 1, rect.x + rect.width - 1, rect.y + rect.height - 1, true);
 }

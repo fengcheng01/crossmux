@@ -10,6 +10,7 @@
 #include "AppMetricCard.h"
 #include "CrossPointSettings.h"
 #include "InxItemLayout.h"
+#include "ReadingDayDetailActivity.h"
 #include "ReadingStatsDetailActivity.h"
 #include "ReadingStatsExtendedActivity.h"
 #include "ReadingStatsStore.h"
@@ -69,17 +70,6 @@ void drawMoreDetailsButton(const GfxRenderer& renderer, const Rect& rect, const 
   renderer.drawText(UI_12_FONT_ID, textX, textY, label, true, EpdFontFamily::BOLD);
 }
 
-void drawDurationStack(const GfxRenderer& renderer, const int cx, const int y, const uint64_t ms) {
-  char number[8];
-  bool hours = false;
-  ReadingStatsAnalytics::formatDurationParts(ms, number, sizeof(number), hours);
-  const char* unit = hours ? tr(STR_HOURS_UNIT) : tr(STR_MINUTES_UNIT);
-  const int numW = renderer.getTextWidth(UI_12_FONT_ID, number, EpdFontFamily::BOLD);
-  renderer.drawText(UI_12_FONT_ID, cx - numW / 2, y, number, true, EpdFontFamily::BOLD);
-  const int unitW = renderer.getTextWidth(SMALL_FONT_ID, unit);
-  renderer.drawText(SMALL_FONT_ID, cx - unitW / 2, y + renderer.getLineHeight(UI_12_FONT_ID) + 4, unit);
-}
-
 void drawMiniProgressBar(const GfxRenderer& renderer, const Rect& rect, const uint8_t percent) {
   renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
   const int innerWidth = std::max(0, rect.width - 4);
@@ -128,6 +118,61 @@ void drawBookRow(const GfxRenderer& renderer, const Rect& rect, const ReadingBoo
 
   drawMiniProgressBar(renderer, Rect{innerX, progressBarY, rect.width - sidePadding * 2, 9}, book.lastProgressPercent);
 }
+
+bool pointInRect(const int x, const int y, const Rect& rect) {
+  return rect.width > 0 && rect.height > 0 && x >= rect.x && y >= rect.y && x < rect.x + rect.width &&
+         y < rect.y + rect.height;
+}
+
+const char* daypartLabel(const int part) {
+  switch (part) {
+    case 0:
+      return tr(STR_DAYPART_MORNING);
+    case 1:
+      return tr(STR_DAYPART_NOON);
+    case 2:
+      return tr(STR_DAYPART_EVENING);
+    default:
+      return tr(STR_DAYPART_NIGHT);
+  }
+}
+
+constexpr const char* kDaypartHours[ReadingStatsAnalytics::DAYPART_COUNT] = {"05-11", "11-17", "17-21", "21-05"};
+
+int daypartCardHeight(const GfxRenderer& renderer) {
+  const int pad = 12;
+  const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
+  return pad + lineH + 6 + 2 * (lineH + 10) + pad;
+}
+
+void drawDaypartRows(const GfxRenderer& renderer, const Rect card, const uint64_t* dayparts, const char* title) {
+  const int pad = 12;
+  const int titleH = renderer.getLineHeight(UI_10_FONT_ID);
+  renderer.drawText(UI_10_FONT_ID, card.x + pad, card.y + pad, title, true, EpdFontFamily::BOLD);
+
+  if (!ReadingStatsAnalytics::hasDaypartMs(dayparts)) {
+    renderer.drawText(UI_10_FONT_ID, card.x + pad, card.y + pad + titleH + 6, tr(STR_NO_DAYPART_STATS));
+    return;
+  }
+
+  const int colW = std::max(1, (card.width - pad * 2) / 2);
+  const int rowH = titleH + 10;
+  for (int i = 0; i < ReadingStatsAnalytics::DAYPART_COUNT; ++i) {
+    const int col = i % 2;
+    const int row = i / 2;
+    const int cellX = card.x + pad + col * colW;
+    const int cellY = card.y + pad + titleH + 6 + row * rowH;
+    char left[24] = {};
+    snprintf(left, sizeof(left), "%s %s", daypartLabel(i), kDaypartHours[i]);
+    char right[24] = {};
+    ReadingStatsAnalytics::formatDurationLabel(dayparts[i], right, sizeof(right));
+    const int valueW = renderer.getTextWidth(UI_10_FONT_ID, right, EpdFontFamily::BOLD);
+    const int labelMax = std::max(8, colW - valueW - 12);
+    const std::string shown = renderer.truncatedText(UI_10_FONT_ID, left, labelMax);
+    renderer.drawText(UI_10_FONT_ID, cellX, cellY, shown.c_str());
+    renderer.drawText(UI_10_FONT_ID, cellX + colW - 8 - valueW, cellY, right, true, EpdFontFamily::BOLD);
+  }
+}
 }  // namespace
 
 void ReadingStatsActivity::selectMainTabContentEdge(const MainTabContentEdge edge) {
@@ -148,6 +193,16 @@ void ReadingStatsActivity::onEnter() {
   selectedIndex = usesInxLayout() ? 0 : (READING_STATS.getBooks().empty() ? 0 : 1);
   waitForConfirmRelease = mappedInput.isPressed(MappedInputManager::Button::Confirm);
   waitForBackRelease = false;
+  moreHitRect_ = Rect(0, 0, 0, 0);
+  bookPreviewCount_ = 0;
+  for (int i = 0; i < kInxDayBars; ++i) {
+    dayBarHit_[i] = Rect(0, 0, 0, 0);
+    dayBarOrdinal_[i] = 0;
+  }
+  for (int i = 0; i < kInxBookPreview; ++i) {
+    bookPreviewHit_[i] = Rect(0, 0, 0, 0);
+    bookPreviewIndex_[i] = 0;
+  }
   requestUpdate();
 }
 
@@ -195,7 +250,7 @@ void ReadingStatsActivity::loop() {
     int touchX = 0;
     int touchY = 0;
     if (mappedInput.wasScreenTapped(touchX, touchY)) {
-      openSelectedEntry();
+      handleInxTap(touchX, touchY);
       return;
     }
     return;
@@ -238,6 +293,48 @@ void ReadingStatsActivity::loop() {
     }
     requestUpdate();
   });
+}
+
+void ReadingStatsActivity::openDayDetail(const uint32_t dayOrdinal) {
+  if (dayOrdinal == 0) {
+    return;
+  }
+  startActivityForResultWith<ReadingDayDetailActivity>(
+      [this](const ActivityResult&) {
+        guardBackReturn();
+        requestUpdate();
+      },
+      dayOrdinal);
+}
+
+void ReadingStatsActivity::handleInxTap(const int x, const int y) {
+  if (pointInRect(x, y, moreHitRect_)) {
+    openSelectedEntry();
+    return;
+  }
+  for (int i = 0; i < kInxDayBars; ++i) {
+    if (pointInRect(x, y, dayBarHit_[i])) {
+      openDayDetail(dayBarOrdinal_[i]);
+      return;
+    }
+  }
+  const auto& books = READING_STATS.getBooks();
+  for (int i = 0; i < bookPreviewCount_; ++i) {
+    if (!pointInRect(x, y, bookPreviewHit_[i])) {
+      continue;
+    }
+    const int bookIndex = bookPreviewIndex_[i];
+    if (bookIndex < 0 || bookIndex >= static_cast<int>(books.size())) {
+      return;
+    }
+    startActivityForResultWith<ReadingStatsDetailActivity>(
+        [this](const ActivityResult&) {
+          guardBackReturn();
+          requestUpdate();
+        },
+        books[bookIndex].path);
+    return;
+  }
 }
 
 void ReadingStatsActivity::openSelectedEntry() {
@@ -371,72 +468,101 @@ void ReadingStatsActivity::renderInx() {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int screenWidth = renderer.getScreenWidth();
-  const int screenHeight = renderer.getScreenHeight();
   drawPageHeader(Rect{0, metrics.topPadding, screenWidth, metrics.headerHeight}, tr(STR_READING_STATS));
 
-  const int hintH = GUI.buttonHintsVisible() ? metrics.buttonHintsHeight : 0;
-  const int contentTop = metrics.topPadding + metrics.headerHeight;
-  const int contentBottom = screenHeight - hintH;
+  moreHitRect_ = Rect(0, 0, 0, 0);
+  bookPreviewCount_ = 0;
+  for (int i = 0; i < kInxDayBars; ++i) {
+    dayBarHit_[i] = Rect(0, 0, 0, 0);
+    dayBarOrdinal_[i] = 0;
+  }
 
+  const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
+  const int pad = 14;
+  const int innerPad = 12;
+  const int sectionGap = 8;
+  const int smallH = renderer.getLineHeight(SMALL_FONT_ID);
+  const int ui10H = renderer.getLineHeight(UI_10_FONT_ID);
+  const int ui12H = renderer.getLineHeight(UI_12_FONT_ID);
+  int y = content.y;
+
+  const int statusH = smallH + 8;
   char timeBuf[16] = {};
   TimeUtils::formatCurrentTime(timeBuf, sizeof(timeBuf), SETTINGS.clockFormat == 1);
-  if (timeBuf[0] != '\0') renderer.drawText(SMALL_FONT_ID, 16, contentTop + 6, timeBuf);
-  GUI.drawBatteryRight(renderer, Rect{screenWidth - 12 - 15, contentTop + 4, 15, 12},
+  if (timeBuf[0] != '\0') renderer.drawText(SMALL_FONT_ID, 16, y + 4, timeBuf);
+  GUI.drawBatteryRight(renderer, Rect{screenWidth - 12 - 15, y + 4, 15, 12},
                        SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
 
-  const int pad = 14;
-  const int volTop = contentTop + renderer.getLineHeight(SMALL_FONT_ID) + 14;
-  const int volH = 110;
-  const Rect vol{pad, volTop, screenWidth - pad * 2, volH};
-  InxInkCards::drawCard(renderer, vol);
-  const int cellW = vol.width / 3;
-  const char* volLabels[] = {tr(STR_TODAY_READING), tr(STR_LAST_7_DAYS), tr(STR_THIS_MONTH_READING)};
-  const uint64_t volMs[] = {READING_STATS.getTodayReadingMs(), READING_STATS.getRecentReadingMs(7),
-                            READING_STATS.getRecentReadingMs(30)};
-  // Reading-streak badge, centered in the header band between clock and
-  // battery: the one metric this tab otherwise hides behind "更多". Centered
-  // rather than trailing the clock — the left-side run-on read as cluttered
-  // (device feedback 2026-09-03).
   const uint32_t streakDays = READING_STATS.getCurrentStreakDays();
   if (streakDays > 0) {
     char streakBuf[24] = {};
     snprintf(streakBuf, sizeof(streakBuf), tr(STR_STREAK_DAYS_FMT), static_cast<int>(streakDays));
     const int streakW = renderer.getTextWidth(UI_10_FONT_ID, streakBuf, EpdFontFamily::BOLD);
-    renderer.drawText(UI_10_FONT_ID, (screenWidth - streakW) / 2, contentTop + 4, streakBuf, true,
-                      EpdFontFamily::BOLD);
+    renderer.drawText(UI_10_FONT_ID, (screenWidth - streakW) / 2, y + 4, streakBuf, true, EpdFontFamily::BOLD);
+  }
+  y += statusH;
+
+  const int volH = innerPad + smallH + 6 + ui12H + innerPad;
+  const Rect vol{pad, y, screenWidth - pad * 2, volH};
+  InxInkCards::drawCard(renderer, vol);
+  {
+    const GfxRenderer::ClipScope clip(renderer, vol.x + 2, vol.y + 2, vol.width - 4, vol.height - 4);
+    const int cellW = vol.width / 3;
+    const char* volLabels[] = {tr(STR_TODAY_READING), tr(STR_LAST_7D), tr(STR_THIS_MONTH_READING)};
+    const uint64_t volMs[] = {READING_STATS.getTodayReadingMs(), READING_STATS.getRecentReadingMs(7),
+                              READING_STATS.getRecentReadingMs(30)};
+    const int labelY = vol.y + innerPad;
+    const int valueY = labelY + smallH + 6;
+    for (int i = 0; i < 3; ++i) {
+      const int cx = vol.x + cellW * i + cellW / 2;
+      const int labW = renderer.getTextWidth(SMALL_FONT_ID, volLabels[i]);
+      renderer.drawText(SMALL_FONT_ID, cx - labW / 2, labelY, volLabels[i]);
+      char value[24] = {};
+      ReadingStatsAnalytics::formatDurationLabel(volMs[i], value, sizeof(value));
+      const int valueW = renderer.getTextWidth(UI_12_FONT_ID, value, EpdFontFamily::BOLD);
+      renderer.drawText(UI_12_FONT_ID, cx - valueW / 2, valueY, value, true, EpdFontFamily::BOLD);
+      if (i > 0) renderer.drawLine(vol.x + cellW * i, vol.y + 10, vol.x + cellW * i, vol.y + vol.height - 10);
+    }
+  }
+  y += volH + sectionGap;
+
+  const int bottom = content.y + content.height - 12;
+  const int partH = daypartCardHeight(renderer);
+  const int bookRowH = ui10H + 6;
+  const int bookH = innerPad + ui10H + 6 + bookRowH + innerPad;
+  const int minChart = innerPad + ui10H + 4 + ui10H + 8 + 36 + ui10H + innerPad;
+  int chartH = bottom - y - partH - bookH - sectionGap * 2;
+  bool showBooks = true;
+  if (chartH < minChart) {
+    showBooks = false;
+    chartH = bottom - y - partH - sectionGap;
+  }
+  if (chartH < minChart) {
+    chartH = std::max(72, bottom - y - sectionGap - std::min(partH, (bottom - y) / 2));
   }
 
-  const int labelY = vol.y + 12;
-  const int numY = labelY + renderer.getLineHeight(SMALL_FONT_ID) + 10;
-  for (int i = 0; i < 3; ++i) {
-    const int cx = vol.x + cellW * i + cellW / 2;
-    const int labW = renderer.getTextWidth(SMALL_FONT_ID, volLabels[i]);
-    renderer.drawText(SMALL_FONT_ID, cx - labW / 2, labelY, volLabels[i]);
-    drawDurationStack(renderer, cx, numY, volMs[i]);
-    if (i > 0) renderer.drawLine(vol.x + cellW * i, vol.y + 10, vol.x + cellW * i, vol.y + vol.height - 10);
-  }
-
-  const Rect chart{pad, vol.y + vol.height + 12, screenWidth - pad * 2,
-                   std::max(120, contentBottom - 16 - (vol.y + vol.height + 12))};
+  const Rect chart{pad, y, screenWidth - pad * 2, chartH};
   InxInkCards::drawCard(renderer, chart);
-  const int headerY = chart.y + 10;
-  const int titleH = renderer.getLineHeight(UI_12_FONT_ID);
-  const int moreH = renderer.getLineHeight(UI_10_FONT_ID);
-  const int valueH = renderer.getLineHeight(SMALL_FONT_ID);
-  renderer.drawText(UI_12_FONT_ID, chart.x + 14, headerY, tr(STR_LAST_7D), true, EpdFontFamily::BOLD);
+  const int headerY = chart.y + innerPad;
+  char chartTitleWithUnit[32] = {};
+  snprintf(chartTitleWithUnit, sizeof(chartTitleWithUnit), "%s (分钟)", tr(STR_LAST_7D));
+  renderer.drawText(UI_10_FONT_ID, chart.x + innerPad, headerY, chartTitleWithUnit, true, EpdFontFamily::BOLD);
   const char* more = tr(STR_MORE);
-  renderer.drawText(UI_10_FONT_ID, chart.x + chart.width - 16 - renderer.getTextWidth(UI_10_FONT_ID, more), headerY,
-                    more);
+  const int moreW = renderer.getTextWidth(UI_10_FONT_ID, more);
+  const int moreX = chart.x + chart.width - innerPad - moreW;
+  renderer.drawText(UI_10_FONT_ID, moreX, headerY, more);
+  moreHitRect_ = Rect{moreX - 8, headerY - 4, moreW + 16, ui10H + 12};
 
   const auto& days = READING_STATS.getReadingDays();
   uint32_t refDay = TimeUtils::getLocalDayOrdinal(READING_STATS.getDisplayTimestamp());
   if (refDay == 0 && !days.empty()) refDay = days.back().dayOrdinal;
   uint64_t maxMs = 1;
-  uint64_t dayMs[7] = {};
-  char dayLabel[7][4] = {};
-  char topLabel[7][8] = {};
-  for (int i = 0; i < 7; ++i) {
+  uint64_t dayMs[kInxDayBars] = {};
+  char dayLabel[kInxDayBars][4] = {};
+  char topLabel[kInxDayBars][24] = {};
+  for (int i = 0; i < kInxDayBars; ++i) {
     const uint32_t ordinal = (refDay >= static_cast<uint32_t>(6 - i)) ? refDay - static_cast<uint32_t>(6 - i) : 0;
+    dayBarOrdinal_[i] = ordinal;
     int year = 0;
     unsigned month = 0;
     unsigned day = 0;
@@ -447,42 +573,79 @@ void ReadingStatsActivity::renderInx() {
       if (entry.dayOrdinal == ordinal) {
         dayMs[i] = entry.readingMs;
         if (entry.readingMs > maxMs) maxMs = entry.readingMs;
-        const uint64_t minutes = entry.readingMs / 60000ULL;
-        if (minutes > 0) snprintf(topLabel[i], sizeof(topLabel[i]), "%llu", static_cast<unsigned long long>(minutes));
+        if (entry.readingMs > 0) {
+          ReadingStatsAnalytics::formatDurationLabel(entry.readingMs, topLabel[i], sizeof(topLabel[i]));
+        }
         break;
       }
     }
   }
 
-  const int headerBottom = headerY + std::max(titleH, moreH);
-  const int plotTop = headerBottom + valueH + 6;
-  const int plotBottom = chart.y + chart.height - 34;
-  const int plotH = std::max(20, plotBottom - plotTop);
+  const int titleBottom = headerY + ui10H;
+  const int plotTop = titleBottom + 8;
+  const int plotBottom = chart.y + chart.height - innerPad - smallH - 4;
+  const int plotH = std::max(16, plotBottom - plotTop - ui10H - 2);
   const int gap = 8;
-  const int barW = std::max(8, (chart.width - 28 - gap * 6) / 7);
-  // Minute labels only on today and the peak bar: seven stacked numbers read
-  // as noise on the 1-bit panel.
-  int peakIndex = -1;
-  for (int i = 0; i < 7; ++i) {
-    if (dayMs[i] > 0 && dayMs[i] == maxMs) peakIndex = i;
-  }
-  for (int i = 0; i < 7; ++i) {
-    const int x = chart.x + 14 + i * (barW + gap);
-    int barH = static_cast<int>(dayMs[i] * static_cast<uint64_t>(plotH) / maxMs);
-    if (dayMs[i] > 0 && barH < 6) barH = 6;
-    if (barH < 3) barH = 3;
-    if (barH > plotH) barH = plotH;
-    renderer.fillRect(x, plotBottom - barH, barW, barH);
-    const bool showMinutes = topLabel[i][0] != '\0' && (i == 6 || i == peakIndex);
-    if (showMinutes) {
-      const int tw = renderer.getTextWidth(SMALL_FONT_ID, topLabel[i], EpdFontFamily::BOLD);
-      const int labelY = plotBottom - barH - valueH;
-      renderer.drawText(SMALL_FONT_ID, x + (barW - tw) / 2, std::max(headerBottom + 2, labelY), topLabel[i], true,
-                        EpdFontFamily::BOLD);
+  const int barW = std::max(8, (chart.width - innerPad * 2 - gap * 6) / 7);
+  {
+    const GfxRenderer::ClipScope clip(renderer, chart.x + 2, chart.y + 2, chart.width - 4, chart.height - 4);
+    renderer.drawLine(chart.x + innerPad, plotBottom, chart.x + chart.width - innerPad, plotBottom);
+    for (int i = 0; i < kInxDayBars; ++i) {
+      const int barX = chart.x + innerPad + i * (barW + gap);
+      dayBarHit_[i] = Rect{barX - gap / 2, plotTop, barW + gap, std::max(1, (chart.y + chart.height - 6) - plotTop)};
+      if (dayMs[i] > 0) {
+        int barH = static_cast<int>(dayMs[i] * static_cast<uint64_t>(plotH) / maxMs);
+        if (barH < 4) barH = 4;
+        if (barH > plotH) barH = plotH;
+        renderer.fillRect(barX, plotBottom - barH, barW, barH);
+
+        char minutesBuf[8] = {};
+        const unsigned long long mins = static_cast<unsigned long long>((dayMs[i] + 30000ULL) / 60000ULL);
+        snprintf(minutesBuf, sizeof(minutesBuf), "%llu", mins > 0 ? mins : 1ULL);
+        const int tw = renderer.getTextWidth(UI_10_FONT_ID, minutesBuf, EpdFontFamily::BOLD);
+        const int labelY = plotBottom - barH - ui10H - 2;
+        renderer.drawText(UI_10_FONT_ID, barX + (barW - tw) / 2, labelY, minutesBuf, true, EpdFontFamily::BOLD);
+      }
+      if (dayLabel[i][0] != '\0') {
+        const int tw = renderer.getTextWidth(SMALL_FONT_ID, dayLabel[i]);
+        renderer.drawText(SMALL_FONT_ID, barX + (barW - tw) / 2, plotBottom + 4, dayLabel[i]);
+      }
     }
-    if (dayLabel[i][0] != '\0') {
-      const int tw = renderer.getTextWidth(SMALL_FONT_ID, dayLabel[i]);
-      renderer.drawText(SMALL_FONT_ID, x + (barW - tw) / 2, plotBottom + 4, dayLabel[i]);
+  }
+  y += chartH + sectionGap;
+
+  const Rect parts{pad, y, screenWidth - pad * 2, partH};
+  InxInkCards::drawCard(renderer, parts);
+  uint64_t dayparts[ReadingStatsAnalytics::DAYPART_COUNT] = {};
+  const uint32_t today = TimeUtils::getLocalDayOrdinal(READING_STATS.getDisplayTimestamp());
+  ReadingStatsAnalytics::getDayDaypartMs(today, dayparts);
+  {
+    const GfxRenderer::ClipScope clip(renderer, parts.x + 2, parts.y + 2, parts.width - 4, parts.height - 4);
+    drawDaypartRows(renderer, parts, dayparts, tr(STR_TODAY_READING_DAYPART));
+  }
+  y += partH + sectionGap;
+
+  if (showBooks && y + 40 < bottom) {
+    const Rect booksCard{pad, y, screenWidth - pad * 2, std::min(bookH, std::max(0, bottom - y))};
+    InxInkCards::drawCard(renderer, booksCard);
+    renderer.drawText(UI_10_FONT_ID, booksCard.x + innerPad, booksCard.y + innerPad, tr(STR_NOW_READING), true,
+                      EpdFontFamily::BOLD);
+    const auto& books = READING_STATS.getBooks();
+    if (books.empty()) {
+      renderer.drawText(UI_10_FONT_ID, booksCard.x + innerPad, booksCard.y + innerPad + ui10H + 6,
+                        tr(STR_NO_READING_STATS));
+    } else {
+      const int rowTop = booksCard.y + innerPad + ui10H + 6;
+      bookPreviewCount_ = 1;
+      bookPreviewIndex_[0] = 0;
+      bookPreviewHit_[0] = Rect{booksCard.x + 8, rowTop, booksCard.width - 16, bookRowH};
+      char duration[24] = {};
+      ReadingStatsAnalytics::formatDurationLabel(books[0].totalReadingMs, duration, sizeof(duration));
+      const int durW = renderer.getTextWidth(UI_10_FONT_ID, duration);
+      const std::string title = renderer.truncatedText(UI_10_FONT_ID, getBookTitle(books[0]).c_str(),
+                                                       booksCard.width - innerPad * 2 - durW - 12, EpdFontFamily::BOLD);
+      renderer.drawText(UI_10_FONT_ID, booksCard.x + innerPad, rowTop, title.c_str(), true, EpdFontFamily::BOLD);
+      renderer.drawText(UI_10_FONT_ID, booksCard.x + booksCard.width - innerPad - durW, rowTop, duration);
     }
   }
 

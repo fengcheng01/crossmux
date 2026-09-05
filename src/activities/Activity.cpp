@@ -34,7 +34,7 @@ bool Activity::showMainTabContentSelection() const {
 
 void Activity::drawPageHeader(const Rect& rect, const char* title, const char* subtitle) const {
   if (usesMainTabBar()) {
-    GUI.drawMainTabBar(renderer, rect, mainTab());
+    GUI.drawMainTabBar(renderer, UITheme::getInstance().getMainTabBarRect(renderer), mainTab());
   } else {
     GUI.drawHeader(renderer, rect, title, subtitle);
   }

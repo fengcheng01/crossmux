@@ -78,12 +78,13 @@ bool saveJsonDocumentToFile(const char* moduleName, const char* path, const Json
 }  // namespace
 
 // ---- ReadingStatsStore ----
-// reading_stats.json, format version 6. Written atomically (temp + rename) and
+// reading_stats.json, format version 7. v7 adds lifetime hourMs[24] and
+// sessionLog[].hour (255 = unknown). Written atomically (temp + rename) and
 // parsed via a streamed HalFileStream so large histories don't double peak heap.
 
 bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char* path) {
   JsonDocument doc;
-  doc["formatVersion"] = 6;
+  doc["formatVersion"] = 7;
 
   JsonArray days = doc["readingDays"].to<JsonArray>();
   for (const auto& day : store.getReadingDays()) {
@@ -99,11 +100,23 @@ bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore& store, const char
     dayObj["readingMs"] = day.readingMs;
   }
 
+  JsonArray hours = doc["hourMs"].to<JsonArray>();
+  for (int hour = 0; hour < 24; ++hour) {
+    hours.add(store.hourMs[hour]);
+  }
+
+  doc["dayHourOrdinal"] = store.dayHourOrdinal;
+  JsonArray dayHours = doc["dayHourMs"].to<JsonArray>();
+  for (int hour = 0; hour < 24; ++hour) {
+    dayHours.add(store.dayHourMs[hour]);
+  }
+
   JsonArray sessionLog = doc["sessionLog"].to<JsonArray>();
   for (const auto& session : store.getSessionLog()) {
     JsonObject sessionObj = sessionLog.add<JsonObject>();
     sessionObj["dayOrdinal"] = session.dayOrdinal;
     sessionObj["sessionMs"] = session.sessionMs;
+    sessionObj["hour"] = session.hour;
   }
 
   JsonArray books = doc["books"].to<JsonArray>();
@@ -152,6 +165,13 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
   store.legacyReadingDays.clear();
   store.readingDays.clear();
   store.sessionLog.clear();
+  for (uint64_t& ms : store.hourMs) {
+    ms = 0;
+  }
+  for (uint64_t& ms : store.dayHourMs) {
+    ms = 0;
+  }
+  store.dayHourOrdinal = 0;
   store.dirty = false;
 
   const uint32_t formatVersion = doc["formatVersion"] | static_cast<uint32_t>(1);
@@ -188,9 +208,33 @@ bool JsonSettingsIO::loadReadingStats(ReadingStatsStore& store, const char* json
       ReadingSessionLogEntry session;
       session.dayOrdinal = sessionObj["dayOrdinal"] | static_cast<uint32_t>(0);
       session.sessionMs = sessionObj["sessionMs"] | static_cast<uint32_t>(0);
+      session.hour = sessionObj["hour"] | static_cast<uint8_t>(255);
+      if (session.hour > 23) {
+        session.hour = 255;
+      }
       if (session.dayOrdinal != 0 && session.sessionMs != 0) {
         store.sessionLog.push_back(session);
       }
+    }
+  } else {
+    store.dirty = true;
+  }
+
+  if (formatVersion >= 7) {
+    int hour = 0;
+    for (JsonVariant value : doc["hourMs"].as<JsonArray>()) {
+      if (hour >= 24) {
+        break;
+      }
+      store.hourMs[hour++] = value | static_cast<uint64_t>(0);
+    }
+    store.dayHourOrdinal = doc["dayHourOrdinal"] | static_cast<uint32_t>(0);
+    hour = 0;
+    for (JsonVariant value : doc["dayHourMs"].as<JsonArray>()) {
+      if (hour >= 24) {
+        break;
+      }
+      store.dayHourMs[hour++] = value | static_cast<uint64_t>(0);
     }
   } else {
     store.dirty = true;
