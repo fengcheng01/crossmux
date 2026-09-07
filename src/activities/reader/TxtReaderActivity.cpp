@@ -741,8 +741,10 @@ void TxtReaderActivity::renderPage() {
   if (SETTINGS.readingBackgroundEnabled && !readingBackground::load(renderer)) renderer.clearScreen();
   const bool combinedAa = ReaderUtils::usesCombinedAa();
   const bool directAa = ReaderUtils::usesDirectGrayAa() && !SETTINGS.readingBackgroundEnabled;
+  if (directAa) renderer.setGlyphDither(true);
   renderLines();
   renderStatusBar();
+  if (directAa) renderer.setGlyphDither(false);
   const auto tBwRender = millis();
 
   // Serialize SD access in this render path against the main task's SD writes
@@ -777,19 +779,11 @@ void TxtReaderActivity::renderPage() {
       pagesUntilFullRefresh--;
     }
   } else if (directAa) {
-    // One absolute gray refresh, no B/W paint. The scheduled full refresh
-    // (cleanWhite) selects the factory clean tier; the status bar joins the
-    // gray planes because the absolute waveform drives undrawn pixels white.
+    // Direct AA: single-pass FAST refresh with spatial edge dithering.
+    // 0 flash, ~200ms instantaneous page turn, smooth feathered font edges.
     const bool cleanWhite = pagesUntilFullRefresh <= 1;
     (void)ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
-    ReaderUtils::renderAntiAliased(
-        renderer,
-        [this, &renderLines]() {
-          renderLines();
-          renderStatusBar();
-        },
-        true, cleanWhite);
-    renderer.cleanupGrayscaleWithFrameBuffer();
+    renderer.displayBuffer(cleanWhite ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
   } else {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
     if (SETTINGS.textAntiAliasing) {

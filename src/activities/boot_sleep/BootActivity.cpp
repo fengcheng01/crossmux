@@ -53,6 +53,11 @@ void BootActivity::runPostOta() {
   }
   LOG_INF("OTA", "Running image confirmed after startup display");
 
+#if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR) && !defined(CROSSPOINT_EMULATED)
+  // On PSRAM targets (Murphy M4), fonts run from native SDMMC + 1MB PSRAM glyph cache.
+  // Never block post-OTA boot with the Flash preprocessing screen.
+  return;
+#endif
   if (!allowAutoPreload_ || SETTINGS.sdFontFlashPreload == 0 || SETTINGS.sdFontFamilyName[0] == '\0') return;
 
   const auto* family = sdFontSystem.registry().findFamily(SETTINGS.sdFontFamilyName);

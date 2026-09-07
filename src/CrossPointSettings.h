@@ -392,7 +392,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t focusReadingEnabled = 0;
   // SD card font family name (empty = use built-in fontFamily)
-  char sdFontFamilyName[32] = "";
+  char sdFontFamilyName[64] = "";
   // Prefer the internal Flash cache for the selected SD reader font.
   uint8_t sdFontFlashPreload = 0;
   // Dictionary folder name under /dictionaries (empty = no dictionary)

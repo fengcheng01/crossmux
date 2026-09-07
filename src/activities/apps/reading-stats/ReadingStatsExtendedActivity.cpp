@@ -51,8 +51,10 @@ int inxListInnerHeight(const GfxRenderer& renderer) {
   const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
   const int contentTop = content.y + 8;
   const int contentBottom = content.y + content.height - 8;
-  const int listH = contentBottom - (contentTop + INX_GOAL_H + INX_LIST_GAP);
-  return std::max(1, listH - 16);
+  const int availListH = contentBottom - (contentTop + INX_GOAL_H + INX_LIST_GAP);
+  const int innerAvailH = std::max(1, availListH - 16);
+  const int visibleFullRows = std::max(1, innerAvailH / INX_BOOK_ROW_H);
+  return visibleFullRows * INX_BOOK_ROW_H;
 }
 
 int inxMaxBookScroll(const GfxRenderer& renderer) {
@@ -564,15 +566,14 @@ void ReadingStatsExtendedActivity::renderInx() {
   const int maxW = renderer.getTextWidth(SMALL_FONT_ID, maxStreakLine);
   renderer.drawText(SMALL_FONT_ID, goal.x + goal.width - goalPad - maxW, streakY, maxStreakLine);
 
-  const Rect list{INX_PAD, goal.y + goal.height + INX_LIST_GAP, screenWidth - INX_PAD * 2,
-                  std::max(80, contentBottom - (goal.y + goal.height + INX_LIST_GAP))};
+  const int innerH = inxListInnerHeight(renderer);
+  const Rect list{INX_PAD, goal.y + goal.height + INX_LIST_GAP, screenWidth - INX_PAD * 2, innerH + 16};
   InxInkCards::drawCard(renderer, list);
   bookListRect_ = list;
   bookRowHeight_ = INX_BOOK_ROW_H;
   bookListInnerTop_ = list.y + 8;
 
   const auto& books = READING_STATS.getBooks();
-  const int innerH = std::max(1, list.height - 16);
   const int maxScrollOffset = std::max(0, static_cast<int>(books.size()) * INX_BOOK_ROW_H - innerH);
   scrollOffset = std::clamp(scrollOffset, 0, maxScrollOffset);
 
@@ -584,8 +585,8 @@ void ReadingStatsExtendedActivity::renderInx() {
     const int titleLineH = renderer.getLineHeight(titleFont);
     for (int index = 0; index < static_cast<int>(books.size()); ++index) {
       const int rowY = bookListInnerTop_ - scrollOffset + index * INX_BOOK_ROW_H;
-      if (rowY + INX_BOOK_ROW_H < bookListInnerTop_ || rowY > bookListInnerTop_ + innerH) continue;
-      if (index > 0) renderer.drawLine(list.x + 12, rowY, list.x + list.width - 12, rowY);
+      if (rowY + INX_BOOK_ROW_H <= bookListInnerTop_ || rowY + INX_BOOK_ROW_H > bookListInnerTop_ + innerH) continue;
+      if (index > 0 && rowY > bookListInnerTop_) renderer.drawLine(list.x + 12, rowY, list.x + list.width - 12, rowY);
       if (index == selectedIndex && showMainTabContentSelection()) {
         renderer.drawRect(list.x + 8, rowY + 2, list.width - 16, INX_BOOK_ROW_H - 4);
       }

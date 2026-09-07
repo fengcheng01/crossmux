@@ -65,7 +65,17 @@ constexpr StrId OK_OPTION[] = {StrId::STR_OK_BUTTON};
 
 // SD families show their raw family name; tag them so users recognize the
 // storage-card fonts they downloaded (see the Family tab list).
-std::string sdFontLabel(const std::string& name) { return name + " · " + tr(STR_SD_FONT_TAG); }
+std::string sdFontLabel(const std::string& name, const SdCardFontRegistry* registry = nullptr) {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (registry) {
+    const auto* fam = registry->findFamily(name);
+    if (fam && fam->isTtf()) {
+      return name + " · TTF";
+    }
+  }
+#endif
+  return name + " · " + tr(STR_SD_FONT_TAG);
+}
 }  // namespace
 
 TextSettingsActivity::TextSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -118,7 +128,7 @@ void TextSettingsActivity::onEnter() {
   familyLabels_.clear();
   familyLabels_.resize(fonts_.size());
   for (int i = 0; i < static_cast<int>(fonts_.size()); i++) {
-    if (!fonts_[i].isBuiltin) familyLabels_[i] = sdFontLabel(fonts_[i].name);
+    if (!fonts_[i].isBuiltin) familyLabels_[i] = sdFontLabel(fonts_[i].name, registry_);
   }
 
   rebuildSizeList();
@@ -193,8 +203,15 @@ void TextSettingsActivity::rebuildRowItems() {
 // which snaps SETTINGS.fontPointSize into the new family's set — but entry does
 // not, so the highlight is resolved by snapping rather than by exact match.
 void TextSettingsActivity::rebuildSizeList() {
-  const std::vector<uint8_t> points = readerFontPointSizes(registry_, SETTINGS.sdFontFamilyName);
-
+  const char* familyName = SETTINGS.sdFontFamilyName;
+  if (currentFamilyIndex_ >= 0 && currentFamilyIndex_ < static_cast<int>(fonts_.size())) {
+    if (!fonts_[currentFamilyIndex_].isBuiltin) {
+      familyName = fonts_[currentFamilyIndex_].name.c_str();
+    } else {
+      familyName = "";
+    }
+  }
+  const std::vector<uint8_t> points = readerFontPointSizes(registry_, familyName);
   // The stored size can still sit outside this family's set — e.g. the family
   // was deleted while selected, or the card was swapped. Highlight the size the
   // reader actually renders, which getReaderFontId() resolves the same way.
@@ -217,6 +234,9 @@ void TextSettingsActivity::onTabAction(const int index) {
   if (optionPopup_.isActive()) return;
   if (tab_ != static_cast<Tab>(index)) {
     tab_ = static_cast<Tab>(index);
+    if (tab_ == Tab::Size) {
+      rebuildSizeList();
+    }
     rebuildRowItems();
     auto& n = activeNav();
     n.selected = 0;          // tab taps land with the tab bar focused (legacy tap behavior)
@@ -542,6 +562,20 @@ void TextSettingsActivity::exitAfterFinalFont(const ExitDestination destination)
     return;
   }
 
+#if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR) && !defined(CROSSPOINT_EMULATED)
+  // On targets with PSRAM (Murphy M4, etc.), on-demand glyph caching in 8MB PSRAM
+  // over native 4-bit SDMMC provides instant font access without burning Flash.
+  // Bypasses the 10-20s Flash preprocessing screen entirely.
+  SETTINGS.sdFontFlashPreload = 0;
+  SETTINGS.saveToFile();
+  {
+    RenderLock lock(*this);
+    fontLoadState_.store(FontLoadState::Idle);
+    sdFontSystem.ensureLoaded(renderer, false);
+  }
+  completeExit();
+  return;
+#else
   SETTINGS.sdFontFlashPreload = 1;
   SETTINGS.saveToFile();
   const auto* file = fontFileForFamily(currentFamilyIndex_, SETTINGS.fontPointSize);
@@ -555,6 +589,7 @@ void TextSettingsActivity::exitAfterFinalFont(const ExitDestination destination)
     completeExit();
     return;
   }
+#endif
 
   SETTINGS.sdFontFlashPreload = 0;
   SETTINGS.saveToFile();
@@ -585,6 +620,9 @@ bool TextSettingsActivity::handleHomeGesture() {
 
 #ifdef ENABLE_CHINESE_VERSION
 void TextSettingsActivity::maybeOfferCompleteChineseFont() {
+#if FREEINK_DEVICE_MURPHY_M4
+  return;
+#else
   if (FontDownloadActivity::wasChineseFontPromptShownThisBoot() || SETTINGS.sdFontFamilyName[0] != '\0' ||
       SETTINGS.fontPointSize < 14) {
     return;
@@ -598,6 +636,7 @@ void TextSettingsActivity::maybeOfferCompleteChineseFont() {
     return;
   }
   startActivityForResult(std::move(downloader), [this](const ActivityResult&) { requestUpdate(); });
+#endif
 }
 #endif
 
@@ -789,6 +828,9 @@ void TextSettingsActivity::switchTab(const int direction) {
   const bool onTabBar = ringPos() == 0;
   constexpr int count = static_cast<int>(Tab::Count);
   tab_ = static_cast<Tab>((static_cast<int>(tab_) + direction + count) % count);
+  if (tab_ == Tab::Size) {
+    rebuildSizeList();
+  }
   rebuildRowItems();
   auto& n = activeNav();
   if (onTabBar) n.selected = 0;

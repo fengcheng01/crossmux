@@ -25,6 +25,9 @@ class FontFile;
 // Reader enforcement: SdCardFont::load().
 #define CPFONT_VERSION 4
 
+#if FREEINK_DEVICE_MURPHY_M4
+#include "MurphyM4TtfFont.h"
+#endif
 class SdCardFont {
  public:
   static constexpr uint16_t MAX_PAGE_GLYPHS = 512;
@@ -42,7 +45,11 @@ class SdCardFont {
   // Load .cpfont file: reads header + intervals into RAM, records file layout offsets.
   // Supports v4 (multi-style) format.
   // Returns true on success.
-  bool load(const char* path, bool preferFlash = false, bool enablePsramGlyphCache = false);
+  bool load(const char* path, bool preferFlash = false, bool enablePsramGlyphCache = false, uint8_t pointSize = 0);
+#if FREEINK_DEVICE_MURPHY_M4
+  bool isTtf() const { return ttfBackend_ != nullptr; }
+  MurphyM4TtfFont* getTtfBackend() { return ttfBackend_.get(); }
+#endif
   bool usingFlash() const { return useFlash_; }
 
   // Pre-read glyphs needed for the given UTF-8 text from SD card.
@@ -140,7 +147,10 @@ class SdCardFont {
   // Used to generate deterministic font IDs for section cache invalidation.
   uint32_t contentHash() const { return contentHash_; }
 
- private:
+#if FREEINK_DEVICE_MURPHY_M4
+  std::unique_ptr<MurphyM4TtfFont> ttfBackend_;
+#endif
+
   bool loadSelectedSource();
 
   // Per-style metadata (parsed from file header/TOC)

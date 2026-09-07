@@ -96,7 +96,7 @@ const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const Ep
   //   - nullptr for overflow glyphs without bitmap data (e.g. space: width=0, height=0)
   //   - nullptr for non-overflow glyphs (normal prewarmed path)
   // We distinguish overflow-with-no-bitmap from non-overflow by checking isOverflowGlyph().
-  if (fontData->glyphMissCtx) {
+  if (fontData->glyphMissCtx && fontData->glyphMissHandler == SdCardFont::onGlyphMiss) {
     auto* sdFont = SdCardFont::fromMissCtx(fontData->glyphMissCtx);
     if (sdFont->isOverflowGlyph(glyph)) {
       return sdFont->getOverflowBitmap(glyph);  // may be nullptr for zero-width glyphs
@@ -392,16 +392,12 @@ static uint8_t get2BitCoverage(const uint8_t* bitmap, const int pixelPosition) {
 static uint8_t combinedAaCoverage(const uint8_t* bitmap, const int width, const int height, const int gx,
                                   const int gy) {
   const uint8_t coverage = get2BitCoverage(bitmap, gy * width + gx);
-  if (coverage >= 1) return coverage;
+  if (coverage >= 2) return 3;
+  if (coverage == 0) return 0;
   auto at = [bitmap, width, height](const int x, const int y) -> uint8_t {
     if (x < 0 || y < 0 || x >= width || y >= height) return 0;
     return get2BitCoverage(bitmap, y * width + x);
   };
-  const uint8_t n = at(gx, gy - 1);
-  const uint8_t s = at(gx, gy + 1);
-  const uint8_t w = at(gx - 1, gy);
-  const uint8_t e = at(gx + 1, gy);
-  if (n >= 2 || s >= 2 || w >= 2 || e >= 2) return 0;
   const uint8_t nw = at(gx - 1, gy - 1);
   const uint8_t ne = at(gx + 1, gy - 1);
   const uint8_t sw = at(gx - 1, gy + 1);
@@ -414,8 +410,7 @@ static void draw2BitGlyphPixel(const GfxRenderer& renderer, const GfxRenderer::R
                                const int y, const bool pixelState, uint8_t coverage) {
   if (renderer.usesSolidGlyphs() && coverage > 0) coverage = 3;
   if (renderer.usesGlyphDither() && renderMode == GfxRenderer::BW) {
-    if (coverage == 0) return;
-    renderer.drawPixel(x, y, pixelState);
+    if (coverage >= 2) renderer.drawPixel(x, y, pixelState);
     return;
   }
   const auto pixel = GfxRenderer::mapTwoBitGlyphCoverage(renderMode, coverage, renderer.usesAbsoluteGrayPlanes());
@@ -587,7 +582,9 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
           }
 
           const uint8_t current =
-              glyphX < width ? get2BitCoverage(bitmap, glyphY * width + glyphX) : 0;  // White tail extends the edge.
+              glyphX < width ? (combinedOneBit ? combinedAaCoverage(bitmap, width, height, glyphX, glyphY)
+                                               : get2BitCoverage(bitmap, glyphY * width + glyphX))
+                             : 0;
           const uint8_t coverage = dilate2BitCoverage(current, previous1, previous2, syntheticBoldPixels);
           draw2BitGlyphPixel(renderer, renderMode, screenX, screenY, pixelState, coverage);
           previous2 = previous1;

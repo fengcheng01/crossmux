@@ -52,6 +52,7 @@ void KOReaderSettingsActivity::activateIndex(const int index) {
             const auto& kb = std::get<KeyboardResult>(result.data);
             KOREADER_STORE.setCredentials(kb.text, KOREADER_STORE.getPassword());
             KOREADER_STORE.saveToFile();
+            requestUpdate();
           }
         },
         tr(STR_KOREADER_USERNAME), KOREADER_STORE.getUsername(), 64, InputType::Text);
@@ -63,6 +64,7 @@ void KOReaderSettingsActivity::activateIndex(const int index) {
             const auto& kb = std::get<KeyboardResult>(result.data);
             KOREADER_STORE.setCredentials(KOREADER_STORE.getUsername(), kb.text);
             KOREADER_STORE.saveToFile();
+            requestUpdate();
           }
         },
         tr(STR_KOREADER_PASSWORD), KOREADER_STORE.getPassword(), 64, InputType::Text);
@@ -77,6 +79,7 @@ void KOReaderSettingsActivity::activateIndex(const int index) {
             const std::string urlToSave = (kb.text == "https://" || kb.text == "http://") ? "" : kb.text;
             KOREADER_STORE.setServerUrl(urlToSave);
             KOREADER_STORE.saveToFile();
+            requestUpdate();
           }
         },
         tr(STR_SYNC_SERVER_URL), prefillUrl, 128, InputType::Url);

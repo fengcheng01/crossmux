@@ -54,7 +54,6 @@ bool CountdownStore::add(const uint32_t dayOrdinal, const std::string& label) {
   LOG_DBG("CNT", "Countdown added: ordinal=%u label='%s' (%zu total)", dayOrdinal, label.c_str(), entries.size());
   return true;
 }
-
 bool CountdownStore::update(const size_t index, const uint32_t dayOrdinal, const std::string& label) {
   if (index >= entries.size()) return false;
   entries[index].targetDayOrdinal = dayOrdinal;
@@ -64,7 +63,6 @@ bool CountdownStore::update(const size_t index, const uint32_t dayOrdinal, const
 }
 
 bool CountdownStore::remove(const size_t index) {
-  if (index >= entries.size()) return false;
   entries.erase(entries.begin() + static_cast<long>(index));
   LOG_DBG("CNT", "Countdown %zu removed (%zu left)", index, entries.size());
   return true;

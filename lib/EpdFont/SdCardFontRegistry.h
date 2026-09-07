@@ -16,7 +16,14 @@ struct SdCardFontFileInfo {
 struct SdCardFontFamilyInfo {
   std::string name;  // directory name, e.g. "NotoSansCJK"
   std::vector<SdCardFontFileInfo> files;
-
+#if FREEINK_DEVICE_MURPHY_M4
+  enum class Format : uint8_t { CpFont, Ttf };
+  Format format = Format::CpFont;
+  std::string ttfPath;
+  bool isTtf() const { return format == Format::Ttf; }
+#else
+  bool isTtf() const { return false; }
+#endif
   const SdCardFontFileInfo* findFile(uint8_t size, uint8_t style = 0) const;
   // Installed file closest to `pointSize` (ties → smaller). nullptr when the
   // family ships nothing in `style`.

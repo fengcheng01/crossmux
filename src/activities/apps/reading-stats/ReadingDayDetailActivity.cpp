@@ -16,8 +16,11 @@
 namespace {
 constexpr int SUMMARY_CARD_HEIGHT = 70;
 constexpr int SUMMARY_GAP = 8;
-constexpr int DAYPART_HEIGHT = 88;
-
+int getDaypartHeight(const GfxRenderer& renderer) {
+  const int titleH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int rowH = titleH + 8;
+  return 8 + titleH + 8 + 2 * rowH + 8;
+}
 const char* daypartLabel(const int part) {
   switch (part) {
     case 0:
@@ -82,8 +85,9 @@ void ReadingDayDetailActivity::loop() {
   }
 
   const auto& metrics = UITheme::getInstance().getMetrics();
+  const int daypartH = getDaypartHeight(renderer);
   const int listTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing + SUMMARY_CARD_HEIGHT +
-                      metrics.verticalSpacing + DAYPART_HEIGHT + metrics.verticalSpacing + 34 + 10;
+                      metrics.verticalSpacing + daypartH + metrics.verticalSpacing + 34 + 10;
   const int listHeight = renderer.getScreenHeight() - listTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
   if (handleListTouch(selectedIndex, static_cast<int>(entries.size()), listTop, listHeight, false) ==
       ListTouchResult::Activated) {
@@ -133,25 +137,30 @@ void ReadingDayDetailActivity::render(RenderLock&&) {
   drawMetricCard(renderer, Rect{sidePadding + cardWidth + SUMMARY_GAP, contentTop, cardWidth, SUMMARY_CARD_HEIGHT},
                  tr(STR_BOOKS_READ), std::to_string(entries.size()));
 
+  const int daypartH = getDaypartHeight(renderer);
   const int daypartTop = contentTop + SUMMARY_CARD_HEIGHT + metrics.verticalSpacing;
-  const Rect daypartRect{sidePadding, daypartTop, pageWidth - sidePadding * 2, DAYPART_HEIGHT};
-  renderer.drawRect(daypartRect.x, daypartRect.y, daypartRect.width, daypartRect.height);
+  const Rect daypartRect{sidePadding, daypartTop, pageWidth - sidePadding * 2, daypartH};
+  if (UITheme::getInstance().hasMainTabs()) {
+    renderer.drawRoundedRect(daypartRect.x, daypartRect.y, daypartRect.width, daypartRect.height, 1, 14, true);
+  } else {
+    renderer.drawRect(daypartRect.x, daypartRect.y, daypartRect.width, daypartRect.height);
+  }
   uint64_t dayparts[ReadingStatsAnalytics::DAYPART_COUNT] = {};
   ReadingStatsAnalytics::getDayDaypartMs(dayOrdinal, dayparts);
-  const int partPad = 10;
+  const int partPad = 12;
   const int titleH = renderer.getLineHeight(UI_10_FONT_ID);
-  renderer.drawText(UI_10_FONT_ID, daypartRect.x + partPad, daypartRect.y + 6, tr(STR_READING_DAYPART), true,
+  renderer.drawText(UI_10_FONT_ID, daypartRect.x + partPad, daypartRect.y + 8, tr(STR_READING_DAYPART), true,
                     EpdFontFamily::BOLD);
   if (!ReadingStatsAnalytics::hasDaypartMs(dayparts)) {
-    renderer.drawText(UI_10_FONT_ID, daypartRect.x + partPad, daypartRect.y + 6 + titleH + 4, tr(STR_NO_DAYPART_STATS));
+    renderer.drawText(UI_10_FONT_ID, daypartRect.x + partPad, daypartRect.y + 8 + titleH + 8, tr(STR_NO_DAYPART_STATS));
   } else {
     const int colW = std::max(1, (daypartRect.width - partPad * 2) / 2);
-    const int rowH = titleH + 10;
+    const int rowH = titleH + 8;
     for (int i = 0; i < ReadingStatsAnalytics::DAYPART_COUNT; ++i) {
       const int col = i % 2;
       const int row = i / 2;
       const int cellX = daypartRect.x + partPad + col * colW;
-      const int cellY = daypartRect.y + 6 + titleH + 6 + row * rowH;
+      const int cellY = daypartRect.y + 8 + titleH + 8 + row * rowH;
       char left[24] = {};
       snprintf(left, sizeof(left), "%s %s", daypartLabel(i), kDaypartHours[i]);
       char value[24] = {};
@@ -168,7 +177,7 @@ void ReadingDayDetailActivity::render(RenderLock&&) {
   const std::string topBookTitle = !entries.empty() && entries.front().book != nullptr
                                        ? getBookTitle(*entries.front().book)
                                        : std::string(tr(STR_NOT_SET));
-  const int listTop = daypartTop + DAYPART_HEIGHT + metrics.verticalSpacing;
+  const int listTop = daypartTop + daypartH + metrics.verticalSpacing;
   GUI.drawSubHeader(renderer, Rect{0, listTop, pageWidth, 34}, topBookLabel, topBookTitle.c_str());
 
   const int listContentTop = listTop + 34 + 10;

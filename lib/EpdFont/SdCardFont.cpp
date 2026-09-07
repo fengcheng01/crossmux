@@ -330,6 +330,12 @@ void SdCardFont::freeStyleAll(PerStyle& s) {
 // --- Global free/cleanup ---
 
 void SdCardFont::releaseResidentCaches() {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) {
+    ttfBackend_->clearCache();
+    return;
+  }
+#endif
   clearOverflow();
   clearPersistentCache();
   for (uint8_t i = 0; i < MAX_STYLES; i++) {
@@ -341,6 +347,9 @@ void SdCardFont::releaseResidentCaches() {
 }
 
 void SdCardFont::freeAll() {
+#if FREEINK_DEVICE_MURPHY_M4
+  ttfBackend_.reset();
+#endif
   clearOverflow();
   clearPersistentCache();
   for (uint8_t i = 0; i < MAX_STYLES; i++) {
@@ -642,8 +651,30 @@ void SdCardFont::computeStyleFileOffsets(PerStyle& s, uint32_t baseOffset) {
 
 // --- Load ---
 
-bool SdCardFont::load(const char* path, bool preferFlash, bool enablePsramGlyphCache) {
+bool SdCardFont::load(const char* path, bool preferFlash, bool enablePsramGlyphCache, uint8_t pointSize) {
   freeAll();
+#if FREEINK_DEVICE_MURPHY_M4
+  auto isTtf = [](const char* p) {
+    if (!p) return false;
+    size_t len = strlen(p);
+    if (len < 4) return false;
+    const char* ext = p + len - 4;
+    return (strcasecmp(ext, ".ttf") == 0 || strcasecmp(ext, ".otf") == 0);
+  };
+  if (isTtf(path)) {
+    ttfBackend_ = makeUniqueNoThrow<MurphyM4TtfFont>();
+    if (!ttfBackend_ || !ttfBackend_->load(path, pointSize)) {
+      ttfBackend_.reset();
+      return false;
+    }
+    contentHash_ = ttfBackend_->contentHash();
+    styleCount_ = 1;
+    loaded_ = true;
+    strncpy(filePath_, path, sizeof(filePath_) - 1);
+    filePath_[sizeof(filePath_) - 1] = '\0';
+    return true;
+  }
+#endif
 #if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR) && !defined(CROSSPOINT_EMULATED)
   glyphCacheAllowed_ = enablePsramGlyphCache;
 #else
@@ -916,6 +947,11 @@ int SdCardFont::prewarm(const char* utf8Text, uint8_t styleMask, bool metadataOn
 
 int SdCardFont::prewarm(TextGetter getter, const void* ctx, uint32_t textCount, uint8_t styleMask, bool metadataOnly,
                         bool loadKernLig) {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) {
+    return ttfBackend_->prewarm(getter, ctx, textCount);
+  }
+#endif
   if (!loaded_ || getter == nullptr) return -1;
   styleMask = resolveStyleMask(styleMask);
   if (styleMask == 0) return 0;
@@ -1248,7 +1284,12 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
 // --- Cache management ---
 
 void SdCardFont::clearCache() {
-  clearOverflow();
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) {
+    ttfBackend_->clearCache();
+    return;
+  }
+#endif
   // Note: advance table is intentionally preserved here. It persists across
   // layout passes so repeated section indexing amortizes SD reads. Use
   // clearPersistentCache() to wipe it.
@@ -1262,6 +1303,12 @@ void SdCardFont::clearCache() {
 // --- Advance table ---
 
 void SdCardFont::clearPersistentCache() {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) {
+    ttfBackend_->clearCache();
+    return;
+  }
+#endif
   for (uint8_t i = 0; i < MAX_STYLES; i++) {
     delete[] advanceTable_[i];
     advanceTable_[i] = nullptr;
@@ -1323,6 +1370,9 @@ void SdCardFont::mergeIntoAdvanceTable(uint8_t styleIdx, const AdvanceEntry* sor
 }
 
 bool SdCardFont::hasAdvanceTable() const {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) return true;
+#endif
   for (uint8_t i = 0; i < MAX_STYLES; i++) {
     if (advanceTable_[i]) return true;
   }
@@ -1330,7 +1380,9 @@ bool SdCardFont::hasAdvanceTable() const {
 }
 
 uint16_t SdCardFont::getAdvance(uint32_t codepoint, uint8_t style) const {
-  style &= (MAX_STYLES - 1);
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) return ttfBackend_->getAdvance(codepoint);
+#endif
   if (!advanceTable_[style]) return 0;
   const AdvanceEntry* table = advanceTable_[style];
   const uint32_t size = advanceTableSize_[style];
@@ -1351,6 +1403,9 @@ uint16_t SdCardFont::getAdvance(uint32_t codepoint, uint8_t style) const {
 }
 
 uint16_t SdCardFont::getAdvanceOrLoad(uint32_t codepoint, uint8_t style) const {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) return ttfBackend_->getAdvance(codepoint);
+#endif
   uint8_t styleIdx = style & (MAX_STYLES - 1);
   if (!styles_[styleIdx].present) styleIdx = resolveStyle(styleIdx);
 
@@ -1474,6 +1529,9 @@ int SdCardFont::fetchAdvancesForCodepoints(uint32_t* codepoints, uint32_t cpCoun
 template <typename Iter>
 int SdCardFont::buildAdvanceTableRange(Iter begin, Iter end, bool includeSpace, bool includeHyphen, uint8_t styleMask,
                                        const char* extraText) {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) return 0;
+#endif
   if (!loaded_) return -1;
   styleMask = resolveStyleMask(styleMask);
   if (styleMask == 0) return 0;
@@ -1551,12 +1609,19 @@ void SdCardFont::resetStats() { stats_ = Stats{}; }
 // --- Public accessors ---
 
 EpdFont* SdCardFont::getEpdFont(uint8_t style) {
-  style &= (MAX_STYLES - 1);
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) return ttfBackend_->getEpdFont(style);
+#endif
   if (!styles_[style].present) return nullptr;
   return &styles_[style].epdFont;
 }
 
-bool SdCardFont::hasStyle(uint8_t style) const { return styles_[style & (MAX_STYLES - 1)].present; }
+bool SdCardFont::hasStyle(uint8_t style) const {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) return style == 0;
+#endif
+  return styles_[style & (MAX_STYLES - 1)].present;
+}
 
 uint8_t SdCardFont::resolveStyle(uint8_t style) const {
   static const uint8_t kFallbacks[MAX_STYLES][MAX_STYLES] = {
@@ -1656,6 +1721,9 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
 }
 
 bool SdCardFont::isOverflowGlyph(const EpdGlyph* glyph) const {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (ttfBackend_) return false;
+#endif
   for (uint32_t i = 0; i < overflowCount_; i++) {
     if (&overflow_[i].glyph == glyph) return true;
   }

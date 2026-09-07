@@ -9,7 +9,7 @@
 
 SdCardFontManager::~SdCardFontManager() {
   for (auto& lf : loaded_) {
-    delete lf.font;
+    if (lf.font) delete lf.font;
   }
 }
 
@@ -37,7 +37,7 @@ int SdCardFontManager::loadFile(const SdCardFontFileInfo& file, const char* fami
     return 0;
   }
 
-  if (!font->load(file.path.c_str(), preferFlash, enablePsramGlyphCache)) {
+  if (!font->load(file.path.c_str(), preferFlash, enablePsramGlyphCache, file.pointSize)) {
     LOG_ERR("SDMGR", "Failed to load %s", file.path.c_str());
     return 0;
   }
@@ -82,9 +82,30 @@ bool SdCardFontManager::loadFamily(const SdCardFontFamilyInfo& family, GfxRender
   loadedPointSize_ = selected->pointSize;
   return true;
 }
-
 int SdCardFontManager::loadFamilyExtraSize(const SdCardFontFamilyInfo& family, GfxRenderer& renderer,
                                            uint8_t pointSize) {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (family.isTtf() && !loaded_.empty() && loaded_[0].font && loaded_[0].font->isTtf()) {
+    for (const auto& lf : loaded_) {
+      if (lf.size == pointSize) return lf.fontId;
+    }
+    auto* ttfBackend = loaded_[0].font->getTtfBackend();
+    if (ttfBackend) {
+      EpdFont* epdFont = ttfBackend->getEpdFontForSize(pointSize);
+      if (epdFont) {
+        int fontId = computeFontId(ttfBackend->contentHash(), family.name.c_str(), pointSize);
+        if (renderer.getFontMap().count(fontId) == 0) {
+          renderer.registerSdCardFont(fontId, loaded_[0].font);
+          loaded_.push_back({nullptr, fontId, pointSize});
+          EpdFontFamily fontFamily(epdFont, epdFont, epdFont, epdFont);
+          renderer.insertFont(fontId, fontFamily);
+          LOG_DBG("SDMGR", "Registered TTF size-matched UI fallback font %u pt (id=%d)", pointSize, fontId);
+        }
+        return fontId;
+      }
+    }
+  }
+#endif
   const SdCardFontFileInfo* file = family.findFile(pointSize);
   if (!file) return 0;  // family has no .cpfont at this exact size
 
@@ -103,7 +124,7 @@ void SdCardFontManager::unloadAll(GfxRenderer& renderer) {
   renderer.clearSdCardFonts();
   for (auto& lf : loaded_) {
     renderer.removeFont(lf.fontId);
-    delete lf.font;
+    if (lf.font) delete lf.font;
   }
   loaded_.clear();
   loadedFamilyName_.clear();

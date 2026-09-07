@@ -192,10 +192,8 @@ void EpubReaderActivity::onExit() {
   showPendingAchievementPopups(renderer);
   ReaderActivity::onExit();
 #if FREEINK_DEVICE_MURPHY_M4
-  // FULL 0xF7 inverts black several times (looks like 3 flashes). Resync then
-  // FAST so home from the reader is one non-inverting update.
+  // Resync controller RAM so sleep/home diffs against the clean B/W baseline.
   renderer.cleanupGrayscaleWithFrameBuffer();
-  renderer.requestNextRefresh(HalDisplay::FAST_REFRESH);
 #elif FREEINK_DEVICE_EEGO_A4
   // A4's single-pass grayscale path needs a clean first frame after exit.
   renderer.requestNextFullRefresh();
@@ -389,6 +387,9 @@ void EpubReaderActivity::openDictionaryWordSelect() {
 
 #ifdef ENABLE_CHINESE_VERSION
 bool EpubReaderActivity::maybeOfferCompleteChineseFont() {
+#if FREEINK_DEVICE_MURPHY_M4
+  return false;
+#else
   if (SETTINGS.sdFontFamilyName[0] != '\0' || SETTINGS.cnFontPromptDismissed) {
     pendingMissingChineseCodepoint_.store(0, std::memory_order_relaxed);
     return false;
@@ -413,6 +414,7 @@ bool EpubReaderActivity::maybeOfferCompleteChineseFont() {
     requestUpdate();
   });
   return true;
+#endif
 }
 #endif
 
@@ -1762,7 +1764,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const bool swiftAa = ReaderUtils::usesSwiftAa() && !SETTINGS.readingBackgroundEnabled &&
                        !pageHasImages && renderer.supportsSwiftAa();
   const bool needsAnyGrayscale = needsTextGrayscale || pageHasImages;
-  const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
+  const bool tiledGrayscale = needsAnyGrayscale && !directAa && renderer.supportsStripGrayscale();
   // Paper Mono only (no other panel combines): defer the B/W base activation so
   // the gray planes join it in a single waveform. Displaying the base
   // separately makes the gray pass re-drive the whole text body — a visible
@@ -1813,7 +1815,17 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   };
 
   if (SETTINGS.readingBackgroundEnabled && !readingBackground::load(renderer)) renderer.clearScreen();
-  renderPageWithGuideLines();
+  {
+    struct DitherGuard {
+      const GfxRenderer& r;
+      const bool prev;
+      DitherGuard(const GfxRenderer& r, const bool enable) : r(r), prev(r.usesGlyphDither()) {
+        const_cast<GfxRenderer&>(r).setGlyphDither(enable);
+      }
+      ~DitherGuard() { const_cast<GfxRenderer&>(r).setGlyphDither(prev); }
+    } ditherGuard(renderer, directAa);
+    renderPageWithGuideLines();
+  }
 #ifdef ENABLE_CHINESE_VERSION
   const uint32_t missingCodepoint = fcm->consumeMissingChineseCodepoint();
   if (missingCodepoint != 0 && !FontDownloadActivity::wasChineseFontPromptShownThisBoot()) {
@@ -1838,10 +1850,17 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     } else {
       pagesUntilFullRefresh--;
     }
-  } else if (directAa || swiftAa) {
-    // No B/W paint: the tiled pass below displays the page (direct = one
-    // absolute refresh; swift = repaint + weak edge passes). The repaint
-    // self-cleans every turn, so the scheduled refresh just resets cadence.
+  } else if (directAa) {
+    // Direct AA: single-pass FAST 1-bit refresh with spatial edge dithering.
+    // 0 flash, ~200ms instantaneous page turn, smooth feathered font edges.
+    renderer.displayBuffer(cleanImageBasePending ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
+    if (pagesUntilFullRefresh <= 1) {
+      pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
+    } else {
+      pagesUntilFullRefresh--;
+    }
+  } else if (swiftAa) {
+    // Swift AA: self-contained FAST base + lut_grayscale edge pass in displaySwiftAa.
     if (pagesUntilFullRefresh <= 1) {
       pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
     } else {
@@ -1915,7 +1934,6 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
     if (lsbPlaneBuf) {
       if (swiftAa) {
-        // Swift renders only the MSB (edge) plane into lsbPlaneBuf.
         renderPlaneToBuffer(false, lsbPlaneBuf.get());
       } else {
         renderPlaneToBuffer(true, lsbPlaneBuf.get());
@@ -1933,7 +1951,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         return;
       }
 
-      const auto tGrayWrite = millis();  // swift/driver-owned plane writes happen in the display call
+      const auto tGrayWrite = millis();
       if (!swiftAa) {
         renderer.writeGrayscalePlaneStrip(true, lsbPlaneBuf.get(), 0, gh);
         if (msbPlaneBuf) {

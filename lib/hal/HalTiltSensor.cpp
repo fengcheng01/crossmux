@@ -14,6 +14,11 @@ bool HalTiltSensor::readGyro(float& gx, float& gy, float& gz) const {
 }
 
 void HalTiltSensor::begin() {
+#if FREEINK_DEVICE_MURPHY_M4
+  // Murphy M4 has no IMU hardware. Skip the 650ms I2C timeout probe!
+  _available = false;
+  return;
+#endif
   _available = _sdkImu.begin();
   if (_available) {
     _initMs = millis();

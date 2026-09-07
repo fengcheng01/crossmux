@@ -101,7 +101,6 @@ std::string KOReaderCredentialStore::getMd5Password() const {
   return md5.toString().c_str();
 }
 
-bool KOReaderCredentialStore::hasCredentials() const { return !username.empty() && !password.empty(); }
 
 void KOReaderCredentialStore::clearCredentials() {
   username.clear();

@@ -567,10 +567,10 @@ void setup() {
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth,
                    SETTINGS.frontlightOn != 0 && !clockTickWake);
   halClock.setAutoSyncEnabled(SETTINGS.clockAutoSync != 0);
+  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   RECENT_BOOKS.loadFromFile();
   READING_STATS.loadFromFile();
   ACHIEVEMENTS.loadFromFile();
-  I18N.setLanguage(static_cast<Language>(SETTINGS.language));
   KOREADER_STORE.loadFromFile();
   OPDS_STORE.loadFromFile();
   COUNTDOWN_STORE.loadFromFile();
@@ -679,8 +679,13 @@ void setup() {
     // Refresh the cached button state a few times — isPressed() needs ~half a second to settle
     // after boot per the HalGPIO contract. Use a millis-based deadline so we always wait the full
     // settle window even if the loop body takes longer than expected on slow boots.
+#if FREEINK_DEVICE_MURPHY_M4
+    constexpr unsigned long settleWindow = 60;
+#else
+    constexpr unsigned long settleWindow = 500;
+#endif
     const unsigned long settleStart = millis();
-    while (millis() - settleStart < 500) {
+    while (millis() - settleStart < settleWindow) {
       gpio.update();
       delay(10);
     }

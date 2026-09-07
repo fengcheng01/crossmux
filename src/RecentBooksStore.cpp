@@ -23,7 +23,6 @@ void RecentBooksStore::toJson(JsonDocument& doc) const {
 }
 
 bool RecentBooksStore::fromJson(JsonVariantConst doc) {
-  // Tolerate a missing/invalid 'books' key (treat as empty list); only a
   // JSON parse error is fatal. A null JsonArray iterates zero times.
   recentBooks.clear();
   JsonArrayConst arr = doc["books"].as<JsonArrayConst>();

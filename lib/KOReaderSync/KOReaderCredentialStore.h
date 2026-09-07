@@ -33,7 +33,6 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
   bool sendMetadata = false;                                        // Send document metadata with progress sync
   KOReaderSyncBehavior syncBehavior = KOReaderSyncBehavior::SMART;
   bool exitSyncPrompt = false;  // Ask whether to sync when exiting a book
-
   // Private constructor for singleton
   KOReaderCredentialStore() = default;
   ~KOReaderCredentialStore() = default;
@@ -54,7 +53,7 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
   std::string getMd5Password() const;
 
   // Check if credentials are set
-  bool hasCredentials() const;
+  bool hasCredentials() const { return !username.empty() && !password.empty(); }
 
   // Clear credentials
   void clearCredentials();

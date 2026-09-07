@@ -18,7 +18,6 @@ void OpdsServerStore::toJson(JsonDocument& doc) const {
 }
 
 bool OpdsServerStore::fromJson(JsonVariantConst doc) {
-  // Tolerate a missing/invalid 'servers' key (treat as empty list); only a
   // JSON parse error is fatal. A null JsonArray iterates zero times.
   servers.clear();
   JsonArrayConst arr = doc["servers"].as<JsonArrayConst>();
@@ -60,7 +59,6 @@ bool OpdsServerStore::updateServer(size_t index, const OpdsServer& server) {
   if (index >= servers.size()) {
     return false;
   }
-
   servers[index] = server;
   LOG_DBG("OPS", "Updated server: %s", server.name.c_str());
   return saveToFile();
@@ -70,7 +68,6 @@ bool OpdsServerStore::removeServer(size_t index) {
   if (index >= servers.size()) {
     return false;
   }
-
   LOG_DBG("OPS", "Removed server: %s", servers[index].name.c_str());
   servers.erase(servers.begin() + static_cast<ptrdiff_t>(index));
   return saveToFile();

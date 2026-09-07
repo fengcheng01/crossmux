@@ -664,18 +664,19 @@ void InxRecentActivity::drawFlow(const Rect& content) {
   for (int slot = 0; slot < visible; ++slot) {
     const int index = start + slot;
     const int y = listTop + slot * rowStep;
-    if (slot > 0) renderer.drawLine(panel.x + 12, y, panel.x + panel.width - 12, y);
-    const Rect cover{panel.x + 12, y + (rowStep - coverH) / 2, coverW, coverH};
+    if (slot > 0) drawDottedSeparator(renderer, panel.x + 14, y, panel.width - 28);
+    const Rect cover{panel.x + 14, y + (rowStep - coverH) / 2, coverW, coverH};
     if (index == selected && showMainTabContentSelection()) {
-      renderer.drawRect(panel.x + 8, y + 2, panel.width - 16, rowStep - 4);
+      renderer.drawRoundedRect(panel.x + 6, y + 2, panel.width - 12, rowStep - 4, 1, 6, true);
     }
     drawBookCover(index, cover);
     renderer.drawRect(cover.x, cover.y, cover.width, cover.height);
+    renderer.drawLine(cover.x + 3, cover.y, cover.x + 3, cover.y + cover.height - 1);
 
-    const int durCol = 62;
+    const int durCol = 70;
     const int textX = cover.x + cover.width + 12;
     const int textW = std::max(24, panel.x + panel.width - 12 - durCol - textX);
-    const int progressH = 7;
+    const int progressH = 5;
     const int titleBudget = coverH - chapterH - progressH - 8;
     const int titleLinesMax = titleBudget >= titleLineH * 2 ? 2 : 1;
     const auto titleLines =
@@ -688,30 +689,31 @@ void InxRecentActivity::drawFlow(const Rect& content) {
 
     const ReadingBookStats* stats = statsAt(index);
     char chLine[64] = {};
-    if (stats && stats->completed) {
+    const uint8_t prog = progressOf(stats);
+    if (stats && stats->completed && prog >= 99) {
       snprintf(chLine, sizeof(chLine), "%s", tr(STR_DONE));
     } else if (stats && !stats->chapterTitle.empty()) {
-      const std::string cut = renderer.truncatedText(chapterFont, stats->chapterTitle.c_str(), textW);
-      snprintf(chLine, sizeof(chLine), "%s", cut.c_str());
-    } else if (stats) {
-      snprintf(chLine, sizeof(chLine), "%u%%", static_cast<unsigned>(stats->lastProgressPercent));
+      const std::string cut = renderer.truncatedText(chapterFont, stats->chapterTitle.c_str(), textW - 40);
+      snprintf(chLine, sizeof(chLine), "%s · %u%%", cut.c_str(), static_cast<unsigned>(prog));
+    } else {
+      snprintf(chLine, sizeof(chLine), "已读 %u%%", static_cast<unsigned>(prog));
     }
     const int progressY = cover.y + coverH - progressH - 2;
     if (chLine[0] != '\0') {
       const int chY = std::min(ty + 4, progressY - chapterH - 4);
       renderer.drawText(chapterFont, textX, chY, chLine);
     }
-    InxInkCards::drawHairProgress(renderer, Rect{textX, progressY, textW, progressH}, progressOf(stats));
+    InxInkCards::drawProgress(renderer, Rect{textX, progressY, textW, progressH}, prog);
 
-    char number[8];
+    char number[8] = {};
     bool hours = false;
     ReadingStatsAnalytics::formatDurationParts(stats ? stats->totalReadingMs : 0, number, sizeof(number), hours);
     const char* unit = hours ? tr(STR_HOURS_UNIT) : tr(STR_MINUTES_UNIT);
-    const int numW = renderer.getTextWidth(UI_12_FONT_ID, number, EpdFontFamily::BOLD);
-    const int unitW = renderer.getTextWidth(SMALL_FONT_ID, unit);
-    const int durRight = panel.x + panel.width - 12;
-    renderer.drawText(UI_12_FONT_ID, durRight - numW, cover.y + 2, number, true, EpdFontFamily::BOLD);
-    renderer.drawText(SMALL_FONT_ID, durRight - unitW, cover.y + 2 + renderer.getLineHeight(UI_12_FONT_ID) + 2, unit);
+    char durText[24] = {};
+    snprintf(durText, sizeof(durText), "%s %s", number, unit);
+    const int durW = renderer.getTextWidth(UI_10_FONT_ID, durText, EpdFontFamily::BOLD);
+    const int durRight = panel.x + panel.width - 14;
+    renderer.drawText(UI_10_FONT_ID, durRight - durW, cover.y + 4, durText, true, EpdFontFamily::BOLD);
   }
 }
 

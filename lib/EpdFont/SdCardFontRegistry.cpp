@@ -9,6 +9,12 @@
 // --- SdCardFontFamilyInfo helpers ---
 
 const SdCardFontFileInfo* SdCardFontFamilyInfo::findFile(uint8_t size, uint8_t style) const {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (isTtf() && !files.empty()) {
+    const_cast<SdCardFontFileInfo&>(files[0]).pointSize = size;
+    return &files[0];
+  }
+#endif
   for (const auto& f : files) {
     if (f.pointSize == size && f.style == style) return &f;
   }
@@ -16,7 +22,12 @@ const SdCardFontFileInfo* SdCardFontFamilyInfo::findFile(uint8_t size, uint8_t s
 }
 
 const SdCardFontFileInfo* SdCardFontFamilyInfo::findNearestSize(const uint8_t pointSize, const uint8_t style) const {
-  // The reader stores an actual point size, so an exact match is the norm and
+#if FREEINK_DEVICE_MURPHY_M4
+  if (isTtf() && !files.empty()) {
+    const_cast<SdCardFontFileInfo&>(files[0]).pointSize = pointSize;
+    return &files[0];
+  }
+#endif
   // falls out of the delta search below (delta 0). The search only matters when
   // the size was carried over from a family that ships different sizes; the
   // caller then persists the snapped size (SdCardFontSystem::ensureLoaded).
@@ -35,6 +46,9 @@ const SdCardFontFileInfo* SdCardFontFamilyInfo::findNearestSize(const uint8_t po
 }
 
 bool SdCardFontFamilyInfo::hasSize(uint8_t size) const {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (isTtf()) return true;
+#endif
   for (const auto& f : files) {
     if (f.pointSize == size) return true;
   }
@@ -42,6 +56,11 @@ bool SdCardFontFamilyInfo::hasSize(uint8_t size) const {
 }
 
 std::vector<uint8_t> SdCardFontFamilyInfo::availableSizes() const {
+#if FREEINK_DEVICE_MURPHY_M4
+  if (isTtf()) {
+    return {12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 36, 40, 44, 48, 56, 64};
+  }
+#endif
   std::vector<uint8_t> sizes;
   for (const auto& f : files) {
     bool found = false;
@@ -114,6 +133,20 @@ void SdCardFontRegistry::scanDirectory(const char* dirPath, SdCardFontFamilyInfo
     // Skip macOS resource fork files (._*) and other hidden files
     if (nameBuffer[0] == '.' || nameBuffer[0] == '_') continue;
 
+#if FREEINK_DEVICE_MURPHY_M4
+    size_t nLen = strlen(nameBuffer);
+    if (nLen > 4) {
+      const char* ext = nameBuffer + nLen - 4;
+      if (strcasecmp(ext, ".ttf") == 0 || strcasecmp(ext, ".otf") == 0) {
+        family.format = SdCardFontFamilyInfo::Format::Ttf;
+        family.ttfPath = std::string(dirPath) + "/" + nameBuffer;
+        family.files.clear();
+        family.files.push_back({family.ttfPath, 14, 0});
+        LOG_INF("SDREG", "Found TTF font in directory: %s", family.ttfPath.c_str());
+        return;
+      }
+    }
+#endif
     uint8_t size, style;
     if (!parseFilename(nameBuffer, size, style)) continue;
 
@@ -187,7 +220,37 @@ void SdCardFontRegistry::scanRoot(const char* rootPath, std::vector<SdCardFontFa
                 static_cast<int>(out.back().files.size()), rootPath);
       }
     } else {
+#if FREEINK_DEVICE_MURPHY_M4
+      entry.getName(nameBuffer, sizeof(nameBuffer));
       entry.close();
+      if (nameBuffer[0] != '.' && nameBuffer[0] != '_') {
+        size_t nLen = strlen(nameBuffer);
+        if (nLen > 4) {
+          const char* ext = nameBuffer + nLen - 4;
+          if (strcasecmp(ext, ".ttf") == 0 || strcasecmp(ext, ".otf") == 0) {
+            std::string fontName(nameBuffer, nLen - 4);
+            bool exists = false;
+            for (const auto& fam : out) {
+              if (fam.name == fontName) {
+                exists = true;
+                break;
+              }
+            }
+            if (!exists) {
+              SdCardFontFamilyInfo family;
+              family.name = fontName;
+              family.format = SdCardFontFamilyInfo::Format::Ttf;
+              family.ttfPath = std::string(rootPath) + "/" + nameBuffer;
+              family.files.push_back({family.ttfPath, 14, 0});
+              out.push_back(std::move(family));
+              LOG_INF("SDREG", "Found standalone TTF font: %s in %s", fontName.c_str(), rootPath);
+            }
+          }
+        }
+      }
+#else
+      entry.close();
+#endif
     }
   }
 }

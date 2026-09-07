@@ -173,6 +173,27 @@ void SdCardFontSystem::setupUiFallbacks(GfxRenderer& renderer) {
   const auto* family = registry_.findFamily(familyName);
   if (!family) return;
 
+#if FREEINK_DEVICE_MURPHY_M4
+  if (family->isTtf()) {
+    for (const auto& ui : kUiFontSizes) {
+      const int sdFontId = manager_.loadFamilyExtraSize(*family, renderer, ui.pointSize);
+      if (sdFontId != 0) {
+        renderer.setFallbackFont(ui.fontId, sdFontId);
+      }
+    }
+    const int extra12 = manager_.loadFamilyExtraSize(*family, renderer, 12);
+    if (extra12 != 0) {
+      renderer.setFallbackFont(NOTOSANS_12_FONT_ID, extra12);
+      renderer.setFallbackFont(NOTOSERIF_12_FONT_ID, extra12);
+    }
+    const int extra14 = manager_.loadFamilyExtraSize(*family, renderer, 14);
+    if (extra14 != 0) {
+      renderer.setFallbackFont(NOTOSANS_14_FONT_ID, extra14);
+      renderer.setFallbackFont(NOTOSERIF_14_FONT_ID, extra14);
+    }
+    return;
+  }
+#endif
   const auto readerIt = renderer.getFontMap().find(manager_.getFontId(familyName));
   if (readerIt == renderer.getFontMap().end()) return;
 

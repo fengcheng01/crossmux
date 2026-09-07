@@ -39,13 +39,9 @@
 namespace {
 
 HalDisplay::RefreshMode sleepCleanRefresh() {
-#if FREEINK_DEVICE_MURPHY_M4
-  // M4 HALF is 0xD4, which does not clear AA residue. LIGHT sleep then ghosts
-  // the previous page as the panel sits. FULL 0xF7 is one flash at sleep.
-  return HalDisplay::FULL_REFRESH;
-#else
+  // On Murphy M4, HALF_REFRESH (0xD4) is a single clean inversion flash (one calm flash).
+  // FULL_REFRESH (0xF7) inverts 3-4 times in a row.
   return HalDisplay::HALF_REFRESH;
-#endif
 }
 
 #if FREEINK_DEVICE_MURPHY_M4
@@ -538,7 +534,7 @@ void drawSevenSegDigit(GfxRenderer& renderer, const int x, const int y, const in
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
-
+  renderer.clearNextRefreshOverride();
   const bool frameWasInverted = display.isInverted();
 
   // Sleep screens always use normal polarity. This activity draws directly
@@ -553,6 +549,11 @@ void SleepActivity::onEnter() {
   const bool preservesCurrentFrame =
       renderQuickResume || SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT;
   if (frameWasInverted && preservesCurrentFrame) renderer.invertScreen();
+#if FREEINK_DEVICE_MURPHY_M4
+  if (!preservesCurrentFrame && !frameWasInverted) {
+    renderer.cleanupGrayscaleWithFrameBuffer();
+  }
+#endif
 
   if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK ||
       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CALENDAR ||
@@ -562,9 +563,6 @@ void SleepActivity::onEnter() {
     } else {
       renderer.setOrientation(GfxRenderer::Orientation::Portrait);
     }
-#if FREEINK_DEVICE_MURPHY_M4
-    renderer.cleanupGrayscaleWithFrameBuffer();
-#endif
     if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CALENDAR) {
       paintCalendarSleep(renderer);
     } else if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COUNTDOWN) {
@@ -591,6 +589,7 @@ void SleepActivity::onEnter() {
     return renderTransparentCustomSleepScreen();
   }
 
+#if !FREEINK_DEVICE_MURPHY_M4
   // Show popup with reader orientation only when going to sleep from reader
   if (APP_STATE.lastSleepFromReader) {
     ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
@@ -599,6 +598,7 @@ void SleepActivity::onEnter() {
   } else {
     GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
   }
+#endif
 
   switch (SETTINGS.sleepScreen) {
     case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
@@ -801,11 +801,8 @@ void SleepActivity::paintClock(GfxRenderer& renderer, const bool minuteTick) {
   // window would be driven to white against leftover RED clock pixels.
   if (minuteTick) {
     if (haveTime && minute == 0) {
-      // Hourly re-bleach: the windowed FAST ticks never re-drive the white
-      // outside the time block, and even inside it the differential updates
-      // leave a little residue each minute. One full HALF repaint per hour
-      // (same waveform as lock entry) caps the buildup before it's visible.
-      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      // Hourly re-bleach: full clean refresh so any microscopic residue is erased.
+      renderer.displayBuffer(sleepCleanRefresh());
     } else {
       const int pad = 12;
       const int winY = std::max(0, digitTop - pad);
@@ -813,10 +810,9 @@ void SleepActivity::paintClock(GfxRenderer& renderer, const bool minuteTick) {
       renderer.displayWindow(0, winY, pageWidth, winBottom - winY);
     }
   } else {
-    // Lock entry. From an AA reader the panel holds gray-driven ink that HALF
-    // cannot clear (the page then ghosts under the clock); pay the FULL clean
-    // for that transition only.
-    renderer.displayBuffer(sleepEntryFromAaReader() ? sleepCleanRefresh() : HalDisplay::HALF_REFRESH);
+    // Lock entry: always use sleepCleanRefresh() (FULL_REFRESH 0xF7 on M4)
+    // so the clock starts on a completely bleached white background with zero ghosts!
+    renderer.displayBuffer(sleepCleanRefresh());
   }
 #else
   (void)minuteTick;
@@ -1012,7 +1008,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
     // the differential nudge then lands unevenly (blotchy noise in gray areas).
     renderer.displayGrayscaleBase(HalDisplay::HALF_REFRESH);
   } else {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    renderer.displayBuffer(sleepCleanRefresh());
   }
 
   if (hasGreyscale) {
