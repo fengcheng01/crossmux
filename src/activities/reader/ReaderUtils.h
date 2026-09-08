@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Arduino.h>
 #include <CrossPointSettings.h>
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
@@ -147,7 +148,10 @@ inline bool isTouchMenuGesture(const GfxRenderer& renderer, const MappedInputMan
 }
 
 inline HalDisplay::RefreshMode consumeRefreshMode(int& pagesUntilFullRefresh) {
-  const auto mode = (pagesUntilFullRefresh <= 1) ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
+  // In night mode (screenInverted), HALF_REFRESH is a white-bleaching waveform that would
+  // turn the screen white. Night mode FAST_REFRESH already re-drives the black background.
+  const bool allowHalf = !SETTINGS.screenInverted;
+  const auto mode = (pagesUntilFullRefresh <= 1 && allowHalf) ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH;
   if (pagesUntilFullRefresh <= 1) {
     pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
   } else {

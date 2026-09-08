@@ -307,6 +307,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     TEXT_AA_COUNT = 5
   };
   uint8_t textAntiAliasing = TEXT_AA_OVERLAY;
+  // M4 experimental: Kindle-style vertical-strip page wipe. Default off.
+  uint8_t pageTurnAnimation = 0;
   uint8_t fakeBold = SYNTHETIC_BOLD_STANDARD;
   uint8_t readingBackgroundEnabled = 0;
   uint8_t readingGuideLineEnabled = 0;

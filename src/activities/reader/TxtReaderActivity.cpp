@@ -781,7 +781,7 @@ void TxtReaderActivity::renderPage() {
   } else if (directAa) {
     // Direct AA: single-pass FAST refresh with spatial edge dithering.
     // 0 flash, ~200ms instantaneous page turn, smooth feathered font edges.
-    const bool cleanWhite = pagesUntilFullRefresh <= 1;
+    const bool cleanWhite = (pagesUntilFullRefresh <= 1) && !SETTINGS.screenInverted;
     (void)ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
     renderer.displayBuffer(cleanWhite ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
   } else {

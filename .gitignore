@@ -45,3 +45,4 @@ boot_app0-m4.bin
 flake.*
 dist/
 .zcode/
+flasher/

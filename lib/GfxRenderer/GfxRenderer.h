@@ -276,6 +276,10 @@ class GfxRenderer {
   // Windowed FAST in screen coordinates (rotated/aligned internally). RED must
   // already hold the previous full frame (cleanupGrayscaleWithFrameBuffer).
   void displayWindow(int x, int y, int width, int height) const;
+  // Arm/disarm the short windowed page-turn LUT around a sequence of
+  // displayWindow calls. No-op off Murphy M4.
+  void beginWindowAnimation() const;
+  void endWindowAnimation() const;
   void invertScreen() const;
   void clearScreen(uint8_t color = 0xFF) const;
   void getOrientedViewableTRBL(int* outTop, int* outRight, int* outBottom, int* outLeft) const;
@@ -365,7 +369,7 @@ class GfxRenderer {
   // Enables partial-repaint patterns (e.g. moving a selection highlight)
   // without re-rendering the whole page.
   size_t readFramebufferRegion(int x, int y, int w, int h, uint8_t* dst, size_t dstCapacity) const;
-  void writeFramebufferRegion(int x, int y, int w, int h, const uint8_t* src);
+  void writeFramebufferRegion(int x, int y, int w, int h, const uint8_t* src) const;
 
   // Text
   // Page-local guard for synthetic bold. Restores the previous renderer state

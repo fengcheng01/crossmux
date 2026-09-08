@@ -1,0 +1,1861 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>墨菲 M4 全新 UI 设计方案原型 · 墨韵极简 (InkCraft)</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-dark: #0f1110;
+      --panel-bg: #181b18;
+      --panel-border: #2c302a;
+      --text-main: #f0f2ec;
+      --text-muted: #8d9489;
+      --accent: #d97736;
+      --accent-glow: rgba(217, 119, 54, 0.2);
+      
+      /* E-ink Screen Palette */
+      --ink-black: #111210;
+      --ink-dark: #2a2c28;
+      --ink-gray: #6b7066;
+      --ink-light: #b4b8af;
+      --paper-white: #faf9f5;
+      --paper-cream: #f3f1ea;
+      --paper-border: #dcd9ce;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at 15% 15%, rgba(217, 119, 54, 0.08), transparent 35%),
+        radial-gradient(circle at 85% 85%, rgba(255, 255, 255, 0.03), transparent 40%),
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        var(--bg-dark);
+      background-size: auto, auto, 24px 24px, 24px 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Bar */
+    header.header-bar {
+      padding: 16px 28px;
+      border-bottom: 1px solid var(--panel-border);
+      background: rgba(15, 17, 16, 0.92);
+      backdrop-filter: blur(12px);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, var(--accent), #b45318);
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+      color: #fff;
+      font-size: 16px;
+      box-shadow: 0 4px 12px var(--accent-glow);
+    }
+
+    .brand-info h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .brand-info p {
+      margin: 2px 0 0;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .controls-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .tab-pills {
+      display: flex;
+      background: #1e221d;
+      padding: 3px;
+      border-radius: 8px;
+      border: 1px solid var(--panel-border);
+    }
+
+    .tab-pill {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.18s ease;
+    }
+
+    .tab-pill.active {
+      background: #2f342c;
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+
+    .btn-toggle {
+      background: #1e221d;
+      border: 1px solid var(--panel-border);
+      color: var(--text-main);
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+
+    .btn-toggle:hover {
+      background: #2a3029;
+      border-color: #434a3f;
+    }
+
+    .btn-toggle.active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Main Container */
+    main.workspace {
+      flex: 1;
+      display: flex;
+      padding: 24px;
+      gap: 32px;
+      max-width: 1540px;
+      margin: 0 auto;
+      width: 100%;
+      align-items: flex-start;
+      justify-content: center;
+    }
+
+    /* Sidebar / Design Notes */
+    .design-inspector {
+      width: 380px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    }
+
+    .inspector-title {
+      font-size: 16px;
+      font-weight: 800;
+      margin: 0 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--panel-border);
+      padding-bottom: 12px;
+    }
+
+    .badge-m4 {
+      background: rgba(217, 119, 54, 0.16);
+      color: var(--accent);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .change-card {
+      background: #20241f;
+      border: 1px solid #2f352c;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .change-card h4 {
+      margin: 0 0 6px;
+      font-size: 13px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .change-card p {
+      margin: 0;
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    .specs-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .spec-item {
+      background: #141613;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #232720;
+    }
+
+    .spec-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #798075;
+      letter-spacing: 0.05em;
+    }
+
+    .spec-val {
+      font-size: 14px;
+      font-weight: 700;
+      color: #e5e8df;
+      margin-top: 3px;
+    }
+
+    /* Device Container */
+    .device-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* Device Bezel (Murphy M4 4.26") */
+    .device-frame {
+      width: 536px;
+      height: 876px;
+      background: #161715;
+      border-radius: 36px;
+      padding: 38px 28px;
+      box-shadow:
+        0 24px 70px rgba(0, 0, 0, 0.6),
+        inset 0 1px 1px rgba(255, 255, 255, 0.15),
+        inset 0 -2px 4px rgba(0, 0, 0, 0.8),
+        0 0 0 3px #282a25;
+      position: relative;
+      transition: all 0.3s ease;
+    }
+
+    .device-frame[data-shell="white"] {
+      background: #dedcd4;
+      box-shadow:
+        0 24px 70px rgba(0, 0, 0, 0.5),
+        inset 0 2px 2px #fff,
+        inset 0 -2px 4px rgba(0, 0, 0, 0.2),
+        0 0 0 3px #b8b5a9;
+    }
+
+    .device-top-notch {
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 48px;
+      height: 4px;
+      background: #252824;
+      border-radius: 2px;
+    }
+
+    .device-frame[data-shell="white"] .device-top-notch {
+      background: #b5b2a5;
+    }
+
+    /* Side Buttons */
+    .side-key {
+      position: absolute;
+      right: -8px;
+      width: 5px;
+      border-radius: 0 4px 4px 0;
+      background: #262924;
+      box-shadow: 1px 0 2px rgba(0,0,0,0.5);
+    }
+    .side-key.power { top: 120px; height: 44px; }
+    .side-key.vol-up { top: 210px; height: 50px; }
+    .side-key.vol-down { top: 275px; height: 50px; }
+
+    /* E-ink Screen (Exact 480x800 logical pixels) */
+    .screen {
+      width: 480px;
+      height: 800px;
+      background: var(--paper-white);
+      color: var(--ink-black);
+      border-radius: 6px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      box-shadow: inset 0 0 8px rgba(0,0,0,0.08);
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Serif CJK SC", "Songti SC", serif;
+    }
+
+    /* Screen Modes */
+    .screen.eink-dither {
+      background: #f4f3ec;
+      filter: contrast(110%);
+    }
+
+    /* Safe Area Markers */
+    .screen::before {
+      content: "";
+      position: absolute;
+      inset: 9px 3px 3px 3px;
+      border: 1px dashed rgba(217, 119, 54, 0.4);
+      pointer-events: none;
+      z-index: 999;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .screen.show-safe::before { opacity: 1; }
+
+    /* ========================================================
+       E-INK SCREEN UI COMPONENTS (INKCRAFT DESIGN SYSTEM)
+       ======================================================== */
+
+    /* 1. Status Bar */
+    .screen-status-bar {
+      height: 38px;
+      padding: 0 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--paper-border);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--ink-black);
+      flex-shrink: 0;
+    }
+
+    .time-slot {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      letter-spacing: 0.02em;
+    }
+
+    .sys-indicators {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .battery-icon {
+      width: 22px;
+      height: 11px;
+      border: 1.5px solid var(--ink-black);
+      border-radius: 2px;
+      padding: 1px;
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .battery-icon::after {
+      content: "";
+      position: absolute;
+      right: -3px;
+      top: 2px;
+      width: 2px;
+      height: 4px;
+      background: var(--ink-black);
+      border-radius: 0 1px 1px 0;
+    }
+
+    .battery-level {
+      width: 82%;
+      height: 100%;
+      background: var(--ink-black);
+      border-radius: 1px;
+    }
+
+    /* 2. Screen Content Area (Scrollable / Switchable) */
+    .screen-content {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      overflow-y: auto;
+      background: var(--paper-white);
+    }
+
+    .screen-content.active {
+      display: flex;
+    }
+
+    /* 3. Bottom Tab Bar */
+    .screen-tab-bar {
+      height: 60px;
+      border-top: 1.5px solid var(--ink-black);
+      background: var(--paper-cream);
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    .tab-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      gap: 3px;
+      cursor: pointer;
+      color: var(--ink-dark);
+      position: relative;
+      padding: 6px 0;
+      transition: background 0.1s;
+    }
+
+    .tab-btn:active {
+      background: rgba(0,0,0,0.06);
+    }
+
+    .tab-btn svg {
+      width: 20px;
+      height: 20px;
+      stroke-width: 2;
+    }
+
+    .tab-btn span {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .tab-btn.active {
+      color: var(--ink-black);
+    }
+
+    .tab-btn.active::before {
+      content: "";
+      position: absolute;
+      top: -1.5px;
+      left: 18%;
+      right: 18%;
+      height: 3px;
+      background: var(--ink-black);
+      border-radius: 0 0 2px 2px;
+    }
+
+    /* ========================================================
+       TAB 1: HOME VIEW (RE-IMAGINED READING HUB)
+       ======================================================== */
+    .home-view {
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    /* Section Header */
+    .sec-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-bottom: 6px;
+      border-bottom: 1.5px solid var(--ink-black);
+    }
+
+    .sec-title {
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      margin: 0;
+    }
+
+    .sec-subtitle {
+      font-size: 12px;
+      color: var(--ink-gray);
+      font-weight: 600;
+    }
+
+    /* Hero Book Card */
+    .hero-book-showcase {
+      display: flex;
+      gap: 18px;
+      padding: 16px;
+      background: var(--paper-cream);
+      border: 1.5px solid var(--ink-black);
+      border-radius: 12px;
+      box-shadow: 2px 2px 0 var(--ink-black);
+    }
+
+    .book-jacket {
+      width: 96px;
+      height: 136px;
+      background: #fff;
+      border: 1.5px solid var(--ink-black);
+      border-radius: 4px;
+      box-shadow:
+        -3px 0 0 -1px #bbb,
+        -4px 0 0 -1px var(--ink-black),
+        2px 3px 0 var(--ink-black);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 8px 6px;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .book-jacket-spine {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 6px;
+      background: rgba(0,0,0,0.06);
+      border-right: 1px solid rgba(0,0,0,0.12);
+    }
+
+    .jacket-tag {
+      font-size: 8px;
+      text-transform: uppercase;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      color: var(--ink-gray);
+      padding-left: 4px;
+    }
+
+    .jacket-title {
+      font-size: 15px;
+      font-weight: 900;
+      line-height: 1.25;
+      text-align: center;
+      padding: 0 4px;
+      font-family: "Noto Serif CJK SC", "Songti SC", serif;
+      word-break: break-all;
+    }
+
+    .jacket-mark {
+      text-align: center;
+      font-size: 10px;
+    }
+
+    .book-details {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 2px 0;
+    }
+
+    .book-meta-top h3 {
+      margin: 0 0 4px;
+      font-size: 19px;
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .book-author {
+      font-size: 12px;
+      color: var(--ink-gray);
+      margin: 0 0 10px;
+      font-weight: 600;
+    }
+
+    .chapter-tag {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-dark);
+      margin-bottom: 6px;
+    }
+
+    .progress-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .progress-track {
+      flex: 1;
+      height: 6px;
+      background: var(--paper-white);
+      border: 1.5px solid var(--ink-black);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--ink-black);
+      width: 73%;
+    }
+
+    .progress-percent {
+      font-size: 12px;
+      font-weight: 800;
+      font-family: -apple-system, sans-serif;
+    }
+
+    .btn-resume {
+      margin-top: 10px;
+      align-self: flex-start;
+      background: var(--ink-black);
+      color: #fff;
+      border: none;
+      padding: 7px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Stats Quick Trio */
+    .stats-trio-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .stat-chip {
+      background: var(--paper-white);
+      border: 1.5px solid var(--ink-black);
+      border-radius: 10px;
+      padding: 12px 10px;
+      text-align: center;
+      box-shadow: 2px 2px 0 var(--ink-black);
+    }
+
+    .chip-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink-gray);
+      margin-bottom: 4px;
+    }
+
+    .chip-value {
+      font-size: 20px;
+      font-weight: 900;
+      font-family: "Noto Serif CJK SC", serif;
+      line-height: 1;
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 2px;
+    }
+
+    .chip-unit {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink-dark);
+    }
+
+    /* Habit Banner */
+    .habit-banner {
+      background: var(--paper-cream);
+      border: 1.5px dashed var(--ink-gray);
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .habit-icon-leaf {
+      width: 32px;
+      height: 32px;
+      background: var(--ink-black);
+      color: #fff;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+
+    .habit-text h5 {
+      margin: 0 0 2px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .habit-text p {
+      margin: 0;
+      font-size: 11px;
+      color: var(--ink-gray);
+      line-height: 1.4;
+    }
+
+    /* ========================================================
+       TAB 2: LIBRARY / FILE EXPLORER VIEW
+       ======================================================== */
+    .library-view {
+      padding: 14px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .path-crumb-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--paper-cream);
+      border: 1px solid var(--paper-border);
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-dark);
+    }
+
+    .crumb-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .crumb-pill {
+      background: #e4e1d6;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .lib-grid-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .folder-card {
+      background: var(--paper-white);
+      border: 1.5px solid var(--ink-black);
+      border-radius: 10px;
+      padding: 14px 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 8px;
+      cursor: pointer;
+      box-shadow: 2px 2px 0 var(--ink-black);
+      position: relative;
+    }
+
+    .folder-card.selected {
+      background: var(--ink-black);
+      color: #fff;
+      box-shadow: none;
+    }
+
+    .folder-card.selected .folder-meta {
+      color: #ccc;
+    }
+
+    .folder-icon-svg {
+      width: 36px;
+      height: 36px;
+    }
+
+    .folder-name {
+      font-size: 13px;
+      font-weight: 800;
+      word-break: break-all;
+      line-height: 1.2;
+    }
+
+    .folder-meta {
+      font-size: 10px;
+      color: var(--ink-gray);
+      font-weight: 600;
+    }
+
+    /* Shelf Books */
+    .shelf-books-section {
+      margin-top: 6px;
+    }
+
+    .book-list-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: var(--paper-white);
+      border: 1.5px solid var(--ink-black);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      box-shadow: 2px 2px 0 var(--ink-black);
+      cursor: pointer;
+    }
+
+    .book-list-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .book-list-title {
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .book-list-meta {
+      font-size: 11px;
+      color: var(--ink-gray);
+      font-weight: 600;
+    }
+
+    .book-list-right {
+      text-align: right;
+    }
+
+    .book-list-pct {
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    /* ========================================================
+       TAB 3: APPS VIEW
+       ======================================================== */
+    .apps-view {
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .apps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px 14px;
+    }
+
+    .app-icon-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .app-icon-box {
+      width: 64px;
+      height: 64px;
+      background: var(--paper-cream);
+      border: 1.5px solid var(--ink-black);
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      box-shadow: 2px 2px 0 var(--ink-black);
+      transition: all 0.1s;
+    }
+
+    .app-icon-box svg {
+      width: 32px;
+      height: 32px;
+      stroke-width: 1.8;
+      stroke: var(--ink-black);
+    }
+
+    .app-icon-item.selected .app-icon-box {
+      background: var(--ink-black);
+      box-shadow: none;
+      transform: translate(2px, 2px);
+    }
+
+    .app-icon-item.selected .app-icon-box svg {
+      stroke: #fff;
+    }
+
+    .app-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-dark);
+      letter-spacing: 0.02em;
+    }
+
+    .app-icon-item.selected .app-name {
+      font-weight: 900;
+      color: var(--ink-black);
+    }
+
+    /* ========================================================
+       TAB 4: SETTINGS VIEW
+       ======================================================== */
+    .settings-view {
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .settings-card-group {
+      background: var(--paper-white);
+      border: 1.5px solid var(--ink-black);
+      border-radius: 12px;
+      box-shadow: 2px 2px 0 var(--ink-black);
+      overflow: hidden;
+    }
+
+    .setting-item-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--paper-border);
+      cursor: pointer;
+    }
+
+    .setting-item-row:last-child {
+      border-bottom: none;
+    }
+
+    .setting-item-row:active {
+      background: var(--paper-cream);
+    }
+
+    .setting-main-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .setting-icon-pill {
+      width: 30px;
+      height: 30px;
+      background: var(--paper-cream);
+      border: 1.2px solid var(--ink-black);
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+    }
+
+    .setting-icon-pill svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .setting-text h4 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .setting-text p {
+      margin: 2px 0 0;
+      font-size: 11px;
+      color: var(--ink-gray);
+      font-weight: 500;
+    }
+
+    .chevron-right {
+      font-size: 16px;
+      color: var(--ink-dark);
+      font-weight: 800;
+    }
+
+    .setting-badge {
+      font-size: 11px;
+      font-weight: 700;
+      background: #e7e5dc;
+      padding: 3px 8px;
+      border-radius: 4px;
+      color: var(--ink-black);
+    }
+
+    /* ========================================================
+       TAB 5: STATS VIEW
+       ======================================================== */
+    .stats-view {
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Minimal Elegant Bar Chart */
+    .chart-box {
+      background: var(--paper-white);
+      border: 1.5px solid var(--ink-black);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 2px 2px 0 var(--ink-black);
+    }
+
+    .chart-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 16px;
+    }
+
+    .chart-title {
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .chart-avg {
+      font-size: 11px;
+      color: var(--ink-gray);
+      font-weight: 600;
+    }
+
+    .chart-bars-wrap {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      height: 130px;
+      padding: 0 8px 6px;
+      border-bottom: 1.5px solid var(--ink-black);
+      position: relative;
+    }
+
+    .bar-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+    }
+
+    .bar-pillar {
+      width: 24px;
+      background: var(--ink-black);
+      border-radius: 4px 4px 0 0;
+      position: relative;
+      transition: height 0.3s ease;
+    }
+
+    .bar-pillar.empty {
+      background: #e2dfd5;
+      height: 4px !important;
+      border-radius: 2px;
+    }
+
+    .bar-val {
+      font-size: 10px;
+      font-weight: 800;
+      position: absolute;
+      top: -16px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: -apple-system, sans-serif;
+    }
+
+    .bar-date {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ink-gray);
+    }
+
+    .bar-col.today .bar-date {
+      color: var(--ink-black);
+      font-weight: 900;
+      text-decoration: underline;
+    }
+
+    /* Reading Timeline Card */
+    .timeline-card {
+      background: var(--paper-cream);
+      border: 1.5px solid var(--ink-black);
+      border-radius: 12px;
+      padding: 14px 16px;
+      box-shadow: 2px 2px 0 var(--ink-black);
+    }
+
+    .timeline-header {
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .timeline-strip {
+      display: grid;
+      grid-template-columns: repeat(24, 1fr);
+      height: 14px;
+      background: #e2dfd5;
+      border-radius: 3px;
+      overflow: hidden;
+      gap: 1px;
+      margin-bottom: 6px;
+    }
+
+    .hour-block {
+      background: #e2dfd5;
+    }
+
+    .hour-block.active {
+      background: var(--ink-black);
+    }
+
+    .timeline-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 9px;
+      color: var(--ink-gray);
+      font-weight: 700;
+      font-family: -apple-system, sans-serif;
+    }
+
+    /* Comparison Modal */
+    .comparison-drawer {
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid var(--panel-border);
+    }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .comp-box {
+      border: 1px solid #333;
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+    .comp-box.old { border-color: #8b3a3a; background: rgba(139, 58, 58, 0.1); }
+    .comp-box.new { border-color: #3a8b48; background: rgba(58, 139, 72, 0.1); }
+
+    .comp-box h6 {
+      margin: 0 0 4px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Header & Controls -->
+  <header class="header-bar">
+    <div class="brand">
+      <div class="brand-logo">M4</div>
+      <div class="brand-info">
+        <h1>墨菲 M4 固件全新 UI 设计原型</h1>
+        <p>4.26" · 800×480 · 219 PPI · 墨韵极简 (InkCraft)</p>
+      </div>
+    </div>
+
+    <div class="controls-bar">
+      <!-- 5 Tab Switchers -->
+      <div class="tab-pills" id="tab-switchers">
+        <button class="tab-pill active" data-tab="home">1. 主页</button>
+        <button class="tab-pill" data-tab="library">2. 书架</button>
+        <button class="tab-pill" data-tab="apps">3. 应用</button>
+        <button class="tab-pill" data-tab="settings">4. 设置</button>
+        <button class="tab-pill" data-tab="stats">5. 统计</button>
+      </div>
+
+      <!-- Shell Toggle -->
+      <button class="btn-toggle" id="btn-shell">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+        机壳: 曜黑
+      </button>
+
+      <!-- Safe Area Toggle -->
+      <button class="btn-toggle" id="btn-safe">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        安全边距
+      </button>
+    </div>
+  </header>
+
+  <!-- Workspace -->
+  <main class="workspace">
+
+    <!-- Design Specification & Review Notes -->
+    <aside class="design-inspector">
+      <div class="inspector-title">
+        <span>设计审查与对比分析</span>
+        <span class="badge-m4">墨菲 M4</span>
+      </div>
+
+      <div class="change-card">
+        <h4>1. 告别沉重粗框卡片 <span style="color:var(--accent);">★ 核心革新</span></h4>
+        <p>原界面由 4 个 2px 粗实线大圆角框机械堆叠，卡片内留白空洞、框与框间隙拥挤。新设计采用<b>“书籍陈列 + 实体书封阴影 + 轻量横向三联卡”</b>，重获纸书温润典雅质感。</p>
+      </div>
+
+      <div class="change-card">
+        <h4>2. 杜绝大黑块暴力反色</h4>
+        <p>原应用和文件夹选中时直接变成死黑实心大矩形，如同屏幕坏点。新方案采用<b>精致的微凸起卡片按压感、细黑硬线边框与圆角指示器</b>，在 219 PPI 下呈现高级的几何美感。</p>
+      </div>
+
+      <div class="change-card">
+        <h4>3. 分组列表式设置中心</h4>
+        <p>原设置页面 4 张大卡片过于膨胀，无法承载多级内容。新方案采用<b>现代分组式列表（Grouped List）</b>，左侧带小功能图标徽章，右侧带分类小字与箭头，条理分明且便于单手触控。</p>
+      </div>
+
+      <div class="change-card">
+        <h4>4. 柱状图与统计可视化重塑</h4>
+        <p>原统计柱状图如同水泥黑柱，数字居中凌乱。新设计采用<b>轻盈的圆角条带柱、峰值数值气泡、结合 24 小时阅读时段热力线</b>，一目了然。</p>
+      </div>
+
+      <div class="specs-grid">
+        <div class="spec-item">
+          <div class="spec-label">物理分辨率</div>
+          <div class="spec-val">800 × 480</div>
+        </div>
+        <div class="spec-item">
+          <div class="spec-label">像素密度</div>
+          <div class="spec-val">219 PPI</div>
+        </div>
+        <div class="spec-item">
+          <div class="spec-label">安全边距</div>
+          <div class="spec-val">T:9 R:3 B:3 L:3</div>
+        </div>
+        <div class="spec-item">
+          <div class="spec-label">设计语言</div>
+          <div class="spec-val">墨韵极简 (InkCraft)</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Device Sizer & Physical Frame -->
+    <div class="device-stage">
+      <div class="device-frame" id="device-frame" data-shell="black">
+        <div class="device-top-notch"></div>
+        <div class="side-key power"></div>
+        <div class="side-key vol-up"></div>
+        <div class="side-key vol-down"></div>
+
+        <!-- 480x800 Logical Canvas -->
+        <div class="screen" id="device-screen">
+
+          <!-- Global Status Bar -->
+          <div class="screen-status-bar">
+            <div class="time-slot">
+              <span>22:15</span>
+            </div>
+            <div class="sys-indicators">
+              <span>800×480</span>
+              <div class="battery-icon">
+                <div class="battery-level"></div>
+              </div>
+              <span>100%</span>
+            </div>
+          </div>
+
+          <!-- ==============================================
+               PAGE 1: HOME TAB (正在阅读 + 数据概览)
+               ============================================== -->
+          <div class="screen-content active" id="view-home">
+            <div class="home-view">
+              
+              <!-- Section Header -->
+              <div class="sec-title-row">
+                <h2 class="sec-title">正在阅读</h2>
+                <span class="sec-subtitle">上次阅读: 10分钟前</span>
+              </div>
+
+              <!-- Hero Book Showcase Card -->
+              <div class="hero-book-showcase">
+                <!-- Book Jacket / Cover -->
+                <div class="book-jacket">
+                  <div class="book-jacket-spine"></div>
+                  <div class="jacket-tag">CROSSPOINT</div>
+                  <div class="jacket-title">山间<br>灯火</div>
+                  <div class="jacket-mark">📖</div>
+                </div>
+
+                <!-- Book Metadata -->
+                <div class="book-details">
+                  <div class="book-meta-top">
+                    <h3>山间灯火</h3>
+                    <p class="book-author">测试作者 · 中篇小说</p>
+                    <div class="chapter-tag">第三章 · 风雪夜归人</div>
+                    <div class="progress-bar-wrap">
+                      <div class="progress-track">
+                        <div class="progress-fill" style="width: 73%;"></div>
+                      </div>
+                      <span class="progress-percent">73%</span>
+                    </div>
+                  </div>
+
+                  <button class="btn-resume" type="button">
+                    <span>继续阅读</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Section Header -->
+              <div class="sec-title-row">
+                <h2 class="sec-title">阅读简报</h2>
+                <span class="sec-subtitle">本月累计 51 分钟</span>
+              </div>
+
+              <!-- Stats Trio Cards -->
+              <div class="stats-trio-row">
+                <div class="stat-chip">
+                  <div class="chip-label">今日阅读</div>
+                  <div class="chip-value">0<span class="chip-unit">分</span></div>
+                </div>
+                <div class="stat-chip">
+                  <div class="chip-label">近 7 天</div>
+                  <div class="chip-value">5<span class="chip-unit">分</span></div>
+                </div>
+                <div class="stat-chip">
+                  <div class="chip-label">本月累计</div>
+                  <div class="chip-value">51<span class="chip-unit">分</span></div>
+                </div>
+              </div>
+
+              <!-- Habit & Quote Banner -->
+              <div class="habit-banner">
+                <div class="habit-icon-leaf">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12A10 10 0 0 1 12 2z"/><path d="M12 6v6l4 2"/></svg>
+                </div>
+                <div class="habit-text">
+                  <h5>安静阅读 · 墨香自持</h5>
+                  <p>保持每日良好阅读习惯，沉淀思绪，享受专属的专注时光。</p>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- ==============================================
+               PAGE 2: LIBRARY / FILE EXPLORER TAB
+               ============================================== -->
+          <div class="screen-content" id="view-library">
+            <div class="library-view">
+              
+              <!-- Path Crumb -->
+              <div class="path-crumb-bar">
+                <div class="crumb-left">
+                  <span class="crumb-pill">SD卡根目录</span>
+                  <span>/</span>
+                  <span>books</span>
+                </div>
+                <span style="font-size:11px;color:var(--ink-gray);">共 5 本书目</span>
+              </div>
+
+              <!-- Folder Grid -->
+              <div class="lib-grid-row">
+                <div class="folder-card selected">
+                  <svg class="folder-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+                  <span class="folder-name">books</span>
+                  <span class="folder-meta">3 本在读</span>
+                </div>
+
+                <div class="folder-card">
+                  <svg class="folder-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+                  <span class="folder-name">screenshots</span>
+                  <span class="folder-meta">2 张截图</span>
+                </div>
+
+                <div class="folder-card">
+                  <svg class="folder-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+                  <span class="folder-name">downloads</span>
+                  <span class="folder-meta">空文件夹</span>
+                </div>
+              </div>
+
+              <!-- Books List -->
+              <div class="shelf-books-section">
+                <div class="sec-title-row" style="margin-bottom:12px;">
+                  <h2 class="sec-title">最近阅读书目</h2>
+                  <span class="sec-subtitle">按阅读时间排序</span>
+                </div>
+
+                <div class="book-list-row">
+                  <div class="book-list-info">
+                    <span class="book-list-title">山间灯火.epub</span>
+                    <span class="book-list-meta">测试作者 · 第 3 章 · 上次今日</span>
+                  </div>
+                  <div class="book-list-right">
+                    <span class="book-list-pct">73%</span>
+                  </div>
+                </div>
+
+                <div class="book-list-row">
+                  <div class="book-list-info">
+                    <span class="book-list-title">重生之大涅槃.epub</span>
+                    <span class="book-list-meta">奥尔良烤鲟鱼堡 · 第 12/84 章</span>
+                  </div>
+                  <div class="book-list-right">
+                    <span class="book-list-pct">27%</span>
+                  </div>
+                </div>
+
+                <div class="book-list-row">
+                  <div class="book-list-info">
+                    <span class="book-list-title">消失的13级台阶.epub</span>
+                    <span class="book-list-meta">高野和明 · 第 1 章</span>
+                  </div>
+                  <div class="book-list-right">
+                    <span class="book-list-pct">8%</span>
+                  </div>
+                </div>
+
+                <div class="book-list-row">
+                  <div class="book-list-info">
+                    <span class="book-list-title">被讨厌的勇气.txt</span>
+                    <span class="book-list-meta">岸见一郎 · 已读完</span>
+                  </div>
+                  <div class="book-list-right">
+                    <span class="book-list-pct" style="color:var(--ink-gray);">100%</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- ==============================================
+               PAGE 3: APPS TAB (现代化精致图标网格)
+               ============================================== -->
+          <div class="screen-content" id="view-apps">
+            <div class="apps-view">
+              
+              <div class="sec-title-row">
+                <h2 class="sec-title">应用工具</h2>
+                <span class="sec-subtitle">11 个已装应用</span>
+              </div>
+
+              <!-- 3x4 Unified Icons Grid -->
+              <div class="apps-grid">
+                
+                <div class="app-icon-item">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  </div>
+                  <span class="app-name">文件传输</span>
+                </div>
+
+                <div class="app-icon-item">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                  </div>
+                  <span class="app-name">微信读书</span>
+                </div>
+
+                <div class="app-icon-item">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  </div>
+                  <span class="app-name">AirPage</span>
+                </div>
+
+                <div class="app-icon-item">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                  </div>
+                  <span class="app-name">阅读统计</span>
+                </div>
+
+                <div class="app-icon-item">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+                  </div>
+                  <span class="app-name">数独</span>
+                </div>
+
+                <div class="app-icon-item">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg>
+                  </div>
+                  <span class="app-name">五子棋</span>
+                </div>
+
+                <div class="app-icon-item">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                  </div>
+                  <span class="app-name">推箱子</span>
+                </div>
+
+                <div class="app-icon-item">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="18"/><path d="M16 10h.01M12 10h.01M8 10h.01M12 14h.01M8 14h.01M12 18h.01M8 18h.01"/></svg>
+                  </div>
+                  <span class="app-name">计算器</span>
+                </div>
+
+                <div class="app-icon-item">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 22h14M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg>
+                  </div>
+                  <span class="app-name">倒数日</span>
+                </div>
+
+                <div class="app-icon-item">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z"/></svg>
+                  </div>
+                  <span class="app-name">电子木鱼</span>
+                </div>
+
+                <!-- Selected App Example (High-contrast, Refined) -->
+                <div class="app-icon-item selected">
+                  <div class="app-icon-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  </div>
+                  <span class="app-name">待机显示</span>
+                </div>
+
+              </div>
+
+            </div>
+          </div>
+
+          <!-- ==============================================
+               PAGE 4: SETTINGS VIEW (分组式结构，清晰优雅)
+               ============================================== -->
+          <div class="screen-content" id="view-settings">
+            <div class="settings-view">
+              
+              <div class="sec-title-row">
+                <h2 class="sec-title">系统偏好设置</h2>
+                <span class="sec-subtitle">墨菲 M4 固件 v80</span>
+              </div>
+
+              <!-- Group 1: Display & Look -->
+              <div class="settings-card-group">
+                <div class="setting-item-row">
+                  <div class="setting-main-info">
+                    <div class="setting-icon-pill">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    </div>
+                    <div class="setting-text">
+                      <h4>显示与界面外观</h4>
+                      <p>屏幕方向 · UI主题 · 待机时钟画面</p>
+                    </div>
+                  </div>
+                  <span class="chevron-right">›</span>
+                </div>
+
+                <div class="setting-item-row">
+                  <div class="setting-main-info">
+                    <div class="setting-icon-pill">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                    </div>
+                    <div class="setting-text">
+                      <h4>双色温前光</h4>
+                      <p>亮度 60% · 色温 50%</p>
+                    </div>
+                  </div>
+                  <span class="setting-badge">开启</span>
+                </div>
+              </div>
+
+              <!-- Group 2: Reader Typography -->
+              <div class="settings-card-group">
+                <div class="setting-item-row">
+                  <div class="setting-main-info">
+                    <div class="setting-icon-pill">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                    </div>
+                    <div class="setting-text">
+                      <h4>阅读器排版</h4>
+                      <p>字体选择 · 字号 · 行间距 · 伪粗体</p>
+                    </div>
+                  </div>
+                  <span class="chevron-right">›</span>
+                </div>
+
+                <div class="setting-item-row">
+                  <div class="setting-main-info">
+                    <div class="setting-icon-pill">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    </div>
+                    <div class="setting-text">
+                      <h4>文字抗锯齿模式</h4>
+                      <p>快刷叠刷 · 纯单色直刷 · 两段完整</p>
+                    </div>
+                  </div>
+                  <span class="setting-badge">快刷叠刷</span>
+                </div>
+
+                <div class="setting-item-row">
+                  <div class="setting-main-info">
+                    <div class="setting-icon-pill">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    </div>
+                    <div class="setting-text">
+                      <h4>夜间模式 (深色反相)</h4>
+                      <p>黑底白字夜读</p>
+                    </div>
+                  </div>
+                  <span class="setting-badge">关闭</span>
+                </div>
+              </div>
+
+              <!-- Group 3: Hardware & Device -->
+              <div class="settings-card-group">
+                <div class="setting-item-row">
+                  <div class="setting-main-info">
+                    <div class="setting-icon-pill">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    </div>
+                    <div class="setting-text">
+                      <h4>按键映射与手势</h4>
+                      <p>音量键翻页 · 九宫格触控分区</p>
+                    </div>
+                  </div>
+                  <span class="chevron-right">›</span>
+                </div>
+
+                <div class="setting-item-row">
+                  <div class="setting-main-info">
+                    <div class="setting-icon-pill">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    </div>
+                    <div class="setting-text">
+                      <h4>关于墨菲 M4</h4>
+                      <p>固件版本 1.5.7-m4cn.v80 (ESP32-S3)</p>
+                    </div>
+                  </div>
+                  <span class="chevron-right">›</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- ==============================================
+               PAGE 5: STATS TAB (精雕细琢的现代图表)
+               ============================================== -->
+          <div class="screen-content" id="view-stats">
+            <div class="stats-view">
+              
+              <div class="sec-title-row">
+                <h2 class="sec-title">阅读统计看板</h2>
+                <span class="sec-subtitle">本月目标进度 42%</span>
+              </div>
+
+              <!-- Stats Trio Summary -->
+              <div class="stats-trio-row">
+                <div class="stat-chip">
+                  <div class="chip-label">今日已读</div>
+                  <div class="chip-value">18<span class="chip-unit">分</span></div>
+                </div>
+                <div class="stat-chip">
+                  <div class="chip-label">近 7 天</div>
+                  <div class="chip-value">124<span class="chip-unit">分</span></div>
+                </div>
+                <div class="stat-chip">
+                  <div class="chip-label">本月累计</div>
+                  <div class="chip-value">5.2<span class="chip-unit">小时</span></div>
+                </div>
+              </div>
+
+              <!-- Bar Chart Box -->
+              <div class="chart-box">
+                <div class="chart-header-row">
+                  <span class="chart-title">近 7 天阅读趋势 (分钟)</span>
+                  <span class="chart-avg">日均 17.7 分钟</span>
+                </div>
+
+                <div class="chart-bars-wrap">
+                  <div class="bar-col">
+                    <div class="bar-pillar" style="height: 18px;">
+                      <span class="bar-val">12</span>
+                    </div>
+                    <span class="bar-date">2日</span>
+                  </div>
+
+                  <div class="bar-col">
+                    <div class="bar-pillar empty" style="height: 4px;"></div>
+                    <span class="bar-date">3日</span>
+                  </div>
+
+                  <div class="bar-col">
+                    <div class="bar-pillar" style="height: 84px;">
+                      <span class="bar-val">58</span>
+                    </div>
+                    <span class="bar-date">4日</span>
+                  </div>
+
+                  <div class="bar-col">
+                    <div class="bar-pillar" style="height: 22px;">
+                      <span class="bar-val">15</span>
+                    </div>
+                    <span class="bar-date">5日</span>
+                  </div>
+
+                  <div class="bar-col">
+                    <div class="bar-pillar" style="height: 16px;">
+                      <span class="bar-val">10</span>
+                    </div>
+                    <span class="bar-date">6日</span>
+                  </div>
+
+                  <div class="bar-col">
+                    <div class="bar-pillar" style="height: 38px;">
+                      <span class="bar-val">26</span>
+                    </div>
+                    <span class="bar-date">7日</span>
+                  </div>
+
+                  <div class="bar-col today">
+                    <div class="bar-pillar" style="height: 26px;">
+                      <span class="bar-val">18</span>
+                    </div>
+                    <span class="bar-date">今日</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Reading Timeline Box -->
+              <div class="timeline-card">
+                <div class="timeline-header">
+                  <span>24 小时阅读时段分布</span>
+                  <span style="font-size:11px;color:var(--ink-gray);">峰值: 21:00 - 23:00</span>
+                </div>
+                <div class="timeline-strip">
+                  <!-- 24 blocks -->
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block active"></div><!-- 7am -->
+                  <div class="hour-block active"></div><!-- 8am -->
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block active"></div><!-- 12pm -->
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block"></div>
+                  <div class="hour-block active"></div><!-- 19pm -->
+                  <div class="hour-block active"></div><!-- 20pm -->
+                  <div class="hour-block active"></div><!-- 21pm -->
+                  <div class="hour-block active"></div><!-- 22pm -->
+                  <div class="hour-block"></div>
+                </div>
+                <div class="timeline-labels">
+                  <span>00:00</span>
+                  <span>06:00</span>
+                  <span>12:00</span>
+                  <span>18:00</span>
+                  <span>23:59</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Bottom Navigation Bar (Unified 5-Tab System) -->
+          <nav class="screen-tab-bar" id="screen-tabs">
+            <button class="tab-btn" data-target="library">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              <span>书架</span>
+            </button>
+
+            <button class="tab-btn" data-target="apps">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              <span>应用</span>
+            </button>
+
+            <button class="tab-btn active" data-target="home">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              <span>主页</span>
+            </button>
+
+            <button class="tab-btn" data-target="settings">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+              <span>设置</span>
+            </button>
+
+            <button class="tab-btn" data-target="stats">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              <span>统计</span>
+            </button>
+          </nav>
+
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // Tab Switching Logic
+    const tabSwitchers = document.querySelectorAll('.tab-pill');
+    const bottomTabBtns = document.querySelectorAll('.tab-btn');
+    const screenContents = document.querySelectorAll('.screen-content');
+
+    function switchTab(tabId) {
+      // Update top pills
+      tabSwitchers.forEach(pill => {
+        pill.classList.toggle('active', pill.dataset.tab === tabId);
+      });
+
+      // Update bottom nav buttons
+      bottomTabBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.target === tabId);
+      });
+
+      // Update view screens
+      screenContents.forEach(view => {
+        view.classList.toggle('active', view.id === `view-${tabId}`);
+      });
+    }
+
+    tabSwitchers.forEach(pill => {
+      pill.addEventListener('click', () => switchTab(pill.dataset.tab));
+    });
+
+    bottomTabBtns.forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.target));
+    });
+
+    // Shell Toggle
+    const btnShell = document.getElementById('btn-shell');
+    const deviceFrame = document.getElementById('device-frame');
+    btnShell.addEventListener('click', () => {
+      const current = deviceFrame.dataset.shell;
+      const next = current === 'black' ? 'white' : 'black';
+      deviceFrame.dataset.shell = next;
+      btnShell.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg> 机壳: ${next === 'black' ? '曜黑' : '凝白'}`;
+    });
+
+    // Safe Area Toggle
+    const btnSafe = document.getElementById('btn-safe');
+    const screenEl = document.getElementById('device-screen');
+    btnSafe.addEventListener('click', () => {
+      screenEl.classList.toggle('show-safe');
+      btnSafe.classList.toggle('active');
+    });
+  </script>
+</body>
+</html>

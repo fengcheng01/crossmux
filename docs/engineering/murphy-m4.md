@@ -111,6 +111,16 @@ black-flashes. That path now resyncs grayscale RAM then FAST. Home from
 the reader is FAST. Clock lock: one HALF to bleach the white field, then
 windowed FAST on the digit band only so the background is not re-driven.
 
+Optional **page-turn animation** (Reader settings, default off): ten
+8-aligned vertical windows uncover the new page (forward = right-to-left,
+back = left-to-right). Strips use `lut_m4_page_turn` (~40ms, transition
+pixels only) rather than OTP FAST (~400ms regardless of area), so the
+frontier can sweep instead of popping in thirds. Unchanged pixels stay idle
+to avoid the retired-repaint black flash. Skipped for overlay/direct/swift
+AA, night mode, reading backgrounds, image pages, auto-turn, and the
+scheduled HALF cleanup. The desktop shim maps `displayWindow` to a full
+FAST, so the wipe is hardware-only.
+
 The desktop target (`simulator_murphy_m4`) defines both
 `SIMULATOR_DEVICE_MOFEI_M4` — the pinned simulator fork still uses the
 pre-rename board name for its 800x480 profile with touch, rotation, RTC,

@@ -1751,7 +1751,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
   const bool manualRefreshPending = forcedRefreshPending;
   forcedRefreshPending = false;
-  const bool cleanImageBasePending = manualRefreshPending || pagesUntilFullRefresh <= 1;
+  const bool cleanImageBasePending = (manualRefreshPending || pagesUntilFullRefresh <= 1) && !SETTINGS.screenInverted;
   const bool needsTextGrayscale = SETTINGS.textAntiAliasing != 0;
   // Combined AA is a FAST 1-bit paint. Background pages stay on the two-pass
   // overlay path so the wallpaper is not wiped.
@@ -1761,10 +1761,10 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const bool directAa = ReaderUtils::usesDirectGrayAa() && !SETTINGS.readingBackgroundEnabled;
   // Swift AA: differential repaint base + weak edge pass (TW recipe). No B/W
   // display here either — the tiled pass below commits both passes at once.
-  const bool swiftAa = ReaderUtils::usesSwiftAa() && !SETTINGS.readingBackgroundEnabled &&
-                       !pageHasImages && renderer.supportsSwiftAa();
+  const bool swiftAa = (ReaderUtils::usesSwiftAa() || ReaderUtils::usesDirectGrayAa()) &&
+                       !SETTINGS.readingBackgroundEnabled && !pageHasImages && renderer.supportsSwiftAa();
   const bool needsAnyGrayscale = needsTextGrayscale || pageHasImages;
-  const bool tiledGrayscale = needsAnyGrayscale && !directAa && renderer.supportsStripGrayscale();
+  const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
   // Paper Mono only (no other panel combines): defer the B/W base activation so
   // the gray planes join it in a single waveform. Displaying the base
   // separately makes the gray pass re-drive the whole text body — a visible
@@ -1836,6 +1836,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   renderStatusBar();
   const auto tBwRender = millis();
 
+  const bool oneBitFastTurn = !pageHasImages && !directAa && !swiftAa && !combinedGrayscaleBase &&
+                              (!needsTextGrayscale || combinedAa);
   if (pageHasImages) {
     // Image pages use one base refresh before the grayscale pass. FAST leaves
     // the panel receptive to the gray waveform; pending cleanup still honors
@@ -1845,15 +1847,6 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   } else if (combinedAa) {
     // One FAST 1-bit paint. Absolute 4-level left gray shadows on white.
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    if (pagesUntilFullRefresh <= 1) {
-      pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
-    } else {
-      pagesUntilFullRefresh--;
-    }
-  } else if (directAa) {
-    // Direct AA: single-pass FAST 1-bit refresh with spatial edge dithering.
-    // 0 flash, ~200ms instantaneous page turn, smooth feathered font edges.
-    renderer.displayBuffer(cleanImageBasePending ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
     if (pagesUntilFullRefresh <= 1) {
       pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
     } else {
@@ -2054,7 +2047,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       }
     }
   } else {
-    if (needsAnyGrayscale && !combinedAa) {
+    if (needsAnyGrayscale && !combinedAa && !directAa && !swiftAa) {
       if (!renderer.storeBwBuffer()) {
         LOG_ERR("ERS", "Failed to store BW buffer for grayscale render; skipping grayscale this page");
         return;

@@ -76,6 +76,10 @@ void HalDisplay::displayWindowSeeded(uint16_t x, uint16_t y, uint16_t w, uint16_
   einkDisplay.displayWindowSeeded(x, y, w, h);
 }
 
+void HalDisplay::beginWindowAnimation() { einkDisplay.beginWindowAnimation(); }
+
+void HalDisplay::endWindowAnimation() { einkDisplay.endWindowAnimation(); }
+
 void HalDisplay::displayBufferAsync(HalDisplay::RefreshMode mode) {
   if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
     einkDisplay.requestResync(1);

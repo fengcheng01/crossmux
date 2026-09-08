@@ -38,10 +38,10 @@
 
 namespace {
 
+static bool s_sleepFromInverted = false;
+
 HalDisplay::RefreshMode sleepCleanRefresh() {
-  // On Murphy M4, HALF_REFRESH (0xD4) is a single clean inversion flash (one calm flash).
-  // FULL_REFRESH (0xF7) inverts 3-4 times in a row.
-  return HalDisplay::HALF_REFRESH;
+  return s_sleepFromInverted ? HalDisplay::FULL_REFRESH : HalDisplay::HALF_REFRESH;
 }
 
 #if FREEINK_DEVICE_MURPHY_M4
@@ -536,6 +536,7 @@ void SleepActivity::onEnter() {
   Activity::onEnter();
   renderer.clearNextRefreshOverride();
   const bool frameWasInverted = display.isInverted();
+  s_sleepFromInverted = frameWasInverted;
 
   // Sleep screens always use normal polarity. This activity draws directly
   // from onEnter (outside ActivityManager's per-render polarity resolution),
@@ -810,8 +811,7 @@ void SleepActivity::paintClock(GfxRenderer& renderer, const bool minuteTick) {
       renderer.displayWindow(0, winY, pageWidth, winBottom - winY);
     }
   } else {
-    // Lock entry: always use sleepCleanRefresh() (FULL_REFRESH 0xF7 on M4)
-    // so the clock starts on a completely bleached white background with zero ghosts!
+    // Lock entry: single calm inversion flash with driveAll to bleach the white background without 4 flashes!
     renderer.displayBuffer(sleepCleanRefresh());
   }
 #else
