@@ -164,6 +164,7 @@ class EpubReaderActivity final : public ReaderActivity {
 
   bool skipLoopDelay() override;
   bool preventAutoSleep() override { return automaticPageTurnActive; }
+  bool deferBluetoothStart() const override { return section && section->isBuilding(); }
 
   ScreenshotInfo getScreenshotInfo() const override;
   CrossPointPosition getCurrentPosition() const;

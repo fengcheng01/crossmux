@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "BleInput.h"
+#include "BleKeyMapping.h"
 #include "CrossPointSettings.h"
 #include "components/UITheme.h"
 #if defined(SIMULATOR)
@@ -16,6 +18,16 @@
 
 namespace fui = freeink::ui;
 
+void MappedInputManager::update() const {
+  gpio.update();
+#if FREEINK_CAP_BLE_HID_HOST
+  BleHid.poll();
+  pollBle();
+#endif
+  for (uint8_t value = 0; value < kButtonCount; ++value) {
+    if (!isPressed(static_cast<Button>(value))) longPressFiredButtons &= ~(1u << value);
+  }
+}
 bool MappedInputManager::isNavDirectionSwapped() const {
   // Key the swap on the orientation the screen is *actually* rendered at, not the persisted reader
   // setting. The reader (and its modal menus) render rotated, so navigation/labels flip there; the
@@ -118,9 +130,103 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
     case Button::ScreenUp:
     case Button::ScreenDown:
       return mapButton(mapScreenDirection(button), fn);
+    case Button::Count:
+      return false;
   }
 
   return false;
+}
+
+namespace {
+MappedInputManager::Button buttonForAction(const bleinput::Action action) {
+  using Action = bleinput::Action;
+  using Button = MappedInputManager::Button;
+  switch (action) {
+    case Action::PageForward:
+      return Button::PageForward;
+    case Action::PageBack:
+      return Button::PageBack;
+    case Action::Confirm:
+      return Button::Confirm;
+    case Action::Back:
+      return Button::Back;
+    case Action::Up:
+      return Button::Up;
+    case Action::Down:
+      return Button::Down;
+    case Action::Left:
+      return Button::Left;
+    case Action::Right:
+      return Button::Right;
+    case Action::Count:
+      return Button::Count;
+  }
+  return Button::Count;
+}
+}  // namespace
+
+bool MappedInputManager::bleEdge(const std::array<bool, kButtonCount>& edges, const Button button) const {
+  switch (button) {
+    case Button::NavNext:
+      return isNavDirectionSwapped() ? (bleEdge(edges, Button::Up) || bleEdge(edges, Button::Left))
+                                     : (bleEdge(edges, Button::Down) || bleEdge(edges, Button::Right));
+    case Button::NavPrevious:
+      return isNavDirectionSwapped() ? (bleEdge(edges, Button::Down) || bleEdge(edges, Button::Right))
+                                     : (bleEdge(edges, Button::Up) || bleEdge(edges, Button::Left));
+    case Button::ScreenLeft:
+    case Button::ScreenRight:
+    case Button::ScreenUp:
+    case Button::ScreenDown:
+      return bleEdge(edges, mapScreenDirection(button));
+    case Button::Count:
+      return false;
+    default:
+      return edges[static_cast<uint8_t>(button)];
+  }
+}
+
+void MappedInputManager::pollBle() const {
+#if FREEINK_CAP_BLE_HID_HOST
+  bleReleaseEdges = blePressEdges;
+  // Synthetic releases are short presses too; never inherit a physical/touch hold.
+  bleActivityThisFrame =
+      std::any_of(bleReleaseEdges.begin(), bleReleaseEdges.end(), [](const bool edge) { return edge; });
+  blePressEdges.fill(false);
+
+  for (uint8_t i = 0; i < kButtonCount; ++i) {
+    if (!blePendingEdges[i] || bleReleaseEdges[i]) continue;
+    blePendingEdges[i] = false;
+    blePressEdges[i] = true;
+    bleActivityThisFrame = true;
+  }
+
+  freeink::KeyEvent event;
+  while (BleHid.popKey(event)) {
+    uint8_t kind = 0xFF;
+    uint8_t value = 0;
+    if (!bleinput::encodeKey(event, kind, value)) continue;
+    bleActivityThisFrame = true;
+    if (bleCaptureMode) {
+      if (!bleHasCaptured) {
+        bleCapturedKind = kind;
+        bleCapturedValue = value;
+        bleHasCaptured = true;
+      }
+      continue;
+    }
+
+    bleinput::Action action;
+    if (!bleinput::lookup(SETTINGS.bleKeyMap, kind, value, action)) continue;
+    const Button button = buttonForAction(action);
+    const uint8_t index = static_cast<uint8_t>(button);
+    if (index >= kButtonCount) continue;
+    if (blePressEdges[index] || bleReleaseEdges[index]) {
+      blePendingEdges[index] = true;
+    } else {
+      blePressEdges[index] = true;
+    }
+  }
+#endif
 }
 
 namespace {
@@ -424,7 +530,7 @@ bool MappedInputManager::wasPressed(const Button button) const {
 #if FREEINK_CAP_TOUCH
   if (button == Button::Confirm && wasPowerConfirmClick()) return true;
 #endif
-  return mapButton(button, &HalGPIO::wasPressed);
+  return mapButton(button, &HalGPIO::wasPressed) || bleEdge(blePressEdges, button);
 }
 
 bool MappedInputManager::wasReleased(const Button button) const {
@@ -435,16 +541,68 @@ bool MappedInputManager::wasReleased(const Button button) const {
 #if FREEINK_CAP_TOUCH
   if (button == Button::Confirm && wasPowerConfirmClick()) return true;
 #endif
-  return mapButton(button, &HalGPIO::wasReleased);
+  return mapButton(button, &HalGPIO::wasReleased) || bleEdge(bleReleaseEdges, button);
 }
 
-bool MappedInputManager::isPressed(const Button button) const { return mapButton(button, &HalGPIO::isPressed); }
+bool MappedInputManager::wasLongPressed(const Button button, const unsigned long thresholdMs) const {
+  if (!isPressed(button)) return false;
+  const uint16_t bit = 1u << static_cast<uint8_t>(button);
+  if ((longPressFiredButtons & bit) != 0 || getHeldTime() < thresholdMs) return false;
+  longPressFiredButtons |= bit;
+  suppressNextRelease(button);
+  return true;
+}
 
-bool MappedInputManager::wasAnyPressed() const { return gpio.wasAnyPressed(); }
+void MappedInputManager::suppressNextRelease(const Button button) const {
+  suppressedReleaseButtons |= 1u << static_cast<uint8_t>(button);
+}
 
-bool MappedInputManager::wasAnyReleased() const { return gpio.wasAnyReleased(); }
+bool MappedInputManager::consumeSuppressedRelease() const {
+  uint16_t released = 0;
+  for (uint8_t value = 0; value < kButtonCount; ++value) {
+    const uint16_t bit = 1u << value;
+    if ((suppressedReleaseButtons & bit) != 0 && mapButton(static_cast<Button>(value), &HalGPIO::wasReleased)) {
+      released |= bit;
+    }
+  }
+  suppressedReleaseButtons &= ~released;
+  return released != 0;
+}
+
+bool MappedInputManager::isPressed(const Button button) const {
+  return mapButton(button, &HalGPIO::isPressed) || bleEdge(blePressEdges, button);
+}
+
+bool MappedInputManager::wasAnyPressed() const {
+  return gpio.wasAnyPressed() ||
+         std::any_of(blePressEdges.begin(), blePressEdges.end(), [](const bool edge) { return edge; });
+}
+
+bool MappedInputManager::wasAnyReleased() const {
+  return gpio.wasAnyReleased() ||
+         std::any_of(bleReleaseEdges.begin(), bleReleaseEdges.end(), [](const bool edge) { return edge; });
+}
+
+void MappedInputManager::setBleCaptureMode(const bool enabled) {
+  bleCaptureMode = enabled;
+  bleHasCaptured = false;
+  if (enabled) {
+    blePressEdges.fill(false);
+    bleReleaseEdges.fill(false);
+    blePendingEdges.fill(false);
+  }
+}
+
+bool MappedInputManager::takeCapturedBleKey(uint8_t& kind, uint8_t& value) {
+  if (!bleHasCaptured) return false;
+  kind = bleCapturedKind;
+  value = bleCapturedValue;
+  bleHasCaptured = false;
+  return true;
+}
 
 unsigned long MappedInputManager::getHeldTime() const {
+  if (bleActivityThisFrame) return 0;
   if (!gpio.wasAnyPressed() && !gpio.wasAnyReleased() && touchHeldOverrideValid &&
       millis() - touchHeldOverrideAt <= TOUCH_HELD_OVERRIDE_WINDOW_MS) {
     return touchHeldOverrideMs;

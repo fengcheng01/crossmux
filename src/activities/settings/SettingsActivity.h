@@ -15,6 +15,7 @@ enum class SettingType { TOGGLE, ENUM, ACTION, VALUE, STRING };
 enum class SettingAction {
   None,
   RemapFrontButtons,
+  Bluetooth,
   CustomiseStatusBar,
   ReadingStatsSettings,
   AppVisibility,
@@ -249,6 +250,8 @@ class SettingsActivity final : public UiTabListActivity {
   // turns the lock on, a cancel leaves the toggle untouched (off).
   void openLockPasswordSetup();
   void openReadingBackgroundPicker();
+  void confirmRestoreSystemSettings();
+  void releaseListsForMemoryHungryChild();
   void rebuildSettingsLists();
   void syncQuickResumeTimeoutForSleepScreen(bool sleepScreenChanged, bool quickResumeTimeoutChanged);
 

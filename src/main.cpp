@@ -26,6 +26,7 @@
 #include <cstring>
 
 #include "AchievementsStore.h"
+#include "BleInput.h"
 #include "CountdownStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -58,6 +59,53 @@ SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
 static unsigned long allowSleepAt = 0;
 constexpr unsigned long READING_STATS_CHECKPOINT_IDLE_MS = 15UL * 1000UL;
+static unsigned long lastX4ProPowerClickAt = 0;
+
+namespace {
+constexpr unsigned long X4PRO_POWER_DOUBLE_CLICK_MS = 500;
+constexpr unsigned long X4PRO_POWER_CLICK_MAX_HOLD_MS = 300;
+#if CROSSPOINT_CAP_SOUND_FEEDBACK
+static_assert(CrossPointSettings::SOUND_FEEDBACK_OFF == static_cast<uint8_t>(SoundFeedback::Level::Off));
+static_assert(CrossPointSettings::SOUND_FEEDBACK_LOW == static_cast<uint8_t>(SoundFeedback::Level::Low));
+static_assert(CrossPointSettings::SOUND_FEEDBACK_MEDIUM == static_cast<uint8_t>(SoundFeedback::Level::Medium));
+static_assert(CrossPointSettings::SOUND_FEEDBACK_HIGH == static_cast<uint8_t>(SoundFeedback::Level::High));
+static_assert(HalGPIO::BTN_BACK == SoundFeedback::BUTTON_BACK &&
+              HalGPIO::BTN_CONFIRM == SoundFeedback::BUTTON_CONFIRM &&
+              HalGPIO::BTN_LEFT == SoundFeedback::BUTTON_LEFT && HalGPIO::BTN_RIGHT == SoundFeedback::BUTTON_RIGHT &&
+              HalGPIO::BTN_UP == SoundFeedback::BUTTON_UP && HalGPIO::BTN_DOWN == SoundFeedback::BUTTON_DOWN &&
+              HalGPIO::BTN_POWER == SoundFeedback::BUTTON_POWER);
+#endif
+
+void updateBluetoothLifecycle() {
+#if FREEINK_CAP_BLE_HID_HOST
+  static unsigned long nextStartAttemptAt = 0;
+  const auto wanted = [] {
+    return SETTINGS.bluetoothEnabled && activityManager.keepsBluetoothAlive() &&
+           !activityManager.deferBluetoothStart() && !activityManager.requiresExclusiveStorageLoop() &&
+           WiFi.getMode() == WIFI_MODE_NULL;
+  };
+  if (!wanted()) {
+    bleinput::stop();
+    return;
+  }
+  if (bleinput::isRunning() || RenderLock::peek() || millis() < nextStartAttemptAt) return;
+  // Non-reader pages that keep an existing link alive own their explicit start
+  // attempts; only readers use the automatic reader-memory gate and retry loop.
+  if (!activityManager.isReaderActivity()) return;
+  RenderLock lock;
+  // Rendering may have started a chapter build while we were acquiring the lock.
+  if (!wanted() || !activityManager.isReaderActivity() || bleinput::isRunning()) return;
+  const auto result = bleinput::ensureStarted(renderer, bleinput::StartContext::Reader);
+  if (result == bleinput::StartResult::LowMemory || result == bleinput::StartResult::Failed) {
+    nextStartAttemptAt = millis() + 2000;
+  }
+#endif
+}
+}  // namespace
+
+// A wake hold must never become an in-app power-button action.  Boot may continue
+// while the button is held; swallow the one release that ends that wake gesture.
+static bool wakePowerReleasePending = false;
 
 // Fonts
 #ifdef ENABLE_CHINESE_VERSION
@@ -378,6 +426,7 @@ void enterDeepSleep(bool fromTimeout = false) {
     return;
   }
 #endif
+  bleinput::stop();
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
@@ -862,7 +911,16 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   gpio.setSharedConfirmPowerShortPressEmitsPower(SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
-  gpio.update();
+  mappedInputManager.update();
+  updateBluetoothLifecycle();
+
+  static bool bluetoothWasConnected = false;
+  const bool bluetoothConnected = bleinput::isConnected();
+  if (bluetoothConnected != bluetoothWasConnected) {
+    bluetoothWasConnected = bluetoothConnected;
+    bleinput::logDiagnostics(bluetoothConnected ? "connected" : "disconnected");
+    if (activityManager.isReaderActivity()) activityManager.requestUpdate();
+  }
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
   halClock.update();
 
@@ -871,6 +929,7 @@ void loop() {
   if (Serial && millis() - lastMemPrint >= 10000) {
     LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
             ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+    if (bleinput::isRunning()) bleinput::logDiagnostics("running");
     lastMemPrint = millis();
   }
 
@@ -893,7 +952,8 @@ void loop() {
 
   // Check for any real user activity (button, touch, or tilt).
   static unsigned long lastActivityTime = millis();
-  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || gpio.wasTouchActivity() || halTiltSensor.hadActivity()) {
+  if (mappedInputManager.wasAnyPressed() || mappedInputManager.wasAnyReleased() || gpio.wasTouchActivity() ||
+      halTiltSensor.hadActivity()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
@@ -984,6 +1044,7 @@ void loop() {
   const unsigned long activityStartTime = millis();
   const bool readerWasActive = activityManager.isReaderActivity();
   activityManager.loop();
+  updateBluetoothLifecycle();
   const bool readerIsActive = activityManager.isReaderActivity();
   const unsigned long activityDuration = millis() - activityStartTime;
 

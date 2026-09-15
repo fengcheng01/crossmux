@@ -214,6 +214,15 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["frontButtonConfirm"] = frontButtonConfirm;
   doc["frontButtonLeft"] = frontButtonLeft;
   doc["frontButtonRight"] = frontButtonRight;
+  doc["bluetoothEnabled"] = bluetoothEnabled;
+  JsonArray storedBleMap = doc["bleKeyMap"].to<JsonArray>();
+  for (const auto& entry : bleKeyMap) {
+    if (bleinput::isEmpty(entry)) continue;
+    JsonObject object = storedBleMap.add<JsonObject>();
+    object["k"] = entry.keyKind;
+    object["v"] = entry.keyValue;
+    object["b"] = entry.button;
+  }
   // Apps use stable IDs beyond the uint8_t-only SettingsList, so persist the mask manually.
   JsonArray tabOrder = doc["mainTabOrder"].to<JsonArray>();
   for (const auto tab : mainTabOrder) tabOrder.add(static_cast<uint8_t>(tab));
@@ -364,6 +373,16 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
       candidate[i] = static_cast<MainTab>(tabOrder[i].as<uint8_t>());
     }
     if (validTypes && MainTabs::isValid(candidate)) mainTabOrder = candidate;
+  }
+
+  bluetoothEnabled = clamp(doc["bluetoothEnabled"] | static_cast<uint8_t>(0), static_cast<uint8_t>(2), 0);
+  bleKeyMap = {};
+  const JsonArrayConst storedBleMap = doc["bleKeyMap"];
+  if (!storedBleMap.isNull()) {
+    for (const JsonObjectConst object : storedBleMap) {
+      bleinput::appendValidated(bleKeyMap, object["k"] | static_cast<uint8_t>(0xFF),
+                                object["v"] | static_cast<uint8_t>(0), object["b"] | static_cast<uint8_t>(0xFF));
+    }
   }
   hiddenAppsMask = doc["hiddenAppsMask"].isNull() ? DEFAULT_HIDDEN_APPS_MASK : doc["hiddenAppsMask"].as<uint32_t>();
   const uint8_t storedAppsCatalogVersion = doc["appsCatalogVersion"] | static_cast<uint8_t>(0);
