@@ -1297,6 +1297,13 @@ void EpubReaderActivity::renderBook() {
     return;
   }
 
+  // Apply the reader's image-resampling choice before anything is drawn. The
+  // setting can change from the reader menu, which does NOT reload the book, so
+  // syncing only in loadBook() left the previous filter in force for the rest of
+  // the session — the menu looked like it did nothing. The setter is a no-op
+  // when the filter has not changed, so this costs a compare per render.
+  ImageBlock::setBilinearScaling(SETTINGS.imageScaling == CrossPointSettings::IMAGE_SCALING_BILINEAR);
+
   const auto showPendingSyncSaveError = [this]() {
     if (pendingSyncSaveError) {
       pendingSyncSaveError = false;
@@ -2173,6 +2180,7 @@ void EpubReaderActivity::renderStatusBar() const {
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, true, currentPageBookmarked,
                     section ? section->isBuilding() : false);
 }
+
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {
   if (!epub) return;

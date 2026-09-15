@@ -68,6 +68,7 @@ class EpubReaderActivity final : public ReaderActivity {
   bool maybeOfferCompleteChineseFont();
 #endif
 
+
   // Footnote support
   FootnoteList currentPageFootnotes;
   std::vector<PageLink> currentPageLinks;

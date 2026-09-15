@@ -243,6 +243,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint32_t DEFAULT_READER_TAP_ZONES =
       1u | (3u << 2) | (2u << 4) | (1u << 6) | (3u << 8) | (2u << 10) | (1u << 12) | (3u << 14) | (2u << 16);
 
+  // Resampling filter for images drawn inside the reader. Nearest is the
+  // historical behaviour (one source pixel per output pixel); bilinear blends
+  // neighbours, which costs a little more per pixel but removes the stair-step
+  // edges and moire that nearest-neighbour produces on scaled artwork.
+  // Reader-scoped on purpose: covers, sleep screens and other chrome keep the
+  // cheaper path.
+  enum IMAGE_SCALING { IMAGE_SCALING_NEAREST = 0, IMAGE_SCALING_BILINEAR = 1, IMAGE_SCALING_COUNT };
+
   enum QUICK_RESUME_SLEEP_SCREEN {
     QUICK_RESUME_NEVER = 0,
     QUICK_RESUME_AFTER_TIMEOUT = 1,
@@ -414,6 +422,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t embeddedStyle = 1;
   // Focus Reading - emphasizes the first part of words with bold
   uint8_t focusReadingEnabled = 0;
+  uint8_t readerMenuStyle = READER_MENU_LIST;
+  // Image resampling inside the reader (see IMAGE_SCALING). Applies to inline
+  // book images only; reader chrome and other activities are untouched.
+  uint8_t imageScaling = IMAGE_SCALING_NEAREST;
   // SD card font family name (empty = use built-in fontFamily)
   char sdFontFamilyName[64] = "";
   // Prefer the internal Flash cache for the selected SD reader font.
