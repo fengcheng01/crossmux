@@ -88,7 +88,11 @@ void updateBluetoothLifecycle() {
     bleinput::stop();
     return;
   }
-  if (bleinput::isRunning() || RenderLock::peek() || millis() < nextStartAttemptAt) return;
+  // Preparation blocks new starts; C3 and PSRAM readers keep existing links
+  // through chapter construction and book indexing.
+  if (bleinput::isRunning() || activityManager.deferBluetoothStart() || RenderLock::peek() ||
+      millis() < nextStartAttemptAt)
+    return;
   // Non-reader pages that keep an existing link alive own their explicit start
   // attempts; only readers use the automatic reader-memory gate and retry loop.
   if (!activityManager.isReaderActivity()) return;

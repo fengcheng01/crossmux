@@ -169,6 +169,7 @@ uint8_t getStatsChapterProgressPercent(const int currentPage, const int pageCoun
 
 }  // namespace
 
+
 EpubReaderActivity::~EpubReaderActivity() {
   ImageBlock::setExtractor(nullptr, nullptr);
   section.reset();
@@ -210,7 +211,9 @@ bool EpubReaderActivity::loadBook() {
 
   const bool uncached = !Storage.exists((loadedEpub->getCachePath() + "/book.bin").c_str());
   if (uncached) {
+#if FREEINK_CAP_BLE_HID_HOST && !CROSSPOINT_BLE_HOST_PSRAM && !CONFIG_IDF_TARGET_ESP32C3
     bleinput::stop();
+#endif
     disableFastInitialRefresh();
     GUI.drawPopup(renderer, tr(STR_INDEXING));
   }
@@ -1382,7 +1385,9 @@ void EpubReaderActivity::renderBook() {
             ? std::nullopt
             : cachedVisibleTextOffset;
     if (!cacheComplete) {
+#if FREEINK_CAP_BLE_HID_HOST && !CROSSPOINT_BLE_HOST_PSRAM && !CONFIG_IDF_TARGET_ESP32C3
       bleinput::stop();
+#endif
       if (section->isPartial()) {
         LOG_DBG("ERS", "Partial cache found (%d pages), resuming build...", section->pageCount);
       } else {
@@ -1507,7 +1512,9 @@ void EpubReaderActivity::renderBook() {
     pagesUntilFullRefresh = 1;
   }
   while (section->isPartial() && section->currentPage >= static_cast<int>(section->pageCount)) {
+#if FREEINK_CAP_BLE_HID_HOST && !CROSSPOINT_BLE_HOST_PSRAM && !CONFIG_IDF_TARGET_ESP32C3
     bleinput::stop();
+#endif
     if (!section->isBuilding() && !section->startBuild(renderSpec)) {
       LOG_ERR("ERS", "Failed to start partial extension build");
       section.reset();
