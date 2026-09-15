@@ -298,8 +298,20 @@
       box-shadow: 1px 0 2px rgba(0,0,0,0.5);
     }
     .side-key.power { top: 120px; height: 44px; }
-    .side-key.vol-up { top: 210px; height: 50px; }
-    .side-key.vol-down { top: 275px; height: 50px; }
+    .side-key.page-up { top: 210px; height: 50px; }
+    .side-key.page-down { top: 275px; height: 50px; }
+    .side-key-label {
+      position: absolute;
+      right: -52px;
+      width: 40px;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-muted);
+      line-height: 1.2;
+    }
+    .side-key.power .side-key-label { top: 12px; }
+    .side-key.page-up .side-key-label { top: 16px; }
+    .side-key.page-down .side-key-label { top: 16px; }
 
     /* E-ink Screen (Exact 480x800 logical pixels) */
     .screen {
@@ -340,16 +352,16 @@
        E-INK SCREEN UI COMPONENTS (INKCRAFT DESIGN SYSTEM)
        ======================================================== */
 
-    /* 1. Status Bar */
+    /* 1. Status Bar — INX battery bar is 24px; keep a hair more for time+battery. */
     .screen-status-bar {
-      height: 38px;
-      padding: 0 18px;
+      height: 28px;
+      padding: 0 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid var(--paper-border);
+      border-bottom: 1px solid var(--ink-black);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       color: var(--ink-black);
       flex-shrink: 0;
@@ -412,11 +424,11 @@
       display: flex;
     }
 
-    /* 3. Bottom Tab Bar */
+    /* 3. Bottom Tab Bar — INX headerHeight 66, thumb-reachable on 4.26". */
     .screen-tab-bar {
-      height: 60px;
-      border-top: 1.5px solid var(--ink-black);
-      background: var(--paper-cream);
+      height: 66px;
+      border-top: 1px solid var(--ink-black);
+      background: var(--paper-white);
       display: grid;
       grid-template-columns: repeat(5, 1fr);
       flex-shrink: 0;
@@ -461,22 +473,21 @@
     .tab-btn.active::before {
       content: "";
       position: absolute;
-      top: -1.5px;
-      left: 18%;
-      right: 18%;
+      top: 0;
+      left: 22%;
+      right: 22%;
       height: 3px;
       background: var(--ink-black);
-      border-radius: 0 0 2px 2px;
     }
 
     /* ========================================================
        TAB 1: HOME VIEW (RE-IMAGINED READING HUB)
        ======================================================== */
     .home-view {
-      padding: 16px 20px;
+      padding: 14px 20px 12px;
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 14px;
     }
 
     /* Section Header */
@@ -485,13 +496,13 @@
       justify-content: space-between;
       align-items: baseline;
       padding-bottom: 6px;
-      border-bottom: 1.5px solid var(--ink-black);
+      border-bottom: 1px solid var(--ink-black);
     }
 
     .sec-title {
-      font-size: 16px;
-      font-weight: 900;
-      letter-spacing: 0.05em;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
       margin: 0;
     }
 
@@ -504,32 +515,31 @@
     /* Hero Book Card */
     .hero-book-showcase {
       display: flex;
-      gap: 18px;
+      gap: 16px;
       padding: 16px;
+      background: var(--paper-white);
+      border: 1px solid var(--ink-black);
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .hero-book-showcase:active {
       background: var(--paper-cream);
-      border: 1.5px solid var(--ink-black);
-      border-radius: 12px;
-      box-shadow: 2px 2px 0 var(--ink-black);
     }
 
     .book-jacket {
       width: 96px;
-      height: 136px;
-      background: #fff;
-      border: 1.5px solid var(--ink-black);
-      border-radius: 4px;
-      box-shadow:
-        -3px 0 0 -1px #bbb,
-        -4px 0 0 -1px var(--ink-black),
-        2px 3px 0 var(--ink-black);
+      height: 138px;
+      background: var(--paper-cream);
+      border: 1px solid var(--ink-black);
+      border-radius: 2px 6px 6px 2px;
+      box-shadow: inset 6px 0 0 var(--ink-black);
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      padding: 8px 6px;
+      padding: 12px 8px 12px 14px;
       position: relative;
       flex-shrink: 0;
     }
-
     .book-jacket-spine {
       position: absolute;
       left: 0;
@@ -551,17 +561,20 @@
 
     .jacket-title {
       font-size: 15px;
-      font-weight: 900;
+      font-weight: 700;
       line-height: 1.25;
       text-align: center;
-      padding: 0 4px;
-      font-family: "Noto Serif CJK SC", "Songti SC", serif;
+      padding: 0 2px;
+      font-family: "Songti SC", "Noto Serif CJK SC", serif;
       word-break: break-all;
     }
 
     .jacket-mark {
       text-align: center;
-      font-size: 10px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--ink-gray);
     }
 
     .book-details {
@@ -574,11 +587,11 @@
 
     .book-meta-top h3 {
       margin: 0 0 4px;
-      font-size: 19px;
-      font-weight: 800;
-      line-height: 1.2;
+      font-size: 20px;
+      font-weight: 700;
+      font-family: "Songti SC", "Noto Serif CJK SC", serif;
+      line-height: 1.25;
     }
-
     .book-author {
       font-size: 12px;
       color: var(--ink-gray);
@@ -602,10 +615,9 @@
 
     .progress-track {
       flex: 1;
-      height: 6px;
+      height: 8px;
       background: var(--paper-white);
-      border: 1.5px solid var(--ink-black);
-      border-radius: 3px;
+      border: 1px solid var(--ink-black);
       overflow: hidden;
     }
 
@@ -617,7 +629,7 @@
 
     .progress-percent {
       font-size: 12px;
-      font-weight: 800;
+      font-weight: 700;
       font-family: -apple-system, sans-serif;
     }
 
@@ -627,90 +639,98 @@
       background: var(--ink-black);
       color: #fff;
       border: none;
-      padding: 7px 16px;
-      border-radius: 6px;
+      padding: 8px 14px;
+      border-radius: 4px;
       font-size: 12px;
-      font-weight: 800;
+      font-weight: 700;
       letter-spacing: 0.04em;
       cursor: pointer;
       display: flex;
       align-items: center;
       gap: 4px;
+      pointer-events: none;
     }
 
-    /* Stats Quick Trio */
-    .stats-trio-row {
+    /* Stats Trio Editorial (Borderless, Large Serif Numbers) */
+    .stats-trio-editorial {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 12px;
+      padding: 6px 4px 14px;
+      border-bottom: 1px solid var(--ink-black);
     }
 
-    .stat-chip {
-      background: var(--paper-white);
-      border: 1.5px solid var(--ink-black);
-      border-radius: 10px;
-      padding: 12px 10px;
-      text-align: center;
-      box-shadow: 2px 2px 0 var(--ink-black);
-    }
-
-    .chip-label {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--ink-gray);
-      margin-bottom: 4px;
-    }
-
-    .chip-value {
-      font-size: 20px;
-      font-weight: 900;
-      font-family: "Noto Serif CJK SC", serif;
-      line-height: 1;
+    .editorial-stat {
       display: flex;
-      align-items: baseline;
-      justify-content: center;
+      flex-direction: column;
       gap: 2px;
     }
 
-    .chip-unit {
+    .editorial-label {
       font-size: 11px;
-      font-weight: 700;
-      color: var(--ink-dark);
+      color: var(--ink-gray);
+      font-weight: 600;
     }
 
-    /* Habit Banner */
-    .habit-banner {
-      background: var(--paper-cream);
-      border: 1.5px dashed var(--ink-gray);
-      border-radius: 10px;
-      padding: 14px 16px;
+    .editorial-value {
+      font-size: 32px;
+      font-weight: 700;
+      font-family: "Songti SC", "Noto Serif CJK SC", Georgia, serif;
+      line-height: 1.1;
+      display: flex;
+      align-items: baseline;
+      gap: 2px;
+    }
+
+    .editorial-unit {
+      font-size: 12px;
+      font-weight: 600;
+      font-family: -apple-system, sans-serif;
+      color: var(--ink-dark);
+    }
+    /* Recent shelf on Home — Single-hand generous touch list */
+    .recent-shelf {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .recent-item {
       display: flex;
       align-items: center;
       gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--paper-border);
+      cursor: pointer;
+    }
+    .recent-item:active {
+      background: var(--paper-cream);
     }
 
-    .habit-icon-leaf {
-      width: 32px;
-      height: 32px;
-      background: var(--ink-black);
-      color: #fff;
-      border-radius: 50%;
-      display: grid;
-      place-items: center;
+    .recent-item:last-child { border-bottom: none; }
+    .recent-spine {
+      width: 28px;
+      height: 40px;
+      border: 1px solid var(--ink-black);
+      border-radius: 1px 4px 4px 1px;
+      box-shadow: inset 4px 0 0 var(--ink-black);
+      background: var(--paper-cream);
       flex-shrink: 0;
     }
 
-    .habit-text h5 {
+    .recent-info { flex: 1; min-width: 0; }
+    .recent-title {
+      font-size: 14px;
+      font-weight: 700;
       margin: 0 0 2px;
-      font-size: 13px;
-      font-weight: 800;
     }
-
-    .habit-text p {
-      margin: 0;
+    .recent-meta {
       font-size: 11px;
       color: var(--ink-gray);
-      line-height: 1.4;
+      font-weight: 600;
+    }
+    .recent-pct {
+      font-size: 13px;
+      font-weight: 700;
     }
 
     /* ========================================================
@@ -756,27 +776,32 @@
 
     .folder-card {
       background: var(--paper-white);
-      border: 1.5px solid var(--ink-black);
-      border-radius: 10px;
-      padding: 14px 10px;
+      border: 1px solid var(--ink-black);
+      border-radius: 8px;
+      padding: 12px 8px;
       display: flex;
       flex-direction: column;
       align-items: center;
       text-align: center;
-      gap: 8px;
+      gap: 6px;
       cursor: pointer;
-      box-shadow: 2px 2px 0 var(--ink-black);
       position: relative;
     }
 
     .folder-card.selected {
-      background: var(--ink-black);
-      color: #fff;
-      box-shadow: none;
+      outline: 2px solid var(--ink-black);
+      outline-offset: -1px;
+      background: var(--paper-cream);
     }
 
-    .folder-card.selected .folder-meta {
-      color: #ccc;
+    .folder-card.selected::after {
+      content: "";
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 8px;
+      height: 8px;
+      background: var(--ink-black);
     }
 
     .folder-icon-svg {
@@ -786,7 +811,7 @@
 
     .folder-name {
       font-size: 13px;
-      font-weight: 800;
+      font-weight: 700;
       word-break: break-all;
       line-height: 1.2;
     }
@@ -806,14 +831,14 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 14px;
+      gap: 10px;
+      padding: 11px 0;
       background: var(--paper-white);
-      border: 1.5px solid var(--ink-black);
-      border-radius: 8px;
-      margin-bottom: 10px;
-      box-shadow: 2px 2px 0 var(--ink-black);
+      border-bottom: 1px solid var(--paper-border);
       cursor: pointer;
     }
+
+    .book-list-row:last-child { border-bottom: none; }
 
     .book-list-info {
       display: flex;
@@ -823,7 +848,7 @@
 
     .book-list-title {
       font-size: 14px;
-      font-weight: 800;
+      font-weight: 700;
     }
 
     .book-list-meta {
@@ -838,7 +863,7 @@
 
     .book-list-pct {
       font-size: 13px;
-      font-weight: 800;
+      font-weight: 700;
     }
 
     /* ========================================================
@@ -869,13 +894,11 @@
     .app-icon-box {
       width: 64px;
       height: 64px;
-      background: var(--paper-cream);
-      border: 1.5px solid var(--ink-black);
-      border-radius: 16px;
+      background: var(--paper-white);
+      border: 1px solid var(--ink-black);
+      border-radius: 10px;
       display: grid;
       place-items: center;
-      box-shadow: 2px 2px 0 var(--ink-black);
-      transition: all 0.1s;
     }
 
     .app-icon-box svg {
@@ -887,8 +910,6 @@
 
     .app-icon-item.selected .app-icon-box {
       background: var(--ink-black);
-      box-shadow: none;
-      transform: translate(2px, 2px);
     }
 
     .app-icon-item.selected .app-icon-box svg {
@@ -903,8 +924,10 @@
     }
 
     .app-icon-item.selected .app-name {
-      font-weight: 900;
+      font-weight: 700;
       color: var(--ink-black);
+      text-decoration: underline;
+      text-underline-offset: 2px;
     }
 
     /* ========================================================
@@ -919,9 +942,8 @@
 
     .settings-card-group {
       background: var(--paper-white);
-      border: 1.5px solid var(--ink-black);
-      border-radius: 12px;
-      box-shadow: 2px 2px 0 var(--ink-black);
+      border: 1px solid var(--ink-black);
+      border-radius: 8px;
       overflow: hidden;
     }
 
@@ -966,7 +988,7 @@
     .setting-text h4 {
       margin: 0;
       font-size: 14px;
-      font-weight: 800;
+      font-weight: 700;
     }
 
     .setting-text p {
@@ -1004,10 +1026,9 @@
     /* Minimal Elegant Bar Chart */
     .chart-box {
       background: var(--paper-white);
-      border: 1.5px solid var(--ink-black);
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 2px 2px 0 var(--ink-black);
+      border: 1px solid var(--ink-black);
+      border-radius: 8px;
+      padding: 14px 12px 12px;
     }
 
     .chart-header-row {
@@ -1019,7 +1040,7 @@
 
     .chart-title {
       font-size: 14px;
-      font-weight: 800;
+      font-weight: 700;
     }
 
     .chart-avg {
@@ -1032,9 +1053,9 @@
       display: flex;
       align-items: flex-end;
       justify-content: space-between;
-      height: 130px;
-      padding: 0 8px 6px;
-      border-bottom: 1.5px solid var(--ink-black);
+      height: 148px;
+      padding: 22px 4px 4px;
+      border-bottom: 1px solid var(--ink-black);
       position: relative;
     }
 
@@ -1047,27 +1068,32 @@
     }
 
     .bar-pillar {
-      width: 24px;
+      width: 22px;
       background: var(--ink-black);
-      border-radius: 4px 4px 0 0;
       position: relative;
-      transition: height 0.3s ease;
     }
 
     .bar-pillar.empty {
-      background: #e2dfd5;
       height: 4px !important;
-      border-radius: 2px;
+      background:
+        repeating-linear-gradient(
+          -45deg,
+          var(--ink-black),
+          var(--ink-black) 1px,
+          transparent 1px,
+          transparent 3px
+        );
     }
 
     .bar-val {
       font-size: 10px;
-      font-weight: 800;
+      font-weight: 700;
       position: absolute;
       top: -16px;
       left: 50%;
       transform: translateX(-50%);
       font-family: -apple-system, sans-serif;
+      white-space: nowrap;
     }
 
     .bar-date {
@@ -1078,22 +1104,25 @@
 
     .bar-col.today .bar-date {
       color: var(--ink-black);
-      font-weight: 900;
+      font-weight: 800;
       text-decoration: underline;
+    }
+
+    .bar-col.today .bar-pillar {
+      outline: 1px solid var(--ink-black);
+      outline-offset: 2px;
     }
 
     /* Reading Timeline Card */
     .timeline-card {
-      background: var(--paper-cream);
-      border: 1.5px solid var(--ink-black);
-      border-radius: 12px;
-      padding: 14px 16px;
-      box-shadow: 2px 2px 0 var(--ink-black);
+      background: var(--paper-white);
+      border: 1px solid var(--ink-black);
+      border-radius: 8px;
+      padding: 14px 14px 16px;
     }
-
     .timeline-header {
       font-size: 13px;
-      font-weight: 800;
+      font-weight: 700;
       margin-bottom: 10px;
       display: flex;
       justify-content: space-between;
@@ -1103,18 +1132,32 @@
       display: grid;
       grid-template-columns: repeat(24, 1fr);
       height: 14px;
-      background: #e2dfd5;
+      background: var(--paper-white);
+      border: 1px solid var(--ink-black);
       border-radius: 3px;
       overflow: hidden;
-      gap: 1px;
-      margin-bottom: 6px;
+      gap: 0;
+      margin-bottom: 8px;
     }
-
     .hour-block {
-      background: #e2dfd5;
+      background: var(--paper-white);
+      border-right: 1px solid #ddd9cf;
     }
-
+    .hour-block:last-child {
+      border-right: none;
+    }
     .hour-block.active {
+      background: var(--ink-black);
+      border-right-color: var(--ink-black);
+    }
+    .hour-block.mid {
+      background: var(--paper-white);
+      position: relative;
+    }
+    .hour-block.mid::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; top: 3px; bottom: 3px;
       background: var(--ink-black);
     }
 
@@ -1171,11 +1214,11 @@
     <div class="controls-bar">
       <!-- 5 Tab Switchers -->
       <div class="tab-pills" id="tab-switchers">
-        <button class="tab-pill active" data-tab="home">1. 主页</button>
-        <button class="tab-pill" data-tab="library">2. 书架</button>
-        <button class="tab-pill" data-tab="apps">3. 应用</button>
-        <button class="tab-pill" data-tab="settings">4. 设置</button>
-        <button class="tab-pill" data-tab="stats">5. 统计</button>
+        <button class="tab-pill" data-tab="library">书架</button>
+        <button class="tab-pill" data-tab="apps">应用</button>
+        <button class="tab-pill active" data-tab="home">主页</button>
+        <button class="tab-pill" data-tab="settings">设置</button>
+        <button class="tab-pill" data-tab="stats">统计</button>
       </div>
 
       <!-- Shell Toggle -->
@@ -1203,23 +1246,23 @@
       </div>
 
       <div class="change-card">
-        <h4>1. 告别沉重粗框卡片 <span style="color:var(--accent);">★ 核心革新</span></h4>
-        <p>原界面由 4 个 2px 粗实线大圆角框机械堆叠，卡片内留白空洞、框与框间隙拥挤。新设计采用<b>“书籍陈列 + 实体书封阴影 + 轻量横向三联卡”</b>，重获纸书温润典雅质感。</p>
+        <h4>1. 纸面，不是贴纸 <span style="color:var(--accent);">★</span></h4>
+        <p>UI 在固件里是 1-bit。去掉 2px 投影、1.5px 双边和 900 字重。一张卡一条 1px 墨线，层级靠字号和留白，不靠阴影堆砌。</p>
       </div>
 
       <div class="change-card">
-        <h4>2. 杜绝大黑块暴力反色</h4>
-        <p>原应用和文件夹选中时直接变成死黑实心大矩形，如同屏幕坏点。新方案采用<b>精致的微凸起卡片按压感、细黑硬线边框与圆角指示器</b>，在 219 PPI 下呈现高级的几何美感。</p>
+        <h4>2. 选中不再整块涂黑</h4>
+        <p>文件夹用加粗描边 + 角标；应用只反色图标本身并在名称下划线。整卡填黑在 4.26" 上看起来像坏点。</p>
       </div>
 
       <div class="change-card">
-        <h4>3. 分组列表式设置中心</h4>
-        <p>原设置页面 4 张大卡片过于膨胀，无法承载多级内容。新方案采用<b>现代分组式列表（Grouped List）</b>，左侧带小功能图标徽章，右侧带分类小字与箭头，条理分明且便于单手触控。</p>
+        <h4>3. 主页只做「接着读」</h4>
+        <p>去掉无动作的鸡汤条。主卡整张可点继续阅读，下面两本最近书。简报数字与统计页同一套数据。</p>
       </div>
 
       <div class="change-card">
-        <h4>4. 柱状图与统计可视化重塑</h4>
-        <p>原统计柱状图如同水泥黑柱，数字居中凌乱。新设计采用<b>轻盈的圆角条带柱、峰值数值气泡、结合 24 小时阅读时段热力线</b>，一目了然。</p>
+        <h4>4. 对得上固件</h4>
+        <p>底栏顺序：书架 · 应用 · 主页 · 设置 · 统计。抗锯齿文案用关 / 叠加 / 合成 / 直刷 / 快刷。侧键是电源、上、下，不是音量。</p>
       </div>
 
       <div class="specs-grid">
@@ -1246,9 +1289,9 @@
     <div class="device-stage">
       <div class="device-frame" id="device-frame" data-shell="black">
         <div class="device-top-notch"></div>
-        <div class="side-key power"></div>
-        <div class="side-key vol-up"></div>
-        <div class="side-key vol-down"></div>
+        <div class="side-key power"><span class="side-key-label">电源</span></div>
+        <div class="side-key page-up"><span class="side-key-label">上翻</span></div>
+        <div class="side-key page-down"><span class="side-key-label">下翻</span></div>
 
         <!-- 480x800 Logical Canvas -->
         <div class="screen" id="device-screen">
@@ -1259,11 +1302,10 @@
               <span>22:15</span>
             </div>
             <div class="sys-indicators">
-              <span>800×480</span>
               <div class="battery-icon">
                 <div class="battery-level"></div>
               </div>
-              <span>100%</span>
+              <span>82%</span>
             </div>
           </div>
 
@@ -1279,17 +1321,14 @@
                 <span class="sec-subtitle">上次阅读: 10分钟前</span>
               </div>
 
-              <!-- Hero Book Showcase Card -->
-              <div class="hero-book-showcase">
-                <!-- Book Jacket / Cover -->
+              <!-- Hero Book Showcase Card — whole card resumes. -->
+              <div class="hero-book-showcase" role="button" tabindex="0">
                 <div class="book-jacket">
-                  <div class="book-jacket-spine"></div>
-                  <div class="jacket-tag">CROSSPOINT</div>
+                  <div class="jacket-tag">EPUB</div>
                   <div class="jacket-title">山间<br>灯火</div>
-                  <div class="jacket-mark">📖</div>
+                  <div class="jacket-mark">COVER</div>
                 </div>
 
-                <!-- Book Metadata -->
                 <div class="book-details">
                   <div class="book-meta-top">
                     <h3>山间灯火</h3>
@@ -1310,39 +1349,37 @@
                 </div>
               </div>
 
-              <!-- Section Header -->
               <div class="sec-title-row">
-                <h2 class="sec-title">阅读简报</h2>
-                <span class="sec-subtitle">本月累计 51 分钟</span>
+                <h2 class="sec-title">最近阅读</h2>
+                <span class="sec-subtitle">共 12 本</span>
               </div>
 
-              <!-- Stats Trio Cards -->
-              <div class="stats-trio-row">
-                <div class="stat-chip">
-                  <div class="chip-label">今日阅读</div>
-                  <div class="chip-value">0<span class="chip-unit">分</span></div>
+              <div class="recent-shelf">
+                <div class="recent-item" role="button" tabindex="0">
+                  <div class="recent-spine"></div>
+                  <div class="recent-info">
+                    <p class="recent-title">重生之大涅槃</p>
+                    <p class="recent-meta">奥尔良烤鲟鱼堡 · 第 12 / 84 章</p>
+                  </div>
+                  <span class="recent-pct">27%</span>
                 </div>
-                <div class="stat-chip">
-                  <div class="chip-label">近 7 天</div>
-                  <div class="chip-value">5<span class="chip-unit">分</span></div>
+                <div class="recent-item" role="button" tabindex="0">
+                  <div class="recent-spine"></div>
+                  <div class="recent-info">
+                    <p class="recent-title">消失的13级台阶</p>
+                    <p class="recent-meta">高野和明 · 第 1 章</p>
+                  </div>
+                  <span class="recent-pct">8%</span>
                 </div>
-                <div class="stat-chip">
-                  <div class="chip-label">本月累计</div>
-                  <div class="chip-value">51<span class="chip-unit">分</span></div>
+                <div class="recent-item" role="button" tabindex="0">
+                  <div class="recent-spine"></div>
+                  <div class="recent-info">
+                    <p class="recent-title">被讨厌的勇气</p>
+                    <p class="recent-meta">岸见一郎 · 已读完</p>
+                  </div>
+                  <span class="recent-pct" style="color:var(--ink-gray);">完</span>
                 </div>
               </div>
-
-              <!-- Habit & Quote Banner -->
-              <div class="habit-banner">
-                <div class="habit-icon-leaf">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10S2 17.523 2 12A10 10 0 0 1 12 2z"/><path d="M12 6v6l4 2"/></svg>
-                </div>
-                <div class="habit-text">
-                  <h5>安静阅读 · 墨香自持</h5>
-                  <p>保持每日良好阅读习惯，沉淀思绪，享受专属的专注时光。</p>
-                </div>
-              </div>
-
             </div>
           </div>
 
@@ -1359,7 +1396,7 @@
                   <span>/</span>
                   <span>books</span>
                 </div>
-                <span style="font-size:11px;color:var(--ink-gray);">共 5 本书目</span>
+                <span style="font-size:11px;color:var(--ink-gray);">4 本</span>
               </div>
 
               <!-- Folder Grid -->
@@ -1383,17 +1420,16 @@
                 </div>
               </div>
 
-              <!-- Books List -->
               <div class="shelf-books-section">
-                <div class="sec-title-row" style="margin-bottom:12px;">
-                  <h2 class="sec-title">最近阅读书目</h2>
-                  <span class="sec-subtitle">按阅读时间排序</span>
+                <div class="sec-title-row" style="margin-bottom:8px;">
+                  <h2 class="sec-title">books</h2>
+                  <span class="sec-subtitle">当前文件夹</span>
                 </div>
 
                 <div class="book-list-row">
                   <div class="book-list-info">
-                    <span class="book-list-title">山间灯火.epub</span>
-                    <span class="book-list-meta">测试作者 · 第 3 章 · 上次今日</span>
+                    <span class="book-list-title">山间灯火</span>
+                    <span class="book-list-meta">测试作者 · 第 3 章</span>
                   </div>
                   <div class="book-list-right">
                     <span class="book-list-pct">73%</span>
@@ -1402,8 +1438,8 @@
 
                 <div class="book-list-row">
                   <div class="book-list-info">
-                    <span class="book-list-title">重生之大涅槃.epub</span>
-                    <span class="book-list-meta">奥尔良烤鲟鱼堡 · 第 12/84 章</span>
+                    <span class="book-list-title">重生之大涅槃</span>
+                    <span class="book-list-meta">奥尔良烤鲟鱼堡 · 第 12 / 84 章</span>
                   </div>
                   <div class="book-list-right">
                     <span class="book-list-pct">27%</span>
@@ -1412,7 +1448,7 @@
 
                 <div class="book-list-row">
                   <div class="book-list-info">
-                    <span class="book-list-title">消失的13级台阶.epub</span>
+                    <span class="book-list-title">消失的13级台阶</span>
                     <span class="book-list-meta">高野和明 · 第 1 章</span>
                   </div>
                   <div class="book-list-right">
@@ -1422,11 +1458,11 @@
 
                 <div class="book-list-row">
                   <div class="book-list-info">
-                    <span class="book-list-title">被讨厌的勇气.txt</span>
+                    <span class="book-list-title">被讨厌的勇气</span>
                     <span class="book-list-meta">岸见一郎 · 已读完</span>
                   </div>
                   <div class="book-list-right">
-                    <span class="book-list-pct" style="color:var(--ink-gray);">100%</span>
+                    <span class="book-list-pct" style="color:var(--ink-gray);">完</span>
                   </div>
                 </div>
               </div>
@@ -1441,8 +1477,8 @@
             <div class="apps-view">
               
               <div class="sec-title-row">
-                <h2 class="sec-title">应用工具</h2>
-                <span class="sec-subtitle">11 个已装应用</span>
+                <h2 class="sec-title">应用</h2>
+                <span class="sec-subtitle">10 个</span>
               </div>
 
               <!-- 3x4 Unified Icons Grid -->
@@ -1467,13 +1503,6 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                   </div>
                   <span class="app-name">AirPage</span>
-                </div>
-
-                <div class="app-icon-item">
-                  <div class="app-icon-box">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-                  </div>
-                  <span class="app-name">阅读统计</span>
                 </div>
 
                 <div class="app-icon-item">
@@ -1518,8 +1547,7 @@
                   <span class="app-name">电子木鱼</span>
                 </div>
 
-                <!-- Selected App Example (High-contrast, Refined) -->
-                <div class="app-icon-item selected">
+                <div class="app-icon-item">
                   <div class="app-icon-box">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                   </div>
@@ -1538,8 +1566,8 @@
             <div class="settings-view">
               
               <div class="sec-title-row">
-                <h2 class="sec-title">系统偏好设置</h2>
-                <span class="sec-subtitle">墨菲 M4 固件 v80</span>
+                <h2 class="sec-title">设置</h2>
+                <span class="sec-subtitle">1.5.7-m4cn.v68</span>
               </div>
 
               <!-- Group 1: Display & Look -->
@@ -1592,11 +1620,11 @@
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                     </div>
                     <div class="setting-text">
-                      <h4>文字抗锯齿模式</h4>
-                      <p>快刷叠刷 · 纯单色直刷 · 两段完整</p>
+                      <h4>文字抗锯齿</h4>
+                      <p>关 · 叠加 · 合成 · 直刷 · 快刷</p>
                     </div>
                   </div>
-                  <span class="setting-badge">快刷叠刷</span>
+                  <span class="setting-badge">叠加</span>
                 </div>
 
                 <div class="setting-item-row">
@@ -1634,8 +1662,8 @@
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                     </div>
                     <div class="setting-text">
-                      <h4>关于墨菲 M4</h4>
-                      <p>固件版本 1.5.7-m4cn.v80 (ESP32-S3)</p>
+                      <h4>关于本机</h4>
+                      <p>1.5.7-m4cn.v68 · ESP32-S3</p>
                     </div>
                   </div>
                   <span class="chevron-right">›</span>
@@ -1652,30 +1680,30 @@
             <div class="stats-view">
               
               <div class="sec-title-row">
-                <h2 class="sec-title">阅读统计看板</h2>
-                <span class="sec-subtitle">本月目标进度 42%</span>
+                <h2 class="sec-title">阅读统计</h2>
+                <span class="sec-subtitle">本月 5.2 小时</span>
               </div>
 
-              <!-- Stats Trio Summary -->
-              <div class="stats-trio-row">
-                <div class="stat-chip">
-                  <div class="chip-label">今日已读</div>
-                  <div class="chip-value">18<span class="chip-unit">分</span></div>
+              <!-- Stats Trio Editorial (Borderless, Large Serif Numbers) -->
+              <div class="stats-trio-editorial">
+                <div class="editorial-stat">
+                  <span class="editorial-label">今日已读</span>
+                  <div class="editorial-value">18<span class="editorial-unit">分</span></div>
                 </div>
-                <div class="stat-chip">
-                  <div class="chip-label">近 7 天</div>
-                  <div class="chip-value">124<span class="chip-unit">分</span></div>
+                <div class="editorial-stat">
+                  <span class="editorial-label">近 7 天</span>
+                  <div class="editorial-value">124<span class="editorial-unit">分</span></div>
                 </div>
-                <div class="stat-chip">
-                  <div class="chip-label">本月累计</div>
-                  <div class="chip-value">5.2<span class="chip-unit">小时</span></div>
+                <div class="editorial-stat">
+                  <span class="editorial-label">本月累计</span>
+                  <div class="editorial-value">5.2<span class="editorial-unit">时</span></div>
                 </div>
               </div>
 
               <!-- Bar Chart Box -->
               <div class="chart-box">
                 <div class="chart-header-row">
-                  <span class="chart-title">近 7 天阅读趋势 (分钟)</span>
+                  <span class="chart-title">近 7 天（分钟）</span>
                   <span class="chart-avg">日均 17.7 分钟</span>
                 </div>
 
@@ -1732,11 +1760,10 @@
               <!-- Reading Timeline Box -->
               <div class="timeline-card">
                 <div class="timeline-header">
-                  <span>24 小时阅读时段分布</span>
-                  <span style="font-size:11px;color:var(--ink-gray);">峰值: 21:00 - 23:00</span>
+                  <span>今日阅读时段</span>
+                  <span style="font-size:11px;color:var(--ink-gray);">峰值 21–23 点</span>
                 </div>
                 <div class="timeline-strip">
-                  <!-- 24 blocks -->
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
@@ -1744,22 +1771,22 @@
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
-                  <div class="hour-block active"></div><!-- 7am -->
-                  <div class="hour-block active"></div><!-- 8am -->
+                  <div class="hour-block mid"></div>
+                  <div class="hour-block active"></div>
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
-                  <div class="hour-block active"></div><!-- 12pm -->
+                  <div class="hour-block mid"></div>
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
                   <div class="hour-block"></div>
-                  <div class="hour-block active"></div><!-- 19pm -->
-                  <div class="hour-block active"></div><!-- 20pm -->
-                  <div class="hour-block active"></div><!-- 21pm -->
-                  <div class="hour-block active"></div><!-- 22pm -->
+                  <div class="hour-block mid"></div>
+                  <div class="hour-block active"></div>
+                  <div class="hour-block active"></div>
+                  <div class="hour-block active"></div>
                   <div class="hour-block"></div>
                 </div>
                 <div class="timeline-labels">
@@ -1813,9 +1840,7 @@
     const tabSwitchers = document.querySelectorAll('.tab-pill');
     const bottomTabBtns = document.querySelectorAll('.tab-btn');
     const screenContents = document.querySelectorAll('.screen-content');
-
-    function switchTab(tabId) {
-      // Update top pills
+    window.switchTab = function(tabId) {
       tabSwitchers.forEach(pill => {
         pill.classList.toggle('active', pill.dataset.tab === tabId);
       });
@@ -1837,6 +1862,20 @@
 
     bottomTabBtns.forEach(btn => {
       btn.addEventListener('click', () => switchTab(btn.dataset.target));
+    });
+
+    document.querySelectorAll('.folder-card').forEach(card => {
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.folder-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+      });
+    });
+
+    document.querySelectorAll('.app-icon-item').forEach(item => {
+      item.addEventListener('click', () => {
+        document.querySelectorAll('.app-icon-item').forEach(i => i.classList.remove('selected'));
+        item.classList.add('selected');
+      });
     });
 
     // Shell Toggle

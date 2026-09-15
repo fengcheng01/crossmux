@@ -21,6 +21,11 @@ class HalStorage {
   HalStorage();
   bool begin();
   bool ready() const;
+  // Stop the SD card for deep sleep: unmount, stop the SDMMC host, and release
+  // the bus pads (no-op on SPI boards). Call only after all file users have
+  // stopped; open HalFiles become invalid. A deep-sleep wake resets the MCU and
+  // mounts storage again through begin().
+  void prepareForDeepSleep();
   bool getSpace(uint64_t& totalBytes, uint64_t& freeBytes);
   std::vector<String> listFiles(const char* path = "/", int maxFiles = 200);
   // Read the entire file at `path` into a String. Returns empty string on failure.

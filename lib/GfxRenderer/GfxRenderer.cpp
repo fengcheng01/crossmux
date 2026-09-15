@@ -385,50 +385,11 @@ static uint8_t get2BitCoverage(const uint8_t* bitmap, const int pixelPosition) {
   return (byte >> ((3 - (pixelPosition & 3)) * 2)) & 0x3;
 }
 
-static uint8_t smoothAaCoverage(const uint8_t* bitmap, const int width, const int height, const int gx,
-                                const int gy) {
-  const uint8_t coverage = get2BitCoverage(bitmap, gy * width + gx);
-  if (coverage >= 2) return 3;  // Keep all primary stroke ink 100% solid black (no fading/thinning)
-  if (coverage == 0) return 0;
-
-  // For coverage == 1: smooth stairstep notches and diagonal slope gaps
-  auto at = [bitmap, width, height](const int x, const int y) -> uint8_t {
-    if (x < 0 || y < 0 || x >= width || y >= height) return 0;
-    return get2BitCoverage(bitmap, y * width + x);
-  };
-  const uint8_t n = at(gx, gy - 1);
-  const uint8_t s = at(gx, gy + 1);
-  const uint8_t w = at(gx - 1, gy);
-  const uint8_t e = at(gx + 1, gy);
-  const uint8_t nw = at(gx - 1, gy - 1);
-  const uint8_t ne = at(gx + 1, gy - 1);
-  const uint8_t sw = at(gx - 1, gy + 1);
-  const uint8_t se = at(gx + 1, gy + 1);
-
-  // 1. Diagonal bridge across slope steps (avoids broken diagonal contours)
-  if ((nw >= 2 && se >= 2) || (ne >= 2 && sw >= 2)) return 3;
-
-  // 2. Corner bevel: inner corner between horizontal and vertical stroke
-  // (turns sharp 90-degree jagged stair into a gentle 45-degree bevel)
-  if ((n >= 2 && e >= 2) || (n >= 2 && w >= 2) || (s >= 2 && e >= 2) || (s >= 2 && w >= 2)) return 3;
-
-  // 3. Convex edge smoothing: any coverage 1 pixel touching solid ink
-  if (n >= 2 || s >= 2 || w >= 2 || e >= 2) return 1;
-
-  return 0;
-}
-
 static void draw2BitGlyphPixel(const GfxRenderer& renderer, const GfxRenderer::RenderMode renderMode, const int x,
                                const int y, const bool pixelState, uint8_t coverage) {
   if (renderer.usesSolidGlyphs() && coverage > 0) coverage = 3;
   if (renderer.usesGlyphDither() && renderMode == GfxRenderer::BW) {
-    if (coverage >= 2) {
-      renderer.drawPixel(x, y, pixelState);
-    } else if (coverage == 1) {
-      if (((x + y) & 1) == 0) {
-        renderer.drawPixel(x, y, pixelState);
-      }
-    }
+    if (GfxRenderer::glyphDitherPixel(coverage, x, y)) renderer.drawPixel(x, y, pixelState);
     return;
   }
   const auto pixel = GfxRenderer::mapTwoBitGlyphCoverage(renderMode, coverage, renderer.usesAbsoluteGrayPlanes());
@@ -566,7 +527,6 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
     }
 
     if (is2Bit) {
-      const bool directOneBit = renderer.usesGlyphDither() && renderMode == GfxRenderer::BW;
       for (int glyphY = 0; glyphY < height; glyphY++) {
         const int outerCoord = outerBase + glyphY;
         if (syntheticBoldPixels == 0) {
@@ -579,8 +539,7 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
               screenX = innerBase + glyphX;
               screenY = outerCoord;
             }
-            const uint8_t coverage = directOneBit ? smoothAaCoverage(bitmap, width, height, glyphX, glyphY)
-                                                  : get2BitCoverage(bitmap, glyphY * width + glyphX);
+            const uint8_t coverage = get2BitCoverage(bitmap, glyphY * width + glyphX);
             draw2BitGlyphPixel(renderer, renderMode, screenX, screenY, pixelState, coverage);
           }
           continue;
@@ -599,10 +558,7 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
             screenY = outerCoord;
           }
 
-          const uint8_t current =
-              glyphX < width ? (directOneBit ? smoothAaCoverage(bitmap, width, height, glyphX, glyphY)
-                                             : get2BitCoverage(bitmap, glyphY * width + glyphX))
-                             : 0;
+          const uint8_t current = glyphX < width ? get2BitCoverage(bitmap, glyphY * width + glyphX) : 0;
           const uint8_t coverage = dilate2BitCoverage(current, previous1, previous2, syntheticBoldPixels);
           draw2BitGlyphPixel(renderer, renderMode, screenX, screenY, pixelState, coverage);
           previous2 = previous1;
@@ -1839,6 +1795,16 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
     nextRefreshOverridePending = false;
   }
   display.displayBuffer(effectiveRefreshMode, fadingFix);
+  LOG_DBG("GFX", "displayBuffer done mode=%d", static_cast<int>(effectiveRefreshMode));
+}
+
+void GfxRenderer::displaySleepClean() const {
+  nextRefreshOverridePending = false;
+#if defined(SIMULATOR)
+  display.displayBuffer(HalDisplay::FAST_REFRESH, true);
+#else
+  display.displaySleepClean();
+#endif
 }
 
 void GfxRenderer::displayBufferDriveAll(const HalDisplay::RefreshMode refreshMode) const {
@@ -1868,18 +1834,6 @@ void GfxRenderer::displayWindow(const int x, const int y, const int width, const
   display.displayBuffer(HalDisplay::FAST_REFRESH, fadingFix);
 #else
   display.displayWindowSeeded(r.x, r.y, r.w, r.h);
-#endif
-}
-
-void GfxRenderer::beginWindowAnimation() const {
-#if !defined(SIMULATOR)
-  display.beginWindowAnimation();
-#endif
-}
-
-void GfxRenderer::endWindowAnimation() const {
-#if !defined(SIMULATOR)
-  display.endWindowAnimation();
 #endif
 }
 
@@ -1920,7 +1874,7 @@ size_t GfxRenderer::readFramebufferRegion(int x, int y, int w, int h, uint8_t* d
   return needed;
 }
 
-void GfxRenderer::writeFramebufferRegion(int x, int y, int w, int h, const uint8_t* src) const {
+void GfxRenderer::writeFramebufferRegion(int x, int y, int w, int h, const uint8_t* src) {
   if (src == nullptr || w <= 0 || h <= 0) return;
 
   const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, w, h, panelWidth, panelHeight);
@@ -2526,6 +2480,32 @@ bool GfxRenderer::supportsSwiftAa() const {
   return true;  // UI flow runs; the preview above stands in for the hardware
 #else
   return display.supportsSwiftAa();
+#endif
+}
+
+void GfxRenderer::flashToWhite() const {
+#if defined(SIMULATOR)
+  // The shim has no VSL-all LUT; skip. displayGrayBufferFromWhite still
+  // previews the AA page.
+#else
+  display.flashToWhite();
+#endif
+}
+
+void GfxRenderer::displayGrayBufferFromWhite() const {
+#if defined(SIMULATOR)
+  display.displayBuffer(HalDisplay::FAST_REFRESH);
+  display.displayGrayBuffer(fadingFix);
+#else
+  display.displayGrayBufferFromWhite(fadingFix);
+#endif
+}
+
+void GfxRenderer::displayGrayBufferDirect() const {
+#if defined(SIMULATOR)
+  displayGrayBufferAbsolute(false);  // Preview only; the shim does not model the pulse waveform.
+#else
+  display.displayGrayBufferDirect(fadingFix);
 #endif
 }
 

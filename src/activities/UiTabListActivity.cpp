@@ -182,9 +182,12 @@ void UiTabListActivity::buildTabBar(UiScreen& screen) {
     tabStyles.selected.background = fui::Paint::solid(fui::Color::Black);
     tabStyles.selected.foreground = fui::Paint::solid(fui::Color::White);
   } else if (classicTabs) {
-    tabStyles.selected.foreground = fui::Paint::solid(tabsFocused ? fui::Color::White : fui::Color::Black);
+    tabStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
     if (tabsFocused) {
-      tabStyles.selected.background = fui::Paint::solid(fui::Color::Black);
+      tabStyles.selected.background = fui::Paint::solid(fui::Color::White);
+      tabStyles.selected.border = fui::Paint::solid(fui::Color::Black);
+      tabStyles.selected.borderWidth = 2;
+      tabStyles.selected.radius = 6;
     } else {
       tabProps.selectedUnderline = 2;
     }

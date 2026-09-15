@@ -78,6 +78,14 @@ void drawDottedSeparator(const GfxRenderer& renderer, const int x, const int y, 
 }
 }  // namespace
 
+bool InxTheme::usesPaperStyle() const {
+#if FREEINK_DEVICE_MURPHY_M4
+  return true;
+#else
+  return false;
+#endif
+}
+
 void InxTheme::drawHeader(const GfxRenderer& renderer, const Rect rect, const char* title, const char* subtitle) const {
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
 
@@ -377,11 +385,32 @@ void InxTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, c
 void InxTheme::drawMainTabBar(const GfxRenderer& renderer, const Rect rect, const MainTab selected) const {
   renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
   renderer.drawLine(rect.x, rect.y, rect.x + rect.width - 1, rect.y, true);
-  const int tabCount = static_cast<int>(MainTabs::values.size());
+  const int tabCount = static_cast<int>(MainTabs::orderedValues().size());
   const int iconY = rect.y + std::max(1, (rect.height - kIconSize) / 2);
 
-  for (size_t i = 0; i < MainTabs::values.size(); ++i) {
-    const MainTab tab = MainTabs::values[i];
+  if (usesPaperStyle()) {
+    const auto& metrics = paperMetrics();
+    static constexpr StrId labels[] = {StrId::STR_NOW_READING, StrId::STR_PAPER_LIBRARY, StrId::STR_PAPER_JOURNAL_TAB,
+                                       StrId::STR_SETTINGS_TITLE, StrId::STR_APPS_TITLE};
+    const int labelHeight = renderer.getLineHeight(metrics.smallFont);
+    const int iconTop = rect.y + std::max(7, (rect.height - kIconSize - labelHeight - 4) / 2);
+    for (size_t i = 0; i < MainTabs::orderedValues().size(); ++i) {
+      const MainTab tab = MainTabs::orderedValues()[i];
+      const int left = rect.x + rect.width * static_cast<int>(i) / tabCount;
+      const int right = rect.x + rect.width * (static_cast<int>(i) + 1) / tabCount;
+      const int x = left + (right - left - kIconSize) / 2;
+      if (const uint8_t* icon = iconForTab(tab)) drawInxIcon(renderer, icon, x, iconTop);
+      const char* label = I18N.get(labels[MainTabs::indexOf(tab)]);
+      const int w = std::min(right - left - 6, renderer.getTextWidth(metrics.smallFont, label));
+      drawPaperText(renderer, Rect{left + (right - left - w) / 2, iconTop + kIconSize + 3, w, labelHeight},
+                    metrics.smallFont, label, tab == selected);
+      if (tab == selected) renderer.fillRect(x, rect.y, kIconSize, 4, true);
+    }
+    return;
+  }
+
+  for (size_t i = 0; i < MainTabs::orderedValues().size(); ++i) {
+    const MainTab tab = MainTabs::orderedValues()[i];
     const int left = rect.x + rect.width * static_cast<int>(i) / tabCount;
     const int right = rect.x + rect.width * (static_cast<int>(i) + 1) / tabCount;
     const int iconX = left + (right - left - kIconSize) / 2;

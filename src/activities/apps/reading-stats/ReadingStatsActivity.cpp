@@ -24,6 +24,15 @@
 #include "util/TimeUtils.h"
 
 namespace {
+// Keep sub-minute sessions visible instead of labelling an active day as zero.
+void formatPaperMinutes(const uint64_t ms, char* output, const size_t size) {
+  if (ms > 0 && ms < 60000) {
+    snprintf(output, size, "<1");
+    return;
+  }
+  snprintf(output, size, "%llu", static_cast<unsigned long long>((ms + 30000) / 60000));
+}
+
 constexpr unsigned long BOOK_LONG_PRESS_MS = 1000;
 constexpr int SUMMARY_CARD_HEIGHT = 70;
 constexpr int SUMMARY_GAP = 10;
@@ -141,27 +150,58 @@ constexpr const char* kDaypartHours[ReadingStatsAnalytics::DAYPART_COUNT] = {"05
 
 int daypartCardHeight(const GfxRenderer& renderer) {
   const int pad = 12;
-  const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
-  return pad + lineH + 6 + 2 * (lineH + 10) + pad;
+  const int titleH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int smallH = renderer.getLineHeight(SMALL_FONT_ID);
+  return pad + titleH + 8 + 16 + 3 + smallH + 8 + 2 * (titleH + 8) + pad;
 }
 
 void drawDaypartRows(const GfxRenderer& renderer, const Rect card, const uint64_t* dayparts, const char* title) {
   const int pad = 12;
   const int titleH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int smallH = renderer.getLineHeight(SMALL_FONT_ID);
   renderer.drawText(UI_10_FONT_ID, card.x + pad, card.y + pad, title, true, EpdFontFamily::BOLD);
 
-  if (!ReadingStatsAnalytics::hasDaypartMs(dayparts)) {
-    renderer.drawText(UI_10_FONT_ID, card.x + pad, card.y + pad + titleH + 6, tr(STR_NO_DAYPART_STATS));
-    return;
+  // 24-Hour Timeline Heat Strip
+  const int timelineY = card.y + pad + titleH + 8;
+  const int timelineH = 14;
+  const int availableW = card.width - pad * 2;
+  const int blockGap = 2;
+  const int blockW = std::max(4, (availableW - blockGap * 23) / 24);
+  const int stripStartX = card.x + pad + (availableW - (blockW * 24 + blockGap * 23)) / 2;
+
+  const uint32_t today = TimeUtils::getLocalDayOrdinal(READING_STATS.getDisplayTimestamp());
+  for (int h = 0; h < 24; ++h) {
+    const int bx = stripStartX + h * (blockW + blockGap);
+    const uint64_t hMs = READING_STATS.getDayHourReadingMs(today, static_cast<uint8_t>(h));
+    if (hMs > 0) {
+      renderer.fillRoundedRect(bx, timelineY, blockW, timelineH, 2, Color::Black);
+    } else {
+      renderer.drawRoundedRect(bx, timelineY, blockW, timelineH, 1, 2, true);
+    }
   }
 
+  // 5 Time labels underneath: 00:00, 06:00, 12:00, 18:00, 24:00
+  const int labelsY = timelineY + timelineH + 3;
+  static const char* const kHourTicks[5] = {"00:00", "06:00", "12:00", "18:00", "24:00"};
+  static const int kTickHours[5] = {0, 6, 12, 18, 23};
+  for (int t = 0; t < 5; ++t) {
+    const int bx = stripStartX + kTickHours[t] * (blockW + blockGap);
+    const int tw = renderer.getTextWidth(SMALL_FONT_ID, kHourTicks[t]);
+    int tx = bx + blockW / 2 - tw / 2;
+    if (t == 0) tx = stripStartX;
+    if (t == 4) tx = stripStartX + availableW - tw;
+    renderer.drawText(SMALL_FONT_ID, tx, labelsY, kHourTicks[t]);
+  }
+
+  // 4 Daypart summaries in 2 clean columns below
+  const int summaryY = labelsY + smallH + 8;
   const int colW = std::max(1, (card.width - pad * 2) / 2);
-  const int rowH = titleH + 10;
+  const int rowH = titleH + 8;
   for (int i = 0; i < ReadingStatsAnalytics::DAYPART_COUNT; ++i) {
     const int col = i % 2;
     const int row = i / 2;
     const int cellX = card.x + pad + col * colW;
-    const int cellY = card.y + pad + titleH + 6 + row * rowH;
+    const int cellY = summaryY + row * rowH;
     char left[24] = {};
     snprintf(left, sizeof(left), "%s %s", daypartLabel(i), kDaypartHours[i]);
     char right[24] = {};
@@ -176,6 +216,10 @@ void drawDaypartRows(const GfxRenderer& renderer, const Rect card, const uint64_
 }  // namespace
 
 void ReadingStatsActivity::selectMainTabContentEdge(const MainTabContentEdge edge) {
+  if (GUI.usesPaperStyle()) {
+    selectedIndex = edge == MainTabContentEdge::First ? 0 : kInxDayBars;
+    return;
+  }
   (void)edge;
   // This screen draws no per-entry state, so a silently retargeted
   // selectedIndex would point taps and Confirm at a different detail screen
@@ -237,6 +281,10 @@ void ReadingStatsActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    if (usesInxLayout() && GUI.usesPaperStyle() && selectedIndex > 0) {
+      if (selectedIndex <= kInxDayBars) openDayDetail(dayBarOrdinal_[selectedIndex - 1]);
+      return;
+    }
     if (selectedIndex > 0 && mappedInput.getHeldTime() >= BOOK_LONG_PRESS_MS) {
       confirmRemoveSelectedBook();
       return;
@@ -247,6 +295,16 @@ void ReadingStatsActivity::loop() {
   }
 
   if (usesInxLayout()) {
+    if (GUI.usesPaperStyle()) {
+      buttonNavigator.onNextRelease([this] {
+        selectedIndex = ButtonNavigator::nextIndex(selectedIndex, kInxDayBars + 1);
+        requestUpdate();
+      });
+      buttonNavigator.onPreviousRelease([this] {
+        selectedIndex = ButtonNavigator::previousIndex(selectedIndex, kInxDayBars + 1);
+        requestUpdate();
+      });
+    }
     int touchX = 0;
     int touchY = 0;
     if (mappedInput.wasScreenTapped(touchX, touchY)) {
@@ -309,6 +367,7 @@ void ReadingStatsActivity::openDayDetail(const uint32_t dayOrdinal) {
 
 void ReadingStatsActivity::handleInxTap(const int x, const int y) {
   if (pointInRect(x, y, moreHitRect_)) {
+    if (GUI.usesPaperStyle()) selectedIndex = 0;
     openSelectedEntry();
     return;
   }
@@ -464,6 +523,10 @@ void ReadingStatsActivity::render(RenderLock&&) {
 }
 
 void ReadingStatsActivity::renderInx() {
+  if (GUI.usesPaperStyle()) {
+    renderPaper();
+    return;
+  }
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
@@ -478,88 +541,130 @@ void ReadingStatsActivity::renderInx() {
   }
 
   const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
-  const int pad = 14;
-  const int innerPad = 12;
-  const int sectionGap = 8;
+  const int pad = 20;
+  const int contentW = screenWidth - pad * 2;
   const int smallH = renderer.getLineHeight(SMALL_FONT_ID);
   const int ui10H = renderer.getLineHeight(UI_10_FONT_ID);
   const int ui12H = renderer.getLineHeight(UI_12_FONT_ID);
-  int y = content.y;
 
-  const int statusH = smallH + 8;
-  char timeBuf[16] = {};
-  TimeUtils::formatCurrentTime(timeBuf, sizeof(timeBuf), SETTINGS.clockFormat == 1);
-  if (timeBuf[0] != '\0') renderer.drawText(SMALL_FONT_ID, 16, y + 4, timeBuf);
-  GUI.drawBatteryRight(renderer, Rect{screenWidth - 12 - 15, y + 4, 15, 12},
-                       SETTINGS.hideBatteryPercentage != CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_ALWAYS);
+  int y = content.y + 2;
 
-  const uint32_t streakDays = READING_STATS.getCurrentStreakDays();
-  if (streakDays > 0) {
-    char streakBuf[24] = {};
-    snprintf(streakBuf, sizeof(streakBuf), tr(STR_STREAK_DAYS_FMT), static_cast<int>(streakDays));
-    const int streakW = renderer.getTextWidth(UI_10_FONT_ID, streakBuf, EpdFontFamily::BOLD);
-    renderer.drawText(UI_10_FONT_ID, (screenWidth - streakW) / 2, y + 4, streakBuf, true, EpdFontFamily::BOLD);
+  // 1. Top Section Header: "阅读统计" + "本月 5.2 小时" + 1px divider line
+  renderer.drawText(UI_12_FONT_ID, pad, y, "阅读统计", true, EpdFontFamily::BOLD);
+
+  const uint64_t thisMonthMs = READING_STATS.getRecentReadingMs(30);
+  const unsigned long long monthMins = (thisMonthMs + 30000ULL) / 60000ULL;
+  char goalBuf[32] = {};
+  if (monthMins >= 60) {
+    snprintf(goalBuf, sizeof(goalBuf), "本月 %.1f 小时", static_cast<double>(monthMins) / 60.0);
+  } else {
+    snprintf(goalBuf, sizeof(goalBuf), "本月 %llu 分钟", monthMins);
   }
-  y += statusH;
+  const int goalW = renderer.getTextWidth(SMALL_FONT_ID, goalBuf);
+  renderer.drawText(SMALL_FONT_ID, pad + contentW - goalW, y + 2, goalBuf);
 
-  const int volH = innerPad + smallH + 6 + ui12H + innerPad;
-  const Rect vol{pad, y, screenWidth - pad * 2, volH};
-  InxInkCards::drawCard(renderer, vol);
+  y += ui12H + 6;
+  renderer.drawLine(pad, y, pad + contentW, y, 1, true);
+  y += 14;
+
+  // 2. Stats Trio Summary: 3 rounded cards
+  const int chipGap = 12;
+  const int chipW = (contentW - chipGap * 2) / 3;
+  const int chipH = 88;
+  const uint64_t todayMs = READING_STATS.getTodayReadingMs();
+  const uint64_t last7dMs = READING_STATS.getRecentReadingMs(7);
+  const uint64_t monthMs = READING_STATS.getRecentReadingMs(30);
+
+  // Today Card
   {
-    const GfxRenderer::ClipScope clip(renderer, vol.x + 2, vol.y + 2, vol.width - 4, vol.height - 4);
-    const int cellW = vol.width / 3;
-    const char* volLabels[] = {tr(STR_TODAY_READING), tr(STR_LAST_7D), tr(STR_THIS_MONTH_READING)};
-    const uint64_t volMs[] = {READING_STATS.getTodayReadingMs(), READING_STATS.getRecentReadingMs(7),
-                              READING_STATS.getRecentReadingMs(30)};
-    const int labelY = vol.y + innerPad;
-    const int valueY = labelY + smallH + 6;
-    for (int i = 0; i < 3; ++i) {
-      const int cx = vol.x + cellW * i + cellW / 2;
-      const int labW = renderer.getTextWidth(SMALL_FONT_ID, volLabels[i]);
-      renderer.drawText(SMALL_FONT_ID, cx - labW / 2, labelY, volLabels[i]);
-      char value[24] = {};
-      ReadingStatsAnalytics::formatDurationLabel(volMs[i], value, sizeof(value));
-      const int valueW = renderer.getTextWidth(UI_12_FONT_ID, value, EpdFontFamily::BOLD);
-      renderer.drawText(UI_12_FONT_ID, cx - valueW / 2, valueY, value, true, EpdFontFamily::BOLD);
-      if (i > 0) renderer.drawLine(vol.x + cellW * i, vol.y + 10, vol.x + cellW * i, vol.y + vol.height - 10);
+    const Rect r{pad, y, chipW, chipH};
+    InxInkCards::drawCard(renderer, r, 6);
+    const char* label = "今日";
+    const int lw = renderer.getTextWidth(SMALL_FONT_ID, label);
+    renderer.drawText(SMALL_FONT_ID, r.x + (r.width - lw) / 2, r.y + 12, label);
+
+    char numBuf[16] = {};
+    const unsigned long long todayMins = (todayMs + 30000ULL) / 60000ULL;
+    snprintf(numBuf, sizeof(numBuf), "%llu", todayMins);
+    const int nw = renderer.getTextWidth(NOTOSERIF_14_FONT_ID, numBuf, EpdFontFamily::BOLD);
+    const int uw = renderer.getTextWidth(SMALL_FONT_ID, "分");
+    const int totalW = nw + 2 + uw;
+    const int startX = r.x + (r.width - totalW) / 2;
+    const int valY = r.y + 36;
+    renderer.drawText(NOTOSERIF_14_FONT_ID, startX, valY, numBuf, true, EpdFontFamily::BOLD);
+    renderer.drawText(SMALL_FONT_ID, startX + nw + 2, valY + (renderer.getLineHeight(NOTOSERIF_14_FONT_ID) - smallH), "分");
+  }
+
+  // Last 7 Days Card
+  {
+    const Rect r{pad + chipW + chipGap, y, chipW, chipH};
+    InxInkCards::drawCard(renderer, r, 6);
+    const char* label = "近 7 天";
+    const int lw = renderer.getTextWidth(SMALL_FONT_ID, label);
+    renderer.drawText(SMALL_FONT_ID, r.x + (r.width - lw) / 2, r.y + 12, label);
+
+    char numBuf[16] = {};
+    const unsigned long long mins = (last7dMs + 30000ULL) / 60000ULL;
+    snprintf(numBuf, sizeof(numBuf), "%llu", mins);
+    const int nw = renderer.getTextWidth(NOTOSERIF_14_FONT_ID, numBuf, EpdFontFamily::BOLD);
+    const int uw = renderer.getTextWidth(SMALL_FONT_ID, "分");
+    const int totalW = nw + 2 + uw;
+    const int startX = r.x + (r.width - totalW) / 2;
+    const int valY = r.y + 36;
+    renderer.drawText(NOTOSERIF_14_FONT_ID, startX, valY, numBuf, true, EpdFontFamily::BOLD);
+    renderer.drawText(SMALL_FONT_ID, startX + nw + 2, valY + (renderer.getLineHeight(NOTOSERIF_14_FONT_ID) - smallH), "分");
+  }
+
+  // Month Card
+  {
+    const Rect r{pad + (chipW + chipGap) * 2, y, chipW, chipH};
+    InxInkCards::drawCard(renderer, r, 6);
+    const char* label = "本月";
+    const int lw = renderer.getTextWidth(SMALL_FONT_ID, label);
+    renderer.drawText(SMALL_FONT_ID, r.x + (r.width - lw) / 2, r.y + 12, label);
+
+    char numBuf[16] = {};
+    const unsigned long long mins = (monthMs + 30000ULL) / 60000ULL;
+    const char* unit = "分";
+    if (mins >= 60) {
+      const double hrs = static_cast<double>(mins) / 60.0;
+      snprintf(numBuf, sizeof(numBuf), "%.1f", hrs);
+      unit = "时";
+    } else {
+      snprintf(numBuf, sizeof(numBuf), "%llu", mins);
     }
-  }
-  y += volH + sectionGap;
-
-  const int bottom = content.y + content.height - 12;
-  const int partH = daypartCardHeight(renderer);
-  const int bookRowH = ui10H + 6;
-  const int bookH = innerPad + ui10H + 6 + bookRowH + innerPad;
-  const int minChart = innerPad + ui10H + 4 + ui10H + 8 + 36 + ui10H + innerPad;
-  int chartH = bottom - y - partH - bookH - sectionGap * 2;
-  bool showBooks = true;
-  if (chartH < minChart) {
-    showBooks = false;
-    chartH = bottom - y - partH - sectionGap;
-  }
-  if (chartH < minChart) {
-    chartH = std::max(72, bottom - y - sectionGap - std::min(partH, (bottom - y) / 2));
+    const int nw = renderer.getTextWidth(NOTOSERIF_14_FONT_ID, numBuf, EpdFontFamily::BOLD);
+    const int uw = renderer.getTextWidth(SMALL_FONT_ID, unit);
+    const int totalW = nw + 2 + uw;
+    const int startX = r.x + (r.width - totalW) / 2;
+    const int valY = r.y + 36;
+    renderer.drawText(NOTOSERIF_14_FONT_ID, startX, valY, numBuf, true, EpdFontFamily::BOLD);
+    renderer.drawText(SMALL_FONT_ID, startX + nw + 2, valY + (renderer.getLineHeight(NOTOSERIF_14_FONT_ID) - smallH), unit);
   }
 
-  const Rect chart{pad, y, screenWidth - pad * 2, chartH};
-  InxInkCards::drawCard(renderer, chart);
+  y += chipH + 16;
+
+  // 3. Bar Chart Box ("近 7 天（分钟）" + "日均 17.7 分钟")
+  const int chartH = 240;
+  const Rect chart{pad, y, contentW, chartH};
+  InxInkCards::drawCard(renderer, chart, 8);
+
+  const int innerPad = 16;
   const int headerY = chart.y + innerPad;
-  char chartTitleWithUnit[32] = {};
-  snprintf(chartTitleWithUnit, sizeof(chartTitleWithUnit), "%s (分钟)", tr(STR_LAST_7D));
-  renderer.drawText(UI_10_FONT_ID, chart.x + innerPad, headerY, chartTitleWithUnit, true, EpdFontFamily::BOLD);
-  const char* more = tr(STR_MORE);
-  const int moreW = renderer.getTextWidth(UI_10_FONT_ID, more);
-  const int moreX = chart.x + chart.width - innerPad - moreW;
-  renderer.drawText(UI_10_FONT_ID, moreX, headerY, more);
-  moreHitRect_ = Rect{moreX - 8, headerY - 4, moreW + 16, ui10H + 12};
+  renderer.drawText(UI_10_FONT_ID, chart.x + innerPad, headerY, "近 7 天（分钟）", true, EpdFontFamily::BOLD);
+
+  const double avgMins = static_cast<double>((last7dMs + 30000ULL) / 60000ULL) / 7.0;
+  char avgBuf[32] = {};
+  snprintf(avgBuf, sizeof(avgBuf), "日均 %.1f 分钟", avgMins);
+  const int avgW = renderer.getTextWidth(SMALL_FONT_ID, avgBuf);
+  renderer.drawText(SMALL_FONT_ID, chart.x + chart.width - innerPad - avgW, headerY + 1, avgBuf);
 
   const auto& days = READING_STATS.getReadingDays();
   uint32_t refDay = TimeUtils::getLocalDayOrdinal(READING_STATS.getDisplayTimestamp());
   if (refDay == 0 && !days.empty()) refDay = days.back().dayOrdinal;
-  uint64_t maxMs = 1;
+  uint64_t maxMs = 60000ULL * 10;
   uint64_t dayMs[kInxDayBars] = {};
-  char dayLabel[kInxDayBars][4] = {};
-  char topLabel[kInxDayBars][24] = {};
+  char dayLabel[kInxDayBars][8] = {};
   for (int i = 0; i < kInxDayBars; ++i) {
     const uint32_t ordinal = (refDay >= static_cast<uint32_t>(6 - i)) ? refDay - static_cast<uint32_t>(6 - i) : 0;
     dayBarOrdinal_[i] = ordinal;
@@ -567,89 +672,340 @@ void ReadingStatsActivity::renderInx() {
     unsigned month = 0;
     unsigned day = 0;
     if (ordinal != 0 && TimeUtils::getDateFromDayOrdinal(ordinal, year, month, day)) {
-      snprintf(dayLabel[i], sizeof(dayLabel[i]), "%u", day);
+      snprintf(dayLabel[i], sizeof(dayLabel[i]), "%u日", day);
     }
     for (const auto& entry : days) {
       if (entry.dayOrdinal == ordinal) {
         dayMs[i] = entry.readingMs;
         if (entry.readingMs > maxMs) maxMs = entry.readingMs;
-        if (entry.readingMs > 0) {
-          ReadingStatsAnalytics::formatDurationLabel(entry.readingMs, topLabel[i], sizeof(topLabel[i]));
-        }
         break;
       }
     }
   }
 
-  const int titleBottom = headerY + ui10H;
-  const int plotTop = titleBottom + 8;
-  const int plotBottom = chart.y + chart.height - innerPad - smallH - 4;
-  const int plotH = std::max(16, plotBottom - plotTop - ui10H - 2);
-  const int gap = 8;
-  const int barW = std::max(8, (chart.width - innerPad * 2 - gap * 6) / 7);
-  {
-    const GfxRenderer::ClipScope clip(renderer, chart.x + 2, chart.y + 2, chart.width - 4, chart.height - 4);
-    renderer.drawLine(chart.x + innerPad, plotBottom, chart.x + chart.width - innerPad, plotBottom);
-    for (int i = 0; i < kInxDayBars; ++i) {
-      const int barX = chart.x + innerPad + i * (barW + gap);
-      dayBarHit_[i] = Rect{barX - gap / 2, plotTop, barW + gap, std::max(1, (chart.y + chart.height - 6) - plotTop)};
-      if (dayMs[i] > 0) {
-        int barH = static_cast<int>(dayMs[i] * static_cast<uint64_t>(plotH) / maxMs);
-        if (barH < 4) barH = 4;
-        if (barH > plotH) barH = plotH;
-        renderer.fillRect(barX, plotBottom - barH, barW, barH);
+  const int plotTop = headerY + ui10H + 24;
+  const int plotBottom = chart.y + chart.height - innerPad - smallH - 6;
+  const int plotH = plotBottom - plotTop;
+  const int barW = 22;
+  const int chartInnerW = chart.width - innerPad * 2;
+  const int barGap = (chartInnerW - barW * kInxDayBars) / (kInxDayBars - 1);
+  const int barStartX = chart.x + innerPad;
 
-        char minutesBuf[8] = {};
-        const unsigned long long mins = static_cast<unsigned long long>((dayMs[i] + 30000ULL) / 60000ULL);
-        snprintf(minutesBuf, sizeof(minutesBuf), "%llu", mins > 0 ? mins : 1ULL);
-        const int tw = renderer.getTextWidth(UI_10_FONT_ID, minutesBuf, EpdFontFamily::BOLD);
-        const int labelY = plotBottom - barH - ui10H - 2;
-        renderer.drawText(UI_10_FONT_ID, barX + (barW - tw) / 2, labelY, minutesBuf, true, EpdFontFamily::BOLD);
+  renderer.drawLine(chart.x + innerPad, plotBottom, chart.x + chart.width - innerPad, plotBottom, 1, true);
+
+  for (int i = 0; i < kInxDayBars; ++i) {
+    const int barX = barStartX + i * (barW + barGap);
+    dayBarHit_[i] = Rect{barX - barGap / 2, plotTop - 16, barW + barGap, plotH + 32};
+    const bool isToday = (i == kInxDayBars - 1);
+
+    if (dayMs[i] > 0) {
+      int barH = static_cast<int>(dayMs[i] * static_cast<uint64_t>(plotH) / maxMs);
+      if (barH < 6) barH = 6;
+      if (barH > plotH) barH = plotH;
+      renderer.fillRect(barX, plotBottom - barH, barW, barH, true);
+      if (isToday) {
+        renderer.drawRect(barX - 2, plotBottom - barH - 2, barW + 4, barH + 2);
       }
-      if (dayLabel[i][0] != '\0') {
-        const int tw = renderer.getTextWidth(SMALL_FONT_ID, dayLabel[i]);
-        renderer.drawText(SMALL_FONT_ID, barX + (barW - tw) / 2, plotBottom + 4, dayLabel[i]);
-      }
-    }
-  }
-  y += chartH + sectionGap;
-
-  const Rect parts{pad, y, screenWidth - pad * 2, partH};
-  InxInkCards::drawCard(renderer, parts);
-  uint64_t dayparts[ReadingStatsAnalytics::DAYPART_COUNT] = {};
-  const uint32_t today = TimeUtils::getLocalDayOrdinal(READING_STATS.getDisplayTimestamp());
-  ReadingStatsAnalytics::getDayDaypartMs(today, dayparts);
-  {
-    const GfxRenderer::ClipScope clip(renderer, parts.x + 2, parts.y + 2, parts.width - 4, parts.height - 4);
-    drawDaypartRows(renderer, parts, dayparts, tr(STR_TODAY_READING_DAYPART));
-  }
-  y += partH + sectionGap;
-
-  if (showBooks && y + 40 < bottom) {
-    const Rect booksCard{pad, y, screenWidth - pad * 2, std::min(bookH, std::max(0, bottom - y))};
-    InxInkCards::drawCard(renderer, booksCard);
-    renderer.drawText(UI_10_FONT_ID, booksCard.x + innerPad, booksCard.y + innerPad, tr(STR_NOW_READING), true,
-                      EpdFontFamily::BOLD);
-    const auto& books = READING_STATS.getBooks();
-    if (books.empty()) {
-      renderer.drawText(UI_10_FONT_ID, booksCard.x + innerPad, booksCard.y + innerPad + ui10H + 6,
-                        tr(STR_NO_READING_STATS));
+      char valBuf[8] = {};
+      const unsigned long long mins = (dayMs[i] + 30000ULL) / 60000ULL;
+      snprintf(valBuf, sizeof(valBuf), "%llu", mins > 0 ? mins : 1ULL);
+      const int tw = renderer.getTextWidth(UI_10_FONT_ID, valBuf, EpdFontFamily::BOLD);
+      renderer.drawText(UI_10_FONT_ID, barX + (barW - tw) / 2, plotBottom - barH - ui10H - 2, valBuf, true, EpdFontFamily::BOLD);
     } else {
-      const int rowTop = booksCard.y + innerPad + ui10H + 6;
-      bookPreviewCount_ = 1;
-      bookPreviewIndex_[0] = 0;
-      bookPreviewHit_[0] = Rect{booksCard.x + 8, rowTop, booksCard.width - 16, bookRowH};
-      char duration[24] = {};
-      ReadingStatsAnalytics::formatDurationLabel(books[0].totalReadingMs, duration, sizeof(duration));
-      const int durW = renderer.getTextWidth(UI_10_FONT_ID, duration);
-      const std::string title = renderer.truncatedText(UI_10_FONT_ID, getBookTitle(books[0]).c_str(),
-                                                       booksCard.width - innerPad * 2 - durW - 12, EpdFontFamily::BOLD);
-      renderer.drawText(UI_10_FONT_ID, booksCard.x + innerPad, rowTop, title.c_str(), true, EpdFontFamily::BOLD);
-      renderer.drawText(UI_10_FONT_ID, booksCard.x + booksCard.width - innerPad - durW, rowTop, duration);
+      const int dw = renderer.getTextWidth(SMALL_FONT_ID, "—");
+      renderer.drawText(SMALL_FONT_ID, barX + (barW - dw) / 2, plotBottom - smallH - 2, "—");
+    }
+
+    const char* dateStr = isToday ? "今日" : dayLabel[i];
+    const auto dateStyle = isToday ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+    const int dw = renderer.getTextWidth(SMALL_FONT_ID, dateStr, dateStyle);
+    const int dateX = barX + (barW - dw) / 2;
+    const int dateY = plotBottom + 6;
+    renderer.drawText(SMALL_FONT_ID, dateX, dateY, dateStr, true, dateStyle);
+    if (isToday) {
+      renderer.drawLine(dateX, dateY + smallH, dateX + dw, dateY + smallH, 2, true);
     }
   }
 
+  y += chartH + 16;
+
+  // 4. Reading Timeline Box ("今日阅读时段" + "峰值 21–23 点")
+  const int timelineBoxH = 110;
+  const Rect timelineCard{pad, y, contentW, timelineBoxH};
+  InxInkCards::drawCard(renderer, timelineCard, 8);
+
+  const int timeHeaderY = timelineCard.y + 14;
+  renderer.drawText(UI_10_FONT_ID, timelineCard.x + innerPad, timeHeaderY, "今日阅读时段", true, EpdFontFamily::BOLD);
+
+  uint64_t maxHourMs = 0;
+  uint8_t peakHour = 0;
+  const uint32_t today = TimeUtils::getLocalDayOrdinal(READING_STATS.getDisplayTimestamp());
+  for (uint8_t h = 0; h < 24; ++h) {
+    const uint64_t hMs = READING_STATS.getDayHourReadingMs(today, h);
+    if (hMs > maxHourMs) {
+      maxHourMs = hMs;
+      peakHour = h;
+    }
+  }
+  if (maxHourMs > 0) {
+    char peakBuf[32] = {};
+    const uint8_t nextHour = (peakHour + 1 < 24) ? peakHour + 1 : 24;
+    const uint64_t nextHourMs = (nextHour < 24) ? READING_STATS.getDayHourReadingMs(today, nextHour) : 0;
+    if (nextHourMs >= maxHourMs / 2 && nextHourMs >= 60000ULL * 15) {
+      const uint8_t endHour = (peakHour + 2 <= 24) ? peakHour + 2 : 24;
+      snprintf(peakBuf, sizeof(peakBuf), "峰值 %02u:00–%02u:00", peakHour, endHour);
+    } else {
+      snprintf(peakBuf, sizeof(peakBuf), "峰值 %02u:00–%02u:00", peakHour, nextHour);
+    }
+    const int peakW = renderer.getTextWidth(SMALL_FONT_ID, peakBuf);
+    renderer.drawText(SMALL_FONT_ID, timelineCard.x + timelineCard.width - innerPad - peakW, timeHeaderY + 1, peakBuf);
+  }
+  const int trackY = timeHeaderY + ui10H + 8;
+  const int trackW = timelineCard.width - innerPad * 2;
+  const int trackH = 16;
+  const int trackX = timelineCard.x + innerPad;
+
+  // Pure white track with 1px black outline (No muddy gray dithering on e-ink!)
+  renderer.fillRoundedRect(trackX, trackY, trackW, trackH, 4, Color::White);
+  renderer.drawRoundedRect(trackX, trackY, trackW, trackH, 1, 4, true);
+
+  for (int h = 0; h < 24; ++h) {
+    const int segX = trackX + h * trackW / 24;
+    const int nextX = trackX + (h + 1) * trackW / 24;
+    const int segW = std::max(1, nextX - segX);
+    const uint64_t hMs = READING_STATS.getDayHourReadingMs(today, static_cast<uint8_t>(h));
+    const unsigned mins = static_cast<unsigned>((hMs + 30000ULL) / 60000ULL);
+
+    if (mins >= 30) {
+      // Heavy reading (>= 30 mins): full solid black block
+      renderer.fillRect(segX, trackY + 1, segW, trackH - 2, true);
+    } else if (mins >= 10) {
+      // Moderate reading (10..29 mins): 8px height central block
+      const int barH = 8;
+      renderer.fillRect(segX, trackY + (trackH - barH) / 2, segW, barH, true);
+    } else if (mins > 0) {
+      // Light reading (1..9 mins): subtle 4px central tick
+      const int barH = 4;
+      renderer.fillRect(segX, trackY + (trackH - barH) / 2, segW, barH, true);
+    } else if (h > 0) {
+      // Subtle 1px notch separating empty hours
+      renderer.drawLine(segX, trackY + 3, segX, trackY + trackH - 4, 1, true);
+    }
+  }
+  const int lblY = trackY + trackH + 6;
+  static const char* const kLabels[5] = {"00:00", "06:00", "12:00", "18:00", "23:59"};
+  static const int kHourFraction[5] = {0, 6, 12, 18, 24};
+  for (int t = 0; t < 5; ++t) {
+    const int lw = renderer.getTextWidth(SMALL_FONT_ID, kLabels[t]);
+    int lx = trackX + kHourFraction[t] * trackW / 24 - lw / 2;
+    if (t == 0) lx = trackX + 2;
+    if (t == 4) lx = trackX + trackW - lw - 2;
+    renderer.drawText(SMALL_FONT_ID, lx, lblY, kLabels[t]);
+  }
+  y += timelineBoxH + 14;
+
+  // 5. Daypart Breakdown Card ("时段阅读明细" - 4-Quadrant clean summary)
+  const int daypartCardH = 138;
+  const Rect daypartCard{pad, y, contentW, daypartCardH};
+  InxInkCards::drawCard(renderer, daypartCard, 8);
+
+  const int dpHeaderY = daypartCard.y + 12;
+  renderer.drawText(UI_10_FONT_ID, daypartCard.x + innerPad, dpHeaderY, "时段阅读明细", true, EpdFontFamily::BOLD);
+
+  uint64_t dayparts[ReadingStatsAnalytics::DAYPART_COUNT] = {};
+  ReadingStatsAnalytics::getDayDaypartMs(today, dayparts);
+
+  const int gridTop = dpHeaderY + ui10H + 10;
+  const int colW = (daypartCard.width - innerPad * 2) / 2;
+  const int rowH = (daypartCard.y + daypartCard.height - innerPad - gridTop) / 2;
+
+  // Subtle cross dividers inside the card
+  renderer.drawLine(daypartCard.x + innerPad, gridTop + rowH, daypartCard.x + daypartCard.width - innerPad, gridTop + rowH, 1, false);
+  renderer.drawLine(daypartCard.x + innerPad + colW, gridTop + 2, daypartCard.x + innerPad + colW, daypartCard.y + daypartCard.height - innerPad - 2, 1, false);
+
+  for (int i = 0; i < ReadingStatsAnalytics::DAYPART_COUNT; ++i) {
+    const int col = i % 2;
+    const int row = i / 2;
+    const int cellX = daypartCard.x + innerPad + col * colW + (col == 1 ? 12 : 0);
+    const int cellY = gridTop + row * rowH + (rowH - ui10H) / 2;
+
+    char durStr[24] = {};
+    ReadingStatsAnalytics::formatDurationLabel(dayparts[i], durStr, sizeof(durStr));
+    const int durW = renderer.getTextWidth(UI_10_FONT_ID, durStr, EpdFontFamily::BOLD);
+
+    // Category label in clear, prominent UI_10_FONT_ID bold
+    const char* catName = daypartLabel(i);
+    renderer.drawText(UI_10_FONT_ID, cellX, cellY, catName, true, EpdFontFamily::BOLD);
+    const int catW = renderer.getTextWidth(UI_10_FONT_ID, catName, EpdFontFamily::BOLD);
+
+    // Time range in smaller font next to it
+    char hourRange[16] = {};
+    snprintf(hourRange, sizeof(hourRange), " %s", kDaypartHours[i]);
+    renderer.drawText(SMALL_FONT_ID, cellX + catW + 2, cellY + (ui10H - smallH), hourRange);
+
+    // Duration in UI_10_FONT_ID bold on the right
+    renderer.drawText(UI_10_FONT_ID, cellX + colW - (col == 1 ? 12 : 8) - durW, cellY, durStr, true, EpdFontFamily::BOLD);
+  }
   const auto labels = mainTabButtonLabels(tr(STR_BACK), tr(STR_MORE), false);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  renderer.displayBuffer();
+}
+
+void ReadingStatsActivity::renderPaper() {
+  renderer.clearScreen();
+  const auto& m = GUI.paperMetrics();
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  drawPageHeader(Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight}, tr(STR_PAPER_JOURNAL));
+  const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
+  const GfxRenderer::ClipScope clip(renderer, content.x, content.y, content.width, content.height);
+  const int x = content.x + m.padding;
+  const int width = content.width - m.padding * 2;
+  const bool wide = content.width > content.height;
+  const int textFont = wide ? m.smallFont : m.bookFont;
+  const int textH = renderer.getLineHeight(textFont);
+  const int numberH = renderer.getLineHeight(m.numberFont);
+  const int focus = selectedIndex;
+  const bool showFocus = showMainTabContentSelection();
+  uint64_t dayMs[kInxDayBars] = {};
+  uint64_t totalMs = 0;
+  uint64_t maxMs = 60000;
+  unsigned readDays = 0;
+  int peak = 0;
+  const auto& days = READING_STATS.getReadingDays();
+  uint32_t reference = TimeUtils::getLocalDayOrdinal(READING_STATS.getDisplayTimestamp());
+  if (reference == 0 && !days.empty()) reference = days.back().dayOrdinal;
+  for (int i = 0; i < kInxDayBars; ++i) {
+    const uint32_t ordinal = reference >= static_cast<uint32_t>(6 - i) ? reference - (6 - i) : 0;
+    dayBarOrdinal_[i] = ordinal;
+    dayBarHit_[i] = Rect{};
+    for (const auto& entry : days) {
+      if (entry.dayOrdinal == ordinal && ordinal != 0) {
+        dayMs[i] = entry.readingMs;
+        break;
+      }
+    }
+    totalMs += dayMs[i];
+    if (dayMs[i] > 0) ++readDays;
+    if (dayMs[i] > maxMs) maxMs = dayMs[i];
+    if (dayMs[i] > dayMs[peak]) peak = i;
+  }
+  bookPreviewCount_ = 0;
+  char range[32] = {};
+  if (reference >= 6) {
+    int year;
+    unsigned month, day, endMonth, endDay;
+    TimeUtils::getDateFromDayOrdinal(reference - 6, year, month, day);
+    TimeUtils::getDateFromDayOrdinal(reference, year, endMonth, endDay);
+    snprintf(range, sizeof(range), "%02u.%02u - %02u.%02u", month, day, endMonth, endDay);
+  }
+  GUI.drawPaperStatus(renderer, Rect{content.x, content.y, content.width, m.statusHeight});
+  const int top = GUI.drawPaperHeading(renderer, Rect{x, content.y + m.statusHeight, width, m.headingHeight},
+                                       tr(STR_PAPER_JOURNAL), range) +
+                  16;
+  const int actionHeight = std::max(44, textH + 12);
+  moreHitRect_ = Rect{x, content.y + content.height - actionHeight - 6, width, actionHeight};
+  const int summaryWidth = (width - m.gap) * 3 / 5;
+  GUI.drawPaperText(renderer, Rect{x, top, summaryWidth, textH}, textFont, tr(STR_PAPER_LAST_WEEK));
+  char minutes[24] = {};
+  formatPaperMinutes(totalMs, minutes, sizeof(minutes));
+  const int valueY = top + textH + 6;
+  const int valueW = std::min(summaryWidth, renderer.getTextWidth(m.numberFont, minutes, EpdFontFamily::BOLD));
+  GUI.drawPaperText(renderer, Rect{x, valueY, valueW, numberH}, m.numberFont, minutes, true);
+  if (valueW + 12 < summaryWidth) {
+    GUI.drawPaperText(renderer, Rect{x + valueW + 10, valueY + numberH - textH, summaryWidth - valueW - 10, textH},
+                      textFont, tr(STR_MINUTES_UNIT));
+  }
+  const int sideX = x + summaryWidth + m.gap;
+  const int sideW = width - summaryWidth - m.gap;
+  char summary[64] = {};
+  char todayMinutes[24] = {};
+  formatPaperMinutes(dayMs[6], todayMinutes, sizeof(todayMinutes));
+  snprintf(summary, sizeof(summary), tr(STR_PAPER_TODAY_MIN_FMT), todayMinutes);
+  const int todayLines = renderer.getTextWidth(textFont, summary) > sideW ? 2 : 1;
+  const int sideHeight = (todayLines + 1) * textH + 12;
+  const int summaryHeight = std::max(textH + 6 + numberH, sideHeight);
+  const int sideY = top + (summaryHeight - sideHeight) / 2;
+  GUI.drawPaperText(renderer, Rect{sideX, sideY, sideW, todayLines * textH}, textFont, summary, false, todayLines);
+  snprintf(summary, sizeof(summary), tr(STR_PAPER_DAYS_SHORT_FMT), readDays);
+  GUI.drawPaperText(renderer, Rect{sideX, sideY + todayLines * textH + 12, sideW, textH}, textFont, summary);
+  const int summaryBottom = top + summaryHeight;
+  const int chartX = x;
+  const int chartW = width;
+  const int chartY = summaryBottom + 18;
+  const int lowerReserve = wide ? 8 : textH * 2 + 80 + (totalMs ? textH + 12 : 0);
+  const int chartH = std::min(wide ? 140 : 260, std::max(100, moreHitRect_.y - chartY - lowerReserve));
+  GUI.drawPaperText(renderer, Rect{chartX, chartY, chartW, textH}, textFont, tr(STR_PAPER_RHYTHM), true);
+  const int plotTop = chartY + textH + textH + 16;
+  const int plotBottom = chartY + chartH - textH - 8;
+  const int plotH = std::max(1, plotBottom - plotTop);
+  for (int i = 0; i < kInxDayBars; ++i) {
+    const int left = chartX + chartW * i / kInxDayBars;
+    const int right = chartX + chartW * (i + 1) / kInxDayBars;
+    const int barW = std::min(34, (right - left) * 3 / 5);
+    const int barX = left + (right - left - barW) / 2;
+    const int barH = dayMs[i] ? std::max(2, static_cast<int>(dayMs[i] * plotH / maxMs)) : 0;
+    if (barH > 0) GUI.drawPaperBar(renderer, Rect{barX, plotBottom - barH, barW, barH}, true);
+    char value[16] = {};
+    formatPaperMinutes(dayMs[i], value, sizeof(value));
+    const int valueWidth = std::min(right - left - 4, renderer.getTextWidth(textFont, value));
+    GUI.drawPaperText(renderer,
+                      Rect{left + (right - left - valueWidth) / 2, plotBottom - barH - textH - 4, valueWidth, textH},
+                      textFont, value);
+    char date[12] = {};
+    int year;
+    unsigned month, day;
+    if (dayBarOrdinal_[i]) {
+      TimeUtils::getDateFromDayOrdinal(dayBarOrdinal_[i], year, month, day);
+      snprintf(date, sizeof(date), "%u", day);
+    } else {
+      snprintf(date, sizeof(date), "-");
+    }
+    const char* label = i == 6 ? tr(STR_PAPER_TODAY) : date;
+    const int labelWidth = std::min(right - left - 4, renderer.getTextWidth(textFont, label));
+    GUI.drawPaperText(renderer, Rect{left + (right - left - labelWidth) / 2, plotBottom + 6, labelWidth, textH},
+                      textFont, label, i == 6);
+    if (i == 6)
+      GUI.drawPaperRule(renderer, Rect{left + (right - left - labelWidth) / 2, plotBottom + textH + 7, labelWidth, 2},
+                        2);
+    dayBarHit_[i] = Rect{left, chartY + textH + 4, right - left, chartH - textH - 4};
+    if (showFocus && focus == i + 1) GUI.drawPaperFocus(renderer, dayBarHit_[i]);
+  }
+  GUI.drawPaperRule(renderer, Rect{chartX, plotBottom, chartW, 1});
+  int y = chartY + chartH + 12;
+  if (totalMs && y + textH <= moreHitRect_.y - 8) {
+    char peakText[96] = {};
+    int year;
+    unsigned month, day;
+    TimeUtils::getDateFromDayOrdinal(dayBarOrdinal_[peak], year, month, day);
+    char peakMinutes[24] = {};
+    formatPaperMinutes(dayMs[peak], peakMinutes, sizeof(peakMinutes));
+    snprintf(peakText, sizeof(peakText), tr(STR_PAPER_PEAK_DAY_FMT), month, day, peakMinutes);
+    y = GUI.drawPaperText(renderer, Rect{x, y, width, textH}, textFont, peakText) + 12;
+  }
+  if (!wide && y + textH + textH + 58 <= moreHitRect_.y - 8) {
+    GUI.drawPaperRule(renderer, Rect{x, y, width, 1});
+    y += 10;
+    y = GUI.drawPaperText(renderer, Rect{x, y, width, textH}, textFont, tr(STR_TODAY_READING_DAYPART), true) + 8;
+    const int trackY = y;
+    GUI.drawPaperRule(renderer, Rect{x, trackY + 10, width, 1});
+    for (int h = 0; h < 24; ++h) {
+      const int left = x + width * h / 24;
+      const int right = x + width * (h + 1) / 24;
+      const bool active = READING_STATS.getDayHourReadingMs(reference, h) > 0;
+      GUI.drawPaperBar(renderer, Rect{left, trackY + 8, 1, 5}, true);
+      if (active) GUI.drawPaperBar(renderer, Rect{left + 1, trackY, std::max(1, right - left - 2), 22}, true);
+    }
+    y += 28;
+    static constexpr const char* ticks[] = {"00", "06", "12", "18", "24"};
+    for (int i = 0; i < 5; ++i) {
+      const int tickW = renderer.getTextWidth(textFont, ticks[i]);
+      const int tickX = std::clamp(x + width * i / 4 - tickW / 2, x, x + width - tickW);
+      GUI.drawPaperText(renderer, Rect{tickX, y, tickW, textH}, textFont, ticks[i]);
+    }
+    y += textH + 8;
+  }
+  GUI.drawPaperAction(renderer, moreHitRect_, tr(STR_MORE_DETAILS), showFocus && focus == 0);
+  const auto labels = mainTabButtonLabels(tr(STR_BACK), tr(STR_SELECT), true);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

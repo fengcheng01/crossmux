@@ -342,10 +342,13 @@ inline const std::vector<SettingInfo>& getBaseSettingsList() {
                             "extraParagraphSpacing", StrId::STR_CAT_READER)
             .withTextSettings(),
 #if FREEINK_DEVICE_MURPHY_M4
-        SettingInfo::Enum(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing,
-                          {StrId::STR_STATE_OFF, StrId::STR_AA_OVERLAY, StrId::STR_AA_COMBINED, StrId::STR_AA_DIRECT,
-                           StrId::STR_AA_SWIFT},
-                          "textAntiAliasing", StrId::STR_CAT_READER)
+        SettingInfo::DynamicEnum(
+            StrId::STR_TEXT_AA,
+            {StrId::STR_STATE_OFF, StrId::STR_AA_OVERLAY, StrId::STR_AA_DIRECT,
+             StrId::STR_AA_SWIFT, StrId::STR_AA_SINGLE_FLASH, StrId::STR_AA_WHITE_FLASH},
+            [] { return CrossPointSettings::aaModeToIndex(SETTINGS.textAntiAliasing); },
+            [](uint8_t index) { SETTINGS.textAntiAliasing = CrossPointSettings::aaModeFromIndex(index); },
+            "textAntiAliasing", StrId::STR_CAT_READER)
             .withTextSettings(),
 #else
         SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",

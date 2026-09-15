@@ -14,6 +14,7 @@
 #include <iterator>
 
 #include "AppVisibilitySettingsActivity.h"
+#include "MainTabOrderSettingsActivity.h"
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
@@ -41,7 +42,7 @@
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
-#include "fontIds.h"
+#include "components/icons/listIcons.h"
 #include "util/ReadingBackground.h"
 
 namespace fui = freeink::ui;
@@ -216,6 +217,9 @@ void SettingsActivity::rebuildSettingsLists() {
 
   for (auto& setting : getSettingsList(&sdFontSystem.registry(), &dictionaries)) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
+    if (GUI.usesPaperStyle() && (setting.valuePtr == &CrossPointSettings::inxLibraryLayout ||
+                                 setting.valuePtr == &CrossPointSettings::inxAppsLayout))
+      continue;
     if (!usesAccordion() && (setting.valuePtr == &CrossPointSettings::inxRecentLayout ||
                              setting.valuePtr == &CrossPointSettings::inxLibraryLayout ||
                              setting.valuePtr == &CrossPointSettings::inxAppsLayout)) {
@@ -269,6 +273,8 @@ void SettingsActivity::rebuildSettingsLists() {
   // Lock-screen PIN management sits with its toggle (the System settings rows
   // draw before the appended actions, so this lands directly under it).
   systemSettings.push_back(SettingInfo::Action(StrId::STR_SET_LOCK_PASSWORD, SettingAction::SetLockPassword));
+  if (UITheme::getInstance().hasMainTabs())
+    displaySettings.push_back(SettingInfo::Action(StrId::STR_MAIN_TAB_ORDER, SettingAction::MainTabOrder));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_APP_VISIBILITY, SettingAction::AppVisibility));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_DATE_AND_TIME, SettingAction::DateTime));
@@ -388,11 +394,17 @@ void SettingsActivity::rebuildHubCards() {
   rowItems_.clear();
   rowItems_.reserve(categoryCount);
 
+  static const char* const kTitlesZh[categoryCount] = {
+      "显示与界面外观",
+      "阅读器排版",
+      "按键映射与手势",
+      "系统与关于本机",
+  };
   static const char* const kSubtitlesZh[categoryCount] = {
-      "方向 · 主题 · 前光 · 局刷波形",
-      "字体排版 · 状态栏 · 词典 · 同步",
-      "按键映射 · 触控翻页区 · 电源键",
-      "时间 · 语言 · 缓存清理 · 固件升级",
+      "屏幕方向 · UI主题 · 双色温前光 · 局刷波形",
+      "字体字号 · 行间距 · 状态栏 · 词典同步",
+      "按键翻页 · 触控翻页区 · 短按电源键",
+      "时间校准 · 语言选择 · 缓存清理 · 固件升级",
   };
   static const char* const kSubtitlesEn[categoryCount] = {
       "Orientation, Theme, Frontlight, Waveform",
@@ -404,18 +416,30 @@ void SettingsActivity::rebuildHubCards() {
   const bool isZh = I18N.getLanguage() != Language::EN;
   const char* const* subtitles = isZh ? kSubtitlesZh : kSubtitlesEn;
 
+  static const freeink::Icon* const kCategoryIcons[categoryCount] = {
+      &icon_sun_32,
+      &icon_book_32,
+      &icon_radio_tower_32,
+      &icon_usb_32,
+  };
+
   for (int i = 0; i < categoryCount; ++i) {
-    rowLabels_[i] = I18N.get(categoryNames[i]);
+    static constexpr StrId paperTitles[] = {StrId::STR_PAPER_CAT_DISPLAY, StrId::STR_PAPER_CAT_READER,
+                                            StrId::STR_PAPER_CAT_CONTROLS, StrId::STR_PAPER_CAT_SYSTEM};
+    static constexpr StrId paperSubtitles[] = {StrId::STR_PAPER_CAT_DISPLAY_DESC, StrId::STR_PAPER_CAT_READER_DESC,
+                                               StrId::STR_PAPER_CAT_CONTROLS_DESC, StrId::STR_PAPER_CAT_SYSTEM_DESC};
+    rowLabels_[i] =
+        GUI.usesPaperStyle() ? I18N.get(paperTitles[i]) : (isZh ? kTitlesZh[i] : I18N.get(categoryNames[i]));
     rowValues_[i] = ">";
     fui::ListItem item;
     item.label = rowLabels_[i].c_str();
-    item.subtitle = subtitles[i];
+    item.subtitle = GUI.usesPaperStyle() ? I18N.get(paperSubtitles[i]) : subtitles[i];
     item.value = rowValues_[i].c_str();
     item.actionValue = static_cast<int16_t>(i);
+    item.icon = fui::bitmapFromIcon(*kCategoryIcons[i]);
     rowItems_.push_back(item);
   }
 }
-
 void SettingsActivity::rebuildCategoryDetailRows() {
   const auto& settings = *currentSettings;
   rowValues_.assign(settings.size(), std::string());
@@ -755,6 +779,9 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::ReadingStatsSettings:
         startActivityForResultWith<ReadingStatsSettingsActivity>(resultHandler);
         break;
+      case SettingAction::MainTabOrder:
+        startActivityForResultWith<MainTabOrderSettingsActivity>(resultHandler);
+        break;
       case SettingAction::AppVisibility:
         startActivityForResultWith<AppVisibilitySettingsActivity>(resultHandler);
         break;
@@ -1010,6 +1037,57 @@ void SettingsActivity::buildScreen(UiScreen& screen) {
 
   if (usesAccordion()) {
     if (inxCategory_ < 0) {
+      if (GUI.usesPaperStyle()) {
+        const auto& m = GUI.paperMetrics();
+        const int smallH = renderer.getLineHeight(m.smallFont);
+        const int bodyH = renderer.getLineHeight(m.bodyFont);
+        const int titleH = renderer.getLineHeight(m.bookFont);
+        const fui::Rect status = screen.takeTop(m.statusHeight);
+        GUI.drawPaperStatus(renderer, Rect{status.x, status.y, status.width, status.height});
+        const fui::Rect heading = screen.takeTop(m.headingHeight, 14);
+        GUI.drawPaperHeading(renderer,
+                             Rect{heading.x + m.padding, heading.y, heading.width - m.padding * 2, heading.height},
+                             tr(STR_SETTINGS_TITLE), tr(STR_PAPER_M4));
+        const fui::Rect intro = screen.takeTop(bodyH, 20);
+        GUI.drawPaperText(renderer, Rect{intro.x + m.padding, intro.y, intro.width - m.padding * 2, intro.height},
+                          m.bodyFont, tr(STR_PAPER_SETTINGS_INTRO));
+        const fui::Rect footer = screen.takeBottom(smallH + 16);
+        GUI.drawPaperText(renderer, Rect{footer.x + m.padding, footer.y + 8, footer.width - m.padding * 2, smallH},
+                          m.smallFont, CROSSPOINT_VERSION);
+        const fui::Rect body = screen.body();
+        const GfxRenderer::ClipScope clip(renderer, body.x, body.y, body.width, body.height);
+        const int columns = content.width > content.height ? 2 : 1;
+        const int rowHeight = std::max(112, titleH + smallH * 2 + 24);
+        const int rows = std::max(1, body.height / rowHeight);
+        const int capacity = rows * columns;
+        nav.visibleRows = static_cast<uint16_t>(capacity);
+        nav.drawnRows = static_cast<uint16_t>(capacity);
+        nav.top = std::max(0, nav.selected / capacity * capacity);
+        const int focus = nav.selected;
+        const bool showFocus = showMainTabContentSelection();
+        const int width = (body.width - m.padding * 2 - (columns - 1) * m.gap) / columns;
+        for (int slot = 0; slot < capacity && nav.top + slot < categoryCount; ++slot) {
+          const int index = nav.top + slot;
+          const int x = body.x + m.padding + slot % columns * (width + m.gap);
+          const int y = body.y + slot / columns * rowHeight;
+          const Rect row{x, y, width, rowHeight};
+          char number[8] = {};
+          snprintf(number, sizeof(number), "%02d", index + 1);
+          GUI.drawPaperText(renderer, Rect{x + 8, y + 13, 30, smallH}, m.smallFont, number);
+          const int textX = x + 40;
+          const int textWidth = width - 64;
+          GUI.drawPaperText(renderer, Rect{textX, y + 8, textWidth, titleH}, m.bookFont, rowItems_[index].label, true);
+          GUI.drawPaperText(renderer, Rect{textX, y + titleH + 16, textWidth, smallH * 2}, m.smallFont,
+                            rowItems_[index].subtitle, false, 2);
+          GUI.drawPaperText(renderer, Rect{x + width - 20, y + 13, 20, bodyH}, m.bodyFont, ">");
+          GUI.drawPaperRule(renderer, Rect{x, y + rowHeight - 1, width, 1});
+          if (showFocus && focus == index) GUI.drawPaperFocus(renderer, row);
+          screen.frame().hit(fui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(width),
+                                       static_cast<int16_t>(rowHeight)},
+                             ACTION_ROW, static_cast<int16_t>(index), fui::InputTouch);
+        }
+        return;
+      }
       fui::HeaderProps hubHeader;
       hubHeader.title = tr(STR_SETTINGS_TITLE);
       hubHeader.rightLabel = "墨菲 M4";
@@ -1021,16 +1099,19 @@ void SettingsActivity::buildScreen(UiScreen& screen) {
       props.count = static_cast<uint16_t>(rowItems_.size());
       props.action = ACTION_ROW;
       props.inputMask = fui::InputTouch;
-      props.rowHeight = 120;
-      props.rowRadius = 14;
-      props.rowGap = 14;
-      props.rowInset = 16;
-      props.sidePadding = 20;
+      props.rowHeight = 112;
+      props.rowRadius = 12;
+      props.rowGap = 16;
+      props.rowInset = 20;
+      props.sidePadding = 18;
+      props.iconSize = 32;
+      props.textGap = 14;
+      props.valueInset = 10;
       props.separator = fui::SeparatorStyle::None;
       props.labelText = screen.theme().titleText;
       props.labelText.bold = true;
-      props.subtitleText = screen.theme().bodyText;
-      props.valueText = screen.theme().titleText;
+      props.subtitleText = screen.theme().smallText;
+      props.valueText = screen.theme().bodyText;
 
       fui::StyleSet cardStyles;
       cardStyles.explicitlySet = true;
@@ -1038,23 +1119,16 @@ void SettingsActivity::buildScreen(UiScreen& screen) {
       cardStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
       cardStyles.normal.border = fui::Paint::solid(fui::Color::Black);
       cardStyles.normal.borderWidth = 1;
-      cardStyles.normal.radius = 14;
+      cardStyles.normal.radius = 12;
 
       cardStyles.selected.background = fui::Paint::solid(fui::Color::White);
       cardStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
       cardStyles.selected.border = fui::Paint::solid(fui::Color::Black);
       cardStyles.selected.borderWidth = 3;
-      cardStyles.selected.radius = 14;
+      cardStyles.selected.radius = 12;
       cardStyles.focused = cardStyles.selected;
-
-      cardStyles.active.background = fui::Paint::solid(fui::Color::Black);
-      cardStyles.active.foreground = fui::Paint::solid(fui::Color::White);
-      cardStyles.active.border = fui::Paint::solid(fui::Color::Black);
-      cardStyles.active.borderWidth = 2;
-      cardStyles.active.radius = 14;
-
+      cardStyles.active = cardStyles.selected;
       props.rowStyles = cardStyles;
-
       syncListViewport(screen, props, true);
       screen.list(props);
       return;
@@ -1062,7 +1136,7 @@ void SettingsActivity::buildScreen(UiScreen& screen) {
 
     fui::HeaderProps headerProps;
     headerProps.title = I18N.get(categoryNames[inxCategory_]);
-    headerProps.centered = true;
+    headerProps.centered = !GUI.usesPaperStyle();
     headerProps.trailingLabel = tr(STR_BACK);
     headerProps.trailingAction = ACTION_BACK_HUB;
     headerProps.trailingRadius = 8;

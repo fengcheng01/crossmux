@@ -61,3 +61,23 @@ TEST(GfxTwoBitMapping, BwKeepsLogicalPixelState) {
     EXPECT_TRUE(GfxRenderer::framebufferState(GfxRenderer::BW, pixel.state));
   }
 }
+
+TEST(GfxTwoBitMapping, SpatialCoveragePreservesEndpointsAndIntermediateInkDensity) {
+  int counts[4] = {};
+  for (int y = 0; y < 4; ++y) {
+    for (int x = 0; x < 4; ++x) {
+      bool previous = false;
+      for (uint8_t coverage = 0; coverage < 4; ++coverage) {
+        const bool ink = GfxRenderer::glyphDitherPixel(coverage, x, y);
+        counts[coverage] += ink;
+        EXPECT_FALSE(previous && !ink);  // Increasing coverage must never remove ink.
+        previous = ink;
+        EXPECT_EQ(ink, GfxRenderer::glyphDitherPixel(coverage, x + 4, y - 4));
+      }
+    }
+  }
+  EXPECT_EQ(counts[0], 0);
+  EXPECT_EQ(counts[1], 5);
+  EXPECT_EQ(counts[2], 11);
+  EXPECT_EQ(counts[3], 16);
+}

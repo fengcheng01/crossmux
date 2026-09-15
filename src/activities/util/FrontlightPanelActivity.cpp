@@ -197,8 +197,9 @@ int FrontlightPanelActivity::computePanelBottom() const {
   const int16_t lineHeight = uiTarget.lineHeight(tokens.bodyText.font);
   int y = metrics.topPadding + metrics.headerHeight;
   y += tokens.spaceLg;
-  y += tokens.rowHeight + tokens.spaceSm;
-  y += tokens.rowHeight + tokens.spaceLg;
+  y += tokens.rowHeight + tokens.spaceMd; // Master on/off switch row
+  y += tokens.rowHeight + tokens.spaceSm; // Brightness label
+  y += tokens.rowHeight + tokens.spaceLg; // Brightness slider
   if (Frontlight.hasColorTemperature()) {
     y += lineHeight + tokens.spaceSm + tokens.rowHeight + tokens.spaceLg;
   }
@@ -224,6 +225,39 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
 
   screen.spacer(theme.spaceLg);
 
+  // 1. Frontlight Master On/Off Switch Row (Prominent one-click toggle button)
+  const fui::Rect switchRow = screen.takeTop(rowHeight, theme.spaceMd).inset(sideInset);
+  const fui::Rect switchLabelRect{switchRow.x, static_cast<int16_t>(switchRow.y + (rowHeight - lineHeight) / 2),
+                                  static_cast<int16_t>(switchRow.width - 100), lineHeight};
+  screen.target().text(switchLabelRect, tr(STR_FRONTLIGHT), theme.bodyText);
+
+  const int16_t btnW = 76;
+  const int16_t btnH = 32;
+  const fui::Rect btnRect{static_cast<int16_t>(switchRow.right() - btnW),
+                          static_cast<int16_t>(switchRow.y + (rowHeight - btnH) / 2), btnW, btnH};
+  fui::ButtonProps btnProps;
+  btnProps.label = lightOn ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+  btnProps.action = ACTION_TOGGLE;
+  btnProps.inputMask = fui::InputTouch;
+  fui::StyleSet btnStyles;
+  btnStyles.explicitlySet = true;
+  if (lightOn) {
+    btnStyles.normal.background = fui::Paint::solid(fui::Color::Black);
+    btnStyles.normal.foreground = fui::Paint::solid(fui::Color::White);
+    btnStyles.normal.border = fui::Paint::solid(fui::Color::Black);
+    btnStyles.normal.borderWidth = 1;
+    btnStyles.normal.radius = 6;
+  } else {
+    btnStyles.normal.background = fui::Paint::solid(fui::Color::White);
+    btnStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
+    btnStyles.normal.border = fui::Paint::solid(fui::Color::Black);
+    btnStyles.normal.borderWidth = 1;
+    btnStyles.normal.radius = 6;
+  }
+  btnStyles.selected = btnStyles.normal;
+  btnStyles.active = btnStyles.normal;
+  btnProps.styles = btnStyles;
+  fui::button(screen.frame(), btnRect, btnProps);
   const fui::Rect headerRow = screen.takeTop(rowHeight, theme.spaceSm).inset(sideInset);
   snprintf(line, sizeof(line), "%s  %u%%", tr(STR_BRIGHTNESS), static_cast<unsigned>(brightness));
   const fui::BitmapRef sunIcon = fui::bitmapFromIcon(lightOn ? icon_sun_filled_32 : icon_sun_32);

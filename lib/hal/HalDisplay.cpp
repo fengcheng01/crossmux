@@ -60,6 +60,8 @@ EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
   }
 }
 
+void HalDisplay::displaySleepClean() { einkDisplay.displaySleepClean(); }
+
 void HalDisplay::displayBuffer(HalDisplay::RefreshMode mode, bool turnOffScreen) {
   if (gpio.deviceIsX3() && mode == RefreshMode::HALF_REFRESH) {
     einkDisplay.requestResync(1);
@@ -158,6 +160,12 @@ void HalDisplay::displaySwiftAa(const uint8_t* edgePlane, bool turnOffScreen) {
 void HalDisplay::displayGrayBufferAbsolute(bool turnOffScreen, bool cleanWhite) {
   einkDisplay.displayGrayBuffer(turnOffScreen, nullptr, true, cleanWhite);
 }
+
+void HalDisplay::flashToWhite() { einkDisplay.flashToWhite(); }
+
+void HalDisplay::displayGrayBufferFromWhite(bool turnOffScreen) { einkDisplay.displayGrayFromWhite(turnOffScreen); }
+
+void HalDisplay::displayGrayBufferDirect(bool turnOffScreen) { einkDisplay.displayGrayDirect(turnOffScreen); }
 
 void HalDisplay::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* rows, uint16_t yStart, uint16_t numRows) {
   einkDisplay.writeGrayscalePlaneStrip(lsbPlane ? EInkDisplay::GRAY_PLANE_LSB : EInkDisplay::GRAY_PLANE_MSB, rows,

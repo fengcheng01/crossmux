@@ -22,6 +22,11 @@ bool HalStorage::begin() { return SDCard.begin(); }
 
 bool HalStorage::ready() const { return SDCard.ready(); }
 
+void HalStorage::prepareForDeepSleep() {
+  StorageLock lock;
+  SDCard.shutdown();
+}
+
 #if FREEINK_CAP_USB_MSC && FREEINK_SD_SDMMC
 FsBlockDeviceInterface* HalStorage::detachForRawUsbAccess() {
   // Called once per USB session from the main task, after every other SD

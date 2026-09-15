@@ -46,8 +46,10 @@ constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING,
                                         StrId::STR_FAKE_BOLD,
                                         StrId::STR_TEXT_AA};
 #if FREEINK_DEVICE_MURPHY_M4
-constexpr StrId AA_MODE_IDS[] = {StrId::STR_STATE_OFF, StrId::STR_AA_OVERLAY, StrId::STR_AA_COMBINED,
-                                 StrId::STR_AA_DIRECT, StrId::STR_AA_SWIFT};
+constexpr StrId AA_MODE_IDS[] = {StrId::STR_STATE_OFF, StrId::STR_AA_OVERLAY,
+                                 StrId::STR_AA_DIRECT, StrId::STR_AA_SWIFT, StrId::STR_AA_SINGLE_FLASH,
+                                 StrId::STR_AA_WHITE_FLASH};
+static_assert(std::size(AA_MODE_IDS) == std::size(CrossPointSettings::AA_MODE_VALUES));
 #endif
 
 constexpr StrId LINE_SPACING_IDS[] = {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE, StrId::STR_EXTRA_WIDE};
@@ -752,8 +754,8 @@ void TextSettingsActivity::confirmStyleRow(int row) {
     case StyleRow::AntiAliasing:
 #if FREEINK_DEVICE_MURPHY_M4
       optionPopup_.show(StrId::STR_TEXT_AA, AA_MODE_IDS, static_cast<int>(std::size(AA_MODE_IDS)),
-                        SETTINGS.textAntiAliasing, [](int idx) {
-                          SETTINGS.textAntiAliasing = static_cast<uint8_t>(idx);
+                        CrossPointSettings::aaModeToIndex(SETTINGS.textAntiAliasing), [](int idx) {
+                          SETTINGS.textAntiAliasing = CrossPointSettings::aaModeFromIndex(static_cast<uint8_t>(idx));
                           SETTINGS.saveToFile();
                         });
       requestUpdate();
@@ -794,8 +796,7 @@ std::string TextSettingsActivity::styleValueText(int row) const {
     case StyleRow::AntiAliasing:
 #if FREEINK_DEVICE_MURPHY_M4
     {
-      const uint8_t mode = SETTINGS.textAntiAliasing;
-      return mode < std::size(AA_MODE_IDS) ? I18N.get(AA_MODE_IDS[mode]) : tr(STR_STATE_OFF);
+      return I18N.get(AA_MODE_IDS[CrossPointSettings::aaModeToIndex(SETTINGS.textAntiAliasing)]);
     }
 #else
       return SETTINGS.textAntiAliasing ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);

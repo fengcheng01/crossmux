@@ -9,3 +9,8 @@ target_include_directories(InxNavigationTest PRIVATE
 target_link_libraries(InxNavigationTest PRIVATE crosspoint_test_common GTest::gtest_main)
 
 gtest_discover_tests(InxNavigationTest)
+
+add_executable(MurphyMainTabsTest MurphyMainTabsTest.cpp)
+target_include_directories(MurphyMainTabsTest PRIVATE ${REPO_ROOT}/src)
+target_compile_definitions(MurphyMainTabsTest PRIVATE FREEINK_DEVICE_MURPHY_M4=1)
+add_test(NAME MurphyMainTabsTest COMMAND MurphyMainTabsTest)

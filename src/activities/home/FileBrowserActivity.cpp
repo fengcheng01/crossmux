@@ -14,6 +14,7 @@
 #include "MappedInputManager.h"
 #include "ReadingStatsStore.h"
 #include "RecentBooksStore.h"
+#include "activities/ActivityManager.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
@@ -87,6 +88,7 @@ void FileBrowserActivity::loadFiles() {
       files.emplace_back(entryName + "/");
     } else {
       if (browserState == BrowserState::ChoosingMoveDestination) continue;
+      if (usesPaperCatalog() && !matchesPaperFilter(fileNameBuffer.get())) continue;
       std::string_view filename{fileNameBuffer.get()};
       switch (mode) {
         case Mode::Books:
@@ -117,11 +119,14 @@ void FileBrowserActivity::loadFiles() {
 // ListItem) per file each time it's called.
 void FileBrowserActivity::rebuildRowItems() {
   rowsUseFileIcons = UITheme::getInstance().getTheme().showsFileIcons();
+  rowsUsePaperStyle = usesPaperCatalog();
+  rowSessionSerial = READING_STATS.getLastSessionSnapshot().serial;
   rowNames.resize(files.size());
   rowExtensions.resize(files.size());
   rowItems.clear();
   rowItems.reserve(files.size());
   gridLabels.clear();
+  if (rowsUsePaperStyle) gridLabels.resize(files.size());
   if (usesIconLayout()) {
     gridLabels.resize(files.size());
     const int labelWidth = std::max(1, renderer.getScreenWidth() / InxGridGeometry::columns - 16);
@@ -137,6 +142,27 @@ void FileBrowserActivity::rebuildRowItems() {
     if (!rowExtensions[i].empty()) item.value = rowExtensions[i].c_str();
     if (files[i] != MOVE_HERE_ENTRY) item.icon = listIconFor(UITheme::getFileIcon(files[i]));
     item.actionValue = static_cast<int16_t>(i);
+    if (rowsUsePaperStyle && files[i] != MOVE_HERE_ENTRY) {
+      const bool directory = files[i].back() == '/';
+      const auto* stats = directory ? nullptr : READING_STATS.findMatchingBookForPath(joinPath(basepath, files[i]));
+      if (stats) {
+        if (!stats->title.empty()) rowNames[i] = stats->title;
+        if (!stats->author.empty()) rowExtensions[i] = stats->author;
+      }
+      if (directory) {
+        gridLabels[i] = ">";
+      } else if (stats && stats->completed) {
+        gridLabels[i] = tr(STR_DONE);
+      } else if (stats && stats->lastProgressPercent > 0) {
+        char progress[16] = {};
+        snprintf(progress, sizeof(progress), "%u%%", static_cast<unsigned>(stats->lastProgressPercent));
+        gridLabels[i] = progress;
+      } else {
+        gridLabels[i] = tr(STR_PAPER_UNREAD);
+      }
+      item.label = rowNames[i].c_str();
+      item.value = nullptr;
+    }
     rowItems.push_back(item);
   }
 
@@ -161,6 +187,7 @@ void FileBrowserActivity::rebuildRowItems() {
 }
 
 bool FileBrowserActivity::usesIconLayout() const {
+  if (usesPaperCatalog()) return false;
   return mode == Mode::Books && browserState == BrowserState::Browsing && UITheme::getInstance().hasMainTabs() &&
          InxGridGeometry::layoutFrom(SETTINGS.inxLibraryLayout) == InxItemLayout::Icons;
 }
@@ -178,19 +205,24 @@ void FileBrowserActivity::drawIconGrid(UiScreen& screen, const fui::Rect rect) c
     const int row = slot / InxGridGeometry::columns;
     const Rect cell{rect.x + column * cellWidth + 4, rect.y + row * cellHeight + 4, cellWidth - 8, cellHeight - 8};
     const bool selected = showSelection && index == nav.selected;
-    if (selected) renderer.fillRect(cell.x, cell.y, cell.width, cell.height, true);
+    if (selected) {
+      // Elegant 2px tactile drop shadow + bold border for selected item (no brutal black box!)
+      renderer.fillRoundedRect(cell.x + 2, cell.y + 2, cell.width, cell.height, 8, Color::Black);
+      renderer.fillRoundedRect(cell.x, cell.y, cell.width, cell.height, 8, Color::White);
+      renderer.drawRoundedRect(cell.x, cell.y, cell.width, cell.height, 2, 8, true);
+    } else {
+      renderer.fillRoundedRect(cell.x, cell.y, cell.width, cell.height, 8, Color::White);
+      renderer.drawRoundedRect(cell.x, cell.y, cell.width, cell.height, 1, 8, true);
+    }
     const UIIcon type = UITheme::getFileIcon(files[index]);
     const uint8_t* icon = type == UIIcon::Folder ? FolderLarge : (type == UIIcon::Image ? ImageLarge : BookLarge);
     const int iconX = cell.x + (cell.width - iconSize) / 2;
     const int iconY = cell.y + std::max(4, (cell.height - iconSize - lineHeight - 6) / 2);
-    if (selected)
-      renderer.drawIconInverted(icon, iconX, iconY, iconSize);
-    else
-      renderer.drawIcon(icon, iconX, iconY, iconSize);
+    renderer.drawIcon(icon, iconX, iconY, iconSize);
     const char* label =
         index < static_cast<int>(gridLabels.size()) ? gridLabels[index].c_str() : rowNames[index].c_str();
-    const int labelX = cell.x + (cell.width - renderer.getTextWidth(UI_10_FONT_ID, label)) / 2;
-    renderer.drawText(UI_10_FONT_ID, labelX, iconY + iconSize + 6, label, !selected);
+    const int labelX = cell.x + (cell.width - renderer.getTextWidth(UI_10_FONT_ID, label, selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR)) / 2;
+    renderer.drawText(UI_10_FONT_ID, labelX, iconY + iconSize + 6, label, true, selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
     screen.frame().hit(fui::Rect{static_cast<int16_t>(cell.x), static_cast<int16_t>(cell.y),
                                  static_cast<int16_t>(cell.width), static_cast<int16_t>(cell.height)},
                        ACTION_ROW, static_cast<int16_t>(index), fui::InputTouch | fui::InputLongPress);
@@ -201,6 +233,8 @@ void FileBrowserActivity::drawIconGrid(UiScreen& screen, const fui::Rect rect) c
 
 void FileBrowserActivity::onEnter() {
   UiListActivity::onEnter();
+  app.on(ACTION_PAPER_FILTER, &FileBrowserActivity::paperFilterTrampoline, this);
+  app.on(ACTION_PAPER_TRANSFER, &FileBrowserActivity::paperTransferTrampoline, this);
 
   fileNameBuffer = makeUniqueNoThrow<char[]>(NAME_BUFFER_SIZE);
   if (!fileNameBuffer) {
@@ -729,6 +763,10 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
       static_cast<int16_t>(content.y), static_cast<int16_t>(renderer.getScreenWidth() - (content.x + content.width)),
       static_cast<int16_t>(renderer.getScreenHeight() - (content.y + content.height)),
       static_cast<int16_t>(content.x)});
+  if (usesPaperCatalog()) {
+    buildPaperCatalog(screen);
+    return;
+  }
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   // Full path band at the bottom: separator on top, left-truncated so the
@@ -736,7 +774,7 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
   {
     const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
     const fui::Rect band = screen.takeBottom(static_cast<int16_t>(pathLineHeight + metrics.verticalSpacing));
-    screen.target().fill(fui::Rect{band.x, band.y, band.width, 3}, fui::Paint::solid(fui::Color::Black));
+    screen.target().fill(fui::Rect{band.x, band.y, band.width, 1}, fui::Paint::solid(fui::Color::Black));
     const int pathY =
         band.y + metrics.verticalSpacing / 2 + (band.height - metrics.verticalSpacing / 2 - pathLineHeight) / 2;
     const int pathMaxWidth = band.width - metrics.contentSidePadding * 2;
@@ -770,7 +808,8 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
   // rebuildRowItems()) and reused here. getFileName()'s folder-bracket format
   // depends on the theme, so a theme change picked up while this activity was
   // paused underneath another screen invalidates the cache before it's read.
-  if (rowsUseFileIcons != UITheme::getInstance().getTheme().showsFileIcons()) {
+  if (rowsUseFileIcons != UITheme::getInstance().getTheme().showsFileIcons() ||
+      rowsUsePaperStyle != usesPaperCatalog()) {
     rebuildRowItems();
   }
 
@@ -845,4 +884,133 @@ size_t FileBrowserActivity::findEntry(const std::string& name) const {
   for (size_t i = 0; i < files.size(); i++)
     if (files[i] == name) return i;
   return 0;
+}
+
+bool FileBrowserActivity::usesPaperCatalog() const {
+  return mode == Mode::Books && browserState == BrowserState::Browsing && UITheme::getInstance().hasMainTabs() &&
+         GUI.usesPaperStyle();
+}
+
+bool FileBrowserActivity::matchesPaperFilter(const std::string& filename) const {
+  if (paperFilter == PaperFilter::All) return true;
+  const auto* stats = READING_STATS.findMatchingBookForPath(joinPath(basepath, filename));
+  switch (paperFilter) {
+    case PaperFilter::All:
+      return true;
+    case PaperFilter::InProgress:
+      return stats && !stats->completed && (stats->totalReadingMs > 0 || stats->lastProgressPercent > 0);
+    case PaperFilter::Finished:
+      return stats && stats->completed;
+    case PaperFilter::Count:
+      return false;
+  }
+  return false;
+}
+
+void FileBrowserActivity::paperFilterTrampoline(const fui::ActionEvent& event, void* user) {
+  auto& self = *static_cast<FileBrowserActivity*>(user);
+  if (event.value < 0 || event.value >= static_cast<int>(PaperFilter::Count)) return;
+  const auto filter = static_cast<PaperFilter>(event.value);
+  if (!self.usesPaperCatalog() || self.paperFilter == filter) return;
+  {
+    RenderLock lock(self);
+    self.closeRouting();
+    self.app.clearTapFlash();
+    self.paperFilter = filter;
+    self.loadFiles();
+    self.nav.reset();
+  }
+  self.requestUpdate();
+}
+
+void FileBrowserActivity::paperTransferTrampoline(const fui::ActionEvent&, void* user) {
+  auto& self = *static_cast<FileBrowserActivity*>(user);
+  self.app.clearTapFlash();
+  activityManager.goToFileTransfer();
+}
+
+void FileBrowserActivity::buildPaperCatalog(UiScreen& screen) {
+  const auto& m = GUI.paperMetrics();
+  const int smallH = renderer.getLineHeight(m.smallFont);
+  const int titleH = renderer.getLineHeight(m.bookFont);
+  if (rowSessionSerial != READING_STATS.getLastSessionSnapshot().serial && paperFilter != PaperFilter::All) {
+    closeRouting();
+    loadFiles();
+    nav.selected = std::clamp(nav.selected, 0, std::max(0, listCount() - 1));
+    nav.followOnBuild = true;
+  } else if (!rowsUsePaperStyle || rowSessionSerial != READING_STATS.getLastSessionSnapshot().serial) {
+    rebuildRowItems();
+  }
+  const fui::Rect status = screen.takeTop(m.statusHeight);
+  GUI.drawPaperStatus(renderer, Rect{status.x, status.y, status.width, status.height});
+  const fui::Rect heading = screen.takeTop(m.headingHeight, 12);
+  char count[32] = {};
+  snprintf(count, sizeof(count), tr(STR_PAPER_ITEMS_FMT), static_cast<unsigned>(files.size()));
+  GUI.drawPaperHeading(renderer, Rect{heading.x + m.padding, heading.y, heading.width - m.padding * 2, heading.height},
+                       tr(STR_PAPER_LIBRARY), count);
+  const fui::Rect filters = screen.takeTop(std::max(44, smallH + 20), 8);
+  static constexpr StrId labels[] = {StrId::STR_PAPER_ALL, StrId::STR_IN_PROGRESS, StrId::STR_DONE};
+  const int filterWidth = (filters.width - m.padding * 2) / 3;
+  for (int i = 0; i < static_cast<int>(PaperFilter::Count); ++i) {
+    const int x = filters.x + m.padding + i * filterWidth;
+    const int labelW = std::min(filterWidth - 8, renderer.getTextWidth(m.smallFont, I18N.get(labels[i])));
+    GUI.drawPaperText(renderer, Rect{x, filters.y + 4, labelW, smallH}, m.smallFont, I18N.get(labels[i]),
+                      static_cast<int>(paperFilter) == i);
+    if (static_cast<int>(paperFilter) == i) {
+      GUI.drawPaperRule(renderer, Rect{x, filters.y + smallH + 9, labelW, 2}, 2);
+    }
+    screen.frame().hit(fui::Rect{static_cast<int16_t>(x), filters.y, static_cast<int16_t>(filterWidth), filters.height},
+                       ACTION_PAPER_FILTER, static_cast<int16_t>(i), fui::InputTouch);
+  }
+  const fui::Rect footer = screen.takeBottom(std::max(44, smallH + 16));
+  const int transferW = std::min(footer.width / 2, renderer.getTextWidth(m.smallFont, tr(STR_PAPER_IMPORT)) + 16);
+  const int transferX = footer.x + footer.width - m.padding - transferW;
+  GUI.drawPaperText(renderer,
+                    Rect{footer.x + m.padding, footer.y + 8, footer.width - m.padding * 2 - transferW - 12, smallH},
+                    m.smallFont, basepath.c_str());
+  GUI.drawPaperText(renderer, Rect{transferX, footer.y + 8, transferW, smallH}, m.smallFont, tr(STR_PAPER_IMPORT));
+  screen.frame().hit(
+      fui::Rect{static_cast<int16_t>(transferX), footer.y, static_cast<int16_t>(transferW), footer.height},
+      ACTION_PAPER_TRANSFER, 0, fui::InputTouch);
+  const fui::Rect body = screen.body();
+  const GfxRenderer::ClipScope clip(renderer, body.x, body.y, body.width, body.height);
+  if (files.empty()) {
+    const int y = body.y + body.height / 3;
+    GUI.drawPaperText(renderer, Rect{body.x + m.padding, y, body.width - m.padding * 2, titleH * 2}, m.bookFont,
+                      paperFilter == PaperFilter::All ? tr(STR_PAPER_LIBRARY_EMPTY) : tr(STR_NO_FILES_FOUND), true, 2);
+    return;
+  }
+  const int rowHeight = std::max(94, titleH + smallH + 26);
+  const int perPage = std::max(1, body.height / rowHeight);
+  nav.visibleRows = static_cast<uint16_t>(perPage);
+  nav.drawnRows = static_cast<uint16_t>(perPage);
+  if (nav.followOnBuild) {
+    nav.followOnBuild = false;
+    nav.top = std::max(0, nav.selected / perPage * perPage);
+  }
+  nav.scrollBy(0, listCount());
+  const int start = nav.top;
+  const int focus = nav.selected;
+  const bool showFocus = showMainTabContentSelection();
+  for (int slot = 0; slot < perPage && start + slot < listCount(); ++slot) {
+    const int index = start + slot;
+    const Rect row{body.x + m.padding, body.y + slot * rowHeight, body.width - m.padding * 2 - 8, rowHeight};
+    char number[8] = {};
+    snprintf(number, sizeof(number), "%02d", index + 1);
+    GUI.drawPaperText(renderer, Rect{row.x + 8, row.y + 15, 34, smallH}, m.smallFont, number);
+    const char* tail = gridLabels[index].c_str();
+    const int tailW = std::min(row.width / 4, renderer.getTextWidth(m.smallFont, tail));
+    const int textX = row.x + 50;
+    const int textW = row.width - 62 - tailW;
+    GUI.drawPaperText(renderer, Rect{textX, row.y + 8, textW, titleH}, m.bookFont, rowNames[index].c_str(), true);
+    GUI.drawPaperText(renderer, Rect{textX, row.y + titleH + 15, textW, smallH}, m.smallFont,
+                      rowExtensions[index].c_str());
+    GUI.drawPaperText(renderer, Rect{row.x + row.width - tailW, row.y + 17, tailW, smallH}, m.smallFont, tail);
+    GUI.drawPaperRule(renderer, Rect{row.x, row.y + row.height - 1, row.width, 1});
+    if (showFocus && focus == index) GUI.drawPaperFocus(renderer, row);
+    screen.frame().hit(fui::Rect{static_cast<int16_t>(row.x), static_cast<int16_t>(row.y),
+                                 static_cast<int16_t>(row.width), static_cast<int16_t>(row.height)},
+                       ACTION_ROW, static_cast<int16_t>(index), fui::InputTouch | fui::InputLongPress);
+  }
+  GUI.drawSideScrollBar(renderer, Rect{body.x, body.y, body.width, body.height}, listCount(), start, perPage);
 }

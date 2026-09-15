@@ -215,6 +215,8 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["frontButtonLeft"] = frontButtonLeft;
   doc["frontButtonRight"] = frontButtonRight;
   // Apps use stable IDs beyond the uint8_t-only SettingsList, so persist the mask manually.
+  JsonArray tabOrder = doc["mainTabOrder"].to<JsonArray>();
+  for (const auto tab : mainTabOrder) tabOrder.add(static_cast<uint8_t>(tab));
   doc["hiddenAppsMask"] = hiddenAppsMask;
   doc["appsCatalogVersion"] = appsCatalogVersion;
   doc["buddyClaimed"] = buddyClaimed;
@@ -239,6 +241,8 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   // M4 sleep screen uses a DynamicEnum (display-first order, no valuePtr), so
   // the generic loop above skips it; persist the raw SLEEP_SCREEN_MODE.
   doc["sleepScreen"] = sleepScreen;
+  // AA picker indices omit retired ID 2; persist the stable firmware ID.
+  doc["textAntiAliasing"] = normalizeAaMode(textAntiAliasing);
 #endif
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, save manually
   if (dictionaryName[0] != '\0') {
@@ -347,6 +351,20 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   frontButtonRight =
       clamp(doc["frontButtonRight"] | (uint8_t)FRONT_HW_RIGHT, FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_RIGHT);
   validateFrontButtonMapping(s);
+  mainTabOrder = MainTabs::values;
+  const JsonArrayConst tabOrder = doc["mainTabOrder"].as<JsonArrayConst>();
+  if (tabOrder.size() == mainTabOrder.size()) {
+    MainTabs::Order candidate{};
+    bool validTypes = true;
+    for (size_t i = 0; i < candidate.size(); ++i) {
+      if (!tabOrder[i].is<uint8_t>()) {
+        validTypes = false;
+        break;
+      }
+      candidate[i] = static_cast<MainTab>(tabOrder[i].as<uint8_t>());
+    }
+    if (validTypes && MainTabs::isValid(candidate)) mainTabOrder = candidate;
+  }
   hiddenAppsMask = doc["hiddenAppsMask"].isNull() ? DEFAULT_HIDDEN_APPS_MASK : doc["hiddenAppsMask"].as<uint32_t>();
   const uint8_t storedAppsCatalogVersion = doc["appsCatalogVersion"] | static_cast<uint8_t>(0);
   // Buddy was added at catalog version 1. Hide it exactly once during the
@@ -435,6 +453,12 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   if (!skuMatches) needsResave = true;
 
 #if FREEINK_DEVICE_MURPHY_M4
+  // Dynamic AA accessors expose picker indices only. Read stable persisted IDs.
+  if (!doc["textAntiAliasing"].isNull()) {
+    const uint8_t storedAa = doc["textAntiAliasing"].as<uint8_t>();
+    textAntiAliasing = normalizeAaMode(storedAa);
+    if (textAntiAliasing != storedAa) needsResave = true;
+  }
   // M4 sleep screen is a DynamicEnum, so the generic loop skips it (see
   // toJson). A stored DARK is the user's explicit choice now that the key is
   // persisted — do not promote it to CLOCK; files without the key keep the
@@ -563,7 +587,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
   screenMargin = value(13, screenMargin);
   sleepScreenCoverMode = validated(14, sleepScreenCoverMode, SLEEP_SCREEN_COVER_MODE_COUNT);
   textAntiAliasing = value(15, textAntiAliasing);
-  if (textAntiAliasing >= TEXT_AA_COUNT) textAntiAliasing = TEXT_AA_OVERLAY;
+  textAntiAliasing = normalizeAaMode(textAntiAliasing);
   hideBatteryPercentage = validated(16, hideBatteryPercentage, HIDE_BATTERY_PERCENTAGE_COUNT);
   longPressButtonBehavior = validated(17, longPressButtonBehavior, LONG_PRESS_BUTTON_BEHAVIOR_COUNT);
   hyphenationEnabled = value(18, hyphenationEnabled);

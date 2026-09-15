@@ -41,6 +41,7 @@ namespace {
 static bool s_sleepFromInverted = false;
 
 HalDisplay::RefreshMode sleepCleanRefresh() {
+  // M4 uses a single calm HALF refresh (0xD4) on sleep: exactly 1 gentle pass, NO repeated flashing!
   return s_sleepFromInverted ? HalDisplay::FULL_REFRESH : HalDisplay::HALF_REFRESH;
 }
 
@@ -551,6 +552,10 @@ void SleepActivity::onEnter() {
       renderQuickResume || SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::TRANSPARENT;
   if (frameWasInverted && preservesCurrentFrame) renderer.invertScreen();
 #if FREEINK_DEVICE_MURPHY_M4
+  // Exit AA gray RAM and seed RED from the current frame so the one HALF
+  // lock paint (0xD4) bleaches the white field. Do not FAST the lock — that
+  // re-drives whites and the face slowly dirties. Do not FULL (0xF7) — that
+  // is several black flashes.
   if (!preservesCurrentFrame && !frameWasInverted) {
     renderer.cleanupGrayscaleWithFrameBuffer();
   }
@@ -795,24 +800,16 @@ void SleepActivity::paintClock(GfxRenderer& renderer, const bool minuteTick) {
   }
 
 #if FREEINK_DEVICE_MURPHY_M4
-  // First lock: HALF (absolute) so the white field is actually clean. Full-screen
-  // FAST ticks re-drive that white and the residue slowly builds. Minute ticks
-  // FAST the time + date + humidity block only, not the whole page. After
-  // deep-sleep init the unused BW RAM is white, so anything outside this
-  // window would be driven to white against leftover RED clock pixels.
-  if (minuteTick) {
-    if (haveTime && minute == 0) {
-      // Hourly re-bleach: full clean refresh so any microscopic residue is erased.
-      renderer.displayBuffer(sleepCleanRefresh());
-    } else {
-      const int pad = 12;
-      const int winY = std::max(0, digitTop - pad);
-      const int winBottom = std::min(pageHeight, contentBottom + pad);
-      renderer.displayWindow(0, winY, pageWidth, winBottom - winY);
-    }
+  // Clock entry/hourly cleanup: one complete vendor E clean/paint, then power-off.
+  // Do not stack OTP whitening or FULL's repeated inversions onto this waveform.
+  // Ordinary minute ticks stay local.
+  if (!minuteTick || (haveTime && minute == 0)) {
+    renderer.displaySleepClean();
   } else {
-    // Lock entry: single calm inversion flash with driveAll to bleach the white background without 4 flashes!
-    renderer.displayBuffer(sleepCleanRefresh());
+    const int pad = 12;
+    const int winY = std::max(0, digitTop - pad);
+    const int winBottom = std::min(pageHeight, contentBottom + pad);
+    renderer.displayWindow(0, winY, pageWidth, winBottom - winY);
   }
 #else
   (void)minuteTick;

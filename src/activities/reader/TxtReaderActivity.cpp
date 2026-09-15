@@ -739,12 +739,11 @@ void TxtReaderActivity::renderPage() {
 
   // BW rendering
   if (SETTINGS.readingBackgroundEnabled && !readingBackground::load(renderer)) renderer.clearScreen();
-  const bool combinedAa = ReaderUtils::usesCombinedAa();
-  const bool directAa = ReaderUtils::usesDirectGrayAa() && !SETTINGS.readingBackgroundEnabled;
-  if (directAa) renderer.setGlyphDither(true);
+  const bool directSelected = ReaderUtils::usesDirectGrayAa();
+  const bool directAa = directSelected && !SETTINGS.screenInverted && !SETTINGS.readingBackgroundEnabled;
+  const bool singleFlashAa = ReaderUtils::usesSingleFlashAa() && !SETTINGS.readingBackgroundEnabled;
   renderLines();
   renderStatusBar();
-  if (directAa) renderer.setGlyphDither(false);
   const auto tBwRender = millis();
 
   // Serialize SD access in this render path against the main task's SD writes
@@ -771,19 +770,29 @@ void TxtReaderActivity::renderPage() {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
 #else
-  if (combinedAa) {
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    if (pagesUntilFullRefresh <= 1) {
-      pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
-    } else {
-      pagesUntilFullRefresh--;
-    }
-  } else if (directAa) {
-    // Direct AA: single-pass FAST refresh with spatial edge dithering.
-    // 0 flash, ~200ms instantaneous page turn, smooth feathered font edges.
-    const bool cleanWhite = (pagesUntilFullRefresh <= 1) && !SETTINGS.screenInverted;
+  if (singleFlashAa) {
     (void)ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
-    renderer.displayBuffer(cleanWhite ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
+    ReaderUtils::renderAntiAliased(
+        renderer,
+        [&]() {
+          renderLines();
+          renderStatusBar();
+        },
+        ReaderUtils::usesWhiteFlashAa() ? ReaderUtils::GrayRefresh::WhiteFlash : ReaderUtils::GrayRefresh::SingleFlash);
+    renderer.cleanupGrayscaleWithFrameBuffer();
+  } else if (directSelected) {
+    (void)ReaderUtils::consumeRefreshMode(pagesUntilFullRefresh);
+    if (directAa) {
+      ReaderUtils::renderAntiAliased(
+          renderer,
+          [&]() {
+            renderLines();
+            renderStatusBar();
+          },
+          ReaderUtils::GrayRefresh::Direct);
+    } else {
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    }
   } else {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
     if (SETTINGS.textAntiAliasing) {

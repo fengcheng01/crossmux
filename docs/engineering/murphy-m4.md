@@ -69,26 +69,246 @@ Reader anti-aliasing on this panel:
   is unaffected by this revert.
 
 
+- Single-flash (单闪): one vendor E absolute four-level activation using
+  `displayGrayBufferAbsolute(false)` / `lut_m4_aa_direct`. Render both planes
+  before activating; the previous page stays visible during rendering. EPUB
+  (buffered and strip fallback) and TXT no longer call `flashToWhite()` or
+  `displayGrayBufferFromWhite()` for this mode. The complete white clean sequence
+  replaces the experimental `lut_m4_from_white` late settle. The two LUTs differ
+  only at byte 1 of the white group (`0x00` becomes `0x4A`): the light gray,
+  dark gray, black, timing and voltage bytes are preserved from v126. This is a flashing
+  quality mode; one controller activation does not guarantee one visible pulse.
+  Final background cleanliness and the visible transition need M4 hardware QA.
+  Night mode / reading backgrounds still use the overlay path.
+
 - Overlay (叠加): FAST 1-bit then gray `lut_grayscale` (two refreshes).
-- Combined (合成): one FAST 1-bit refresh. Absolute 4-level (factory or
-  VSL-only 00) left gray shadows on white and a slow full refresh. Overlay
-  is the gray-edge mode.
-- Direct (直刷, experimental): one absolute gray refresh per turn — no B/W
-  paint. The 2-bit planes use the absolute four-level encoding (11=black …
-  00=white) and `lut_m4_aa_direct` drives them — a hybrid of two vendor
-  tables, all convergent drive-toward-target groups, no inversion: 00/11
-  take vendor B's white/black REPAINT sequences (A8 00 55 / 54 00 AA,
-  real doses, no opposite-extreme swing), 01/10 keep lut_grayscale's edge
-  phases, timing is B's verbatim (TP 0C 0D …, FR 0x22, VCOM 0x30).
-  v29-v31 proved erase-class drives need the full 4A→88 inversion cycle
-  (cleaning AND flashing are inseparable that way); B's repaint drives
-  standing pixels invisibly at their endpoint, so whites stay clean every
-  turn without a flash. If the grays land too dark under B's longer TP,
-  swap in milder 55-class phases. cleanWhite=true still
-  runs the factory tier. Night mode and reading backgrounds fall back to
-  the overlay path. The desktop simulator keeps previewing 11 as dark gray
-  (its shim models lut_grayscale), so core blackness is only meaningful on
-  hardware.
+- Combined (合成): removed in v131; old stored selections migrate to Off.
+- Direct (无闪直刷（灰阶试验）): v129 sends absolute two-bit glyph coverage,
+  including the status bar, using one `lut_m4_direct_pulse` activation. There is
+  no preceding B/W page activation or later gray overlay on ordinary light-mode
+  pages. v127/v128's 4x4 B/W spatial pattern was reported jagged and is no longer
+  enabled by the reader. Night mode and reading backgrounds retain one B/W FAST
+  refresh. Automatic HALF cleanup remains suppressed; explicit EPUB manual
+  cleanup still works. Low-memory allocation failure falls back to B/W.
+
+### v129 pulse grayscale experiments
+
+Hardware feedback: Single-flash's full vendor E waveform produces good final
+CangEr JinKai text, but flashes black. Both the original idle-white table and
+v128's `lut_m4_white_hold` produced dirty/dark intermediate backgrounds. The
+latter was also reported slow; it is retained as historical data, not selected.
+
+White flash (快速灰阶试验), setting value 6, still OTP-whitens first. It then
+uses `lut_m4_white_pulse`, removing the old 60-frame erase/settle sequence in
+favor of 24 timing frames. White targets select VSL throughout; light gray,
+dark gray and black select VSH1 for 9, 12 and 24 frames respectively. The
+accepted Single-flash mode (value 5) remains unchanged as a comparison.
+
+Direct (value 3) uses a separate 36-frame sequence. v129 drove black in
+frames 0..24, light gray in 24..33, and dark gray in 24..36. Hardware feedback
+reported thin text followed by thickening. v130 retains the total doses and
+frame count but moves black to 12..36 and light gray to 27..36; dark gray stays
+24..36. Gray targets still receive 24 VSL preconditioning frames. All three
+ink pulses now end at frame 36. This is intended to reduce the staggered
+appearance; equal electrical end times do not prove equal optical settling.
+There is no separate B/W paint, full-white activation or later gray overlay.
+
+These are calibration candidates, not validated no-flash/white-flash waveforms.
+24 is the E waveform's black VSH1 total; 9 and 12 are estimates from its gray
+group's positive-minus-negative frame counts. Pigment motion is not linear in
+net dose. Previous VSL-only cleaning failed on this panel: direct may retain
+old-page ink, and neither candidate has proven optical whiteness or gray levels.
+Frame counts exclude OTP whitening, rendering, transfers, power-up and BUSY
+handling; they are not measured page-turn times. Frame-rate and analog-voltage
+registers remain unchanged. Source code mapping follows
+[SSD1677 Rev 1.0, table 6-6](https://files.waveshare.com/upload/2/2a/SSD1677_1.0.pdf);
+VSS/VSL selection alone does not establish the optical result relative to VCOM.
+
+EPUB prepares both planes before whitening when its existing buffers fit. It
+waits for OTP BUSY before writing either controller RAM plane, since whitening
+overwrites both. TXT overlaps whitening with LSB rendering, then waits before
+writing. There is no separate B/W paint before grayscale, nor any activation
+in the final differential-baseline resynchronization.
+
+Memory: two 112-byte constexpr flash tables, no new allocation sites. Direct
+now reuses the existing grayscale pipeline: EPUB can temporarily use two
+48,000-byte planes with heap/PSRAM headroom checks, falling back to one plane
+or an 8,000-byte strip; TXT uses the existing chunked 48,000-byte B/W backup.
+Thus Direct uses more working memory than the previous one-bit implementation.
+Allocation failure before activation displays B/W. Once controller planes are
+being written, complete the page before honoring navigation; an earlier abort
+keeps the previous page visible. Night/background white-trial fallback stays
+on the existing overlay path. Persisted setting IDs and defaults are unchanged.
+
+### v130 grayscale-to-UI cleanup
+
+User feedback accepted v129 White flash but reported residue when opening
+settings or returning home in both Direct and White flash. Its 24-frame white
+pulse LUT remains byte-identical in v130. The reader/menu paths resynchronized
+RED from the thresholded B/W backup, then requested FAST. That restored RAM
+contents but did not remove physical intermediate gray ink; the driver also
+considered factory gray self-cleaned, so no physical exit cleanup ran.
+
+M4 now tracks absolute grayscale on the panel separately from RAM validity.
+The next B/W paint first performs OTP whitening and waits for completion,
+then seeds RED to white and paints the prepared target frame. A facade-provided
+previous-frame pointer is discarded for this paint because the actual panel
+is now white. Window requests repaint the full composed framebuffer after
+whitening, preserving content outside the window. RAM-only cleanup does not
+consume this state. Repeated grayscale pages do not invoke the B/W exit path;
+an explicit white activation consumes it. Other SSD1677 boards opt out.
+
+This adds one white interval when leaving a gray page for B/W UI. The firmware
+adds two boolean fields (one board policy and one panel-state flag), no heap
+allocation or framebuffer. White-baseline writes reuse EpdBus::fillPlane's
+128-byte stack chunk. Recording-bus host tests exercise the actual driver for
+RAM-only cleanup, repeated gray pages, one-shot UI cleanup, partial windows,
+asynchronous completion and other-board isolation. They cannot validate
+physical residue or flash color; repeat these transitions on M4 hardware.
+
+### v131 clock lock and retired Combined AA
+
+User feedback: v130 White flash is satisfactory; Direct resembles a faster
+white flash. Both reading waveforms remain byte-identical in v131. Combined
+AA is removed from the text picker and web settings, and its reader branch is
+removed. Persisted ID 2 remains reserved and migrates to Off, the corresponding
+one-bit behavior. Other stored IDs remain 0/1/3/4/5/6; picker indices are mapped
+separately. JSON explicitly reads/writes the stable ID because the dynamic
+picker is excluded from the generic persistence loop; legacy binary loading
+uses the same normalization. No stored binary layout changes.
+
+The reported lock problem uses the Clock face. v130 could white-clean gray
+residue and then run the Clock's requested HALF, re-driving the white field;
+its inverted-entry helper could also request FULL. v131 Clock entry and hourly
+cleanup instead use an explicit white-clean paint through GfxRenderer and HAL.
+M4 runs OTP white, waits, seeds the white baseline and paints FAST, regardless
+of whether the prior screen was gray text or B/W Home. A pending gray exit and
+a Clock clean coalesce into the same one-shot request. The known-white state
+consumes boot's initial HALF/FULL promotion on hourly timer wake. Minute ticks
+remain windowed; other lock faces keep their existing policies. The saved
+clock framebuffer stays intact for unlock baseline restoration.
+
+There are no new framebuffers or heap buffers. The explicit request reuses the
+driver's existing pending-white boolean and fillPlane stack chunk. AA choices
+reuse the existing settings vector and captureless DynamicEnum accessors.
+Host bus tests cover gray/Home clock entry and initialized timer wake: each
+must emit exactly white FAST + target FAST with no HALF/FULL sequence. Test
+real Clock entry from both readers, Home and night mode, then a minute tick,
+an hourly tick and unlock. Check residual text, background dirt and flash
+color; bus traces cannot establish optical cleanliness.
+
+### v132 clock endpoint paint and completion wait
+
+Hardware rejected v131: after entering Clock lock the field progressively
+became dirty, with severe negative-text residue across the background. The
+v131 OTP-white + B/W FAST trace was electrically as intended, but its premise
+that white preconditioning left an optically clean field was not validated.
+
+Explicit Clock white-clean now uses OTP whitening followed by the exact
+accepted `lut_m4_white_pulse`, with both controller planes streamed as ~fb.
+Thus white targets select 00 and black targets select 11; no intermediate gray
+values occur in a binary Clock face. Unlike the v131 differential target paint,
+this waveform actively drives white endpoints as well as the black clock.
+No LUT bytes, voltages or reading AA paths are retuned. The two activations are
+white FAST + absolute custom 0xCC, with no HALF/FULL inversion train. A promoted
+HALF from the facade's night-mode transition is superseded by this explicit
+request. Normal gray-to-menu cleanup retains its v130 behavior.
+
+After completion, both RAM planes are restored to the binary clock target
+and the pending preparation is cleared, so minute ticks and unlock can use a
+matching baseline. The request state is now an enum (None/GrayExit/WhiteClean)
+to distinguish ordinary UI cleanup from explicit clock endpoint painting.
+An explicit clean completes synchronously even via displayStart and reports
+that fact. Other SSD1677 boards opt out via a null config LUT pointer.
+
+Absolute-gray completion also now uses waitRefreshComplete instead of
+waitBusy. The ActiveHigh level-only wait could return before BUSY asserted;
+RAM resync or sleep power-off could then interrupt an active waveform. The
+refresh-specific wait handles delayed assertion on the normal interrupt and
+slice-hook paths. Its existing no-semaphore fallback and bounded waits remain
+unchanged. [SSD1677 command 0x20](https://files.waveshare.com/upload/2/2a/SSD1677_1.0.pdf)
+requires the host not to interrupt the activation while BUSY. This race is a
+code finding, not a claim that it alone caused the photographed failure.
+
+No new heap allocation or framebuffer: inverse writes reuse the driver's
+128-byte stack chunk, the configuration references the existing LUT, and one
+byte enum replaces the pending boolean. Recording-bus tests check the actual
+loaded LUT, 00/11-only planes, restored binary baseline, no extra UI clear,
+polarity-promotion override, cold wake, deferred-call reporting and power-off.
+A delayed-BUSY model rejects RAM writes or shutdown before gray completion.
+Hardware QA must check Clock entry immediately, after settling/power-off,
+after a minute tick, and on unlock; the model cannot prove optical cleanliness.
+
+### v133 clock sleep waveform and explicit shutdown
+
+Hardware rejected v132 as well: the Clock face rapidly developed a mottled
+background after locking. The short reading white pulse remains acceptable
+for page turns, but that does not establish that it leaves a stable image
+through power-down. No measured electrical trace yet establishes the root cause.
+
+Clock entry and hourly cleanup now use `displaySleepClean()` through renderer,
+HAL and SDK. M4 selects the existing full vendor E table (`lut_m4_aa_direct`),
+including all 60 timing frames, instead of OTP whitening plus the 24-frame
+reading pulse. Both planes still stream ~fb to select only white/black endpoints.
+There is exactly one display activation (0xCC), with no preliminary OTP clear
+or HALF/FULL activation stacked on it. The table has a visible black cleaning
+phase; this candidate trades one black flash for a complete cleanup sequence,
+not a repeated black-flash train. Reading white/direct LUTs remain unchanged.
+
+The sleep clean always waits for completion and powers the analog/clock off
+(0x03), regardless of the reading fading-fix setting. Only then are both RAM
+planes restored to the binary baseline. The later deepSleep call sends 0x10
+without another master activation. Power-on also uses the delayed-assertion
+aware completion wait before issuing subsequent commands. Ordinary minute
+window updates and ordinary gray-to-menu cleanup retain their existing paths.
+
+The change reuses the existing LUT and 128-byte stack streaming buffer, with no
+new firmware heap allocation or framebuffer. Recording-bus tests check exact
+full-E LUT bytes, endpoint polarity, a single paint followed by a single
+power-off, late BUSY on power-on/paint, cold wake, polarity promotion, and
+absence of another activation at deep sleep. Host tests verify command order;
+they do not establish optical stability after power-down.
+
+Hardware validation: from EPUB and TXT white-flash reading, lock the clock and
+inspect immediately, after 10 seconds, after 60 seconds and after a minute tick.
+Repeat from Home and with the reading fading fix disabled. Check that the field
+stays white, prior text does not emerge, entry has no repeated black flashes,
+and normal minute changes do not perform a full-screen clean. Also unlock and
+confirm the reading white-flash behavior is unchanged.
+
+### Local M4 test version increments
+
+`scripts/m4_test_version.py` runs for `murphy_m4_cn` builds with a `.vN` version
+marker. It hashes source inputs (including SDK sources and translations) and
+stores the last fingerprint/revision in `.pio/m4-test-version.json`. The first
+changed-source build after v126 uses v127; subsequent changed-source builds
+increment once. Rebuilding unchanged sources, including retrying a failed build,
+keeps the same revision. `pio run -t clean` does not consume a revision. Keep the
+state file when cleaning the workspace; if deleting it, first raise the `.vN`
+seed in the ini to the last issued revision. Other environments and release
+version formats are unaffected. The effective compiler version is printed in
+the build log; it overrides the static ini seed without rewriting the ini.
+
+### AA verification
+
+- Use the same page, CangEr JinKai font, size, weight and lighting for comparisons.
+  Record settled images separately from a slow-motion transition video.
+- In Direct, test EPUB/TXT, image pages, backgrounds and night mode: the completed
+  gray page must use one activation, with no subsequent edge-overlay
+  pass. Check whether the physical settling still looks like a second render. Turn at least 30 pages across the configured cleanup interval and check
+  residual ink, guide lines and the status bar. Test manual EPUB cleanup.
+- In v129 select White flash (fast gray trial), then compare against Single-flash
+  using the same page. Record: whether the flash is white or black; whether
+  speckles appear transiently or persist after BUSY; whether gray edges and
+  black cores match the accepted mode. Repeat in EPUB/TXT and after 30 turns.
+- In both gray modes, open settings, return to reading, then return home.
+  Check that old text clears and subsequent menu navigation does not white-flash
+  again. Test a partial popup and fast consecutive navigation.
+- Check navigation during the white interval and low-memory fallback. The page
+  must not remain blank or lose its status bar.
+- Confirm About displays v133 for this candidate. An unchanged rebuild must
+  retain it; the next source change/build must display v134.
+- The simulator cannot validate physical gray response, ghosting or flash color.
 
 Silent restarts (USB eject/disconnect, web-server teardown) save the panel's
 physical frame before the undisplayed loading popup joins the framebuffer,
@@ -106,9 +326,9 @@ watching). Entry AND tick both save the unlock frame
 is actually on the panel — the entry save was the missing half of the wake
 ghost fix.
 
-Opening the reader menu/settings over an AA page used HALF (0xD4), which
-black-flashes. That path now resyncs grayscale RAM then FAST. Home from
-the reader is FAST. Clock lock: one HALF to bleach the white field, then
+Opening the reader menu/settings over an AA page requests FAST to avoid
+HALF (0xD4) black flashes. From v130 the driver first white-cleans physical
+absolute-gray ink, even after RAM resync; the same applies to Home. Clock lock: one HALF to bleach the white field, then
 windowed FAST on the digit band only so the background is not re-driven.
 
 Optional **page-turn animation** (Reader settings, default off): ten
@@ -117,7 +337,7 @@ back = left-to-right). Strips use `lut_m4_page_turn` (~40ms, transition
 pixels only) rather than OTP FAST (~400ms regardless of area), so the
 frontier can sweep instead of popping in thirds. Unchanged pixels stay idle
 to avoid the retired-repaint black flash. Skipped for overlay/direct/swift
-AA, night mode, reading backgrounds, image pages, auto-turn, and the
+AA, single-flash AA, night mode, reading backgrounds, image pages, auto-turn, and the
 scheduled HALF cleanup. The desktop shim maps `displayWindow` to a full
 FAST, so the wipe is hardware-only.
 
@@ -209,6 +429,71 @@ Session rules (enforced by `UsbTransferActivity`):
 - The entry also appears on `simulator_murphy_m4` as a stub screen ("needs
   real hardware"): a host build has no USB OTG controller or SD block device,
   so only the menu flow is exercisable there.
+
+## M4 INX paper layout
+
+The M4 INX theme uses a paper layout. Other device profiles retain the existing
+INX layout. Its bottom tabs are Now Reading, Library, Reading Journal, Settings,
+and Apps; `MainTabs::values` defines both drawing and input order.
+Display settings includes Bottom Tab Order when the theme has main tabs. Select
+each tab’s number (1–5) in a fixed list, then choose Save Order. Editing one
+number does not modify the other numbers or the active bar. Duplicate numbers
+are allowed while editing and rejected on save. Back discards unsaved edits.
+Restore Default Order fills the board-specific default numbers; Save Order
+applies them. Saved changes survive restart.
+`settings.json` stores `mainTabOrder` as five stable MainTab IDs (Recent=1,
+Library=2, Apps=3, Settings=4, Statistics=5). Missing, duplicate, incomplete or
+invalid arrays fall back to the board default. Drawing, touch and physical
+left/right navigation read the same persisted order. The field occupies five
+bytes; the editor uses a fixed seven-row list, a five-byte draft and ten bytes of
+number-label storage and the existing five-choice popup whose storage is released with the activity. JSON adds only five scalar entries
+to the existing settings document; there is no additional framebuffer.
+
+The main UI retains its existing portrait orientation; Reading Orientation
+applies to the reader. The paper geometry also handles landscape content if
+the renderer is configured that way.
+
+- The Flow home view presents one book with its cover, title, chapter/progress
+  and a filled Continue Reading action following the progress, a larger 12pt
+  reading summary and up to three recent entries.
+  Missing covers use small vertical Chinese titles (Latin titles wrap horizontally);
+  the main title supports up to three lines. Completed books offer Read Again. Landscape
+  places the recent entries beside the main book. Other home layouts remain
+  selectable.
+- Library uses an indexed catalog with All/In Progress/Finished filters and an
+  Import action opening File Transfer. Directories remain visible in each filter
+  so nested books can be reached. Existing reader statistics supply titles,
+  authors and completion/progress; uncached books fall back to filenames.
+  Long-press file operations and destination pickers retain their existing flows.
+- Reading Journal places the weekly total beside today and reading-day summaries,
+  followed by larger full-width daily bars, the peak day and a solid hourly
+  activity track in portrait. Portrait statistics, bar values, dates and hourly
+  labels use the existing 12pt common-character font. Daily bars use solid black
+  fill. Tapping a bar opens that day; book previews are omitted from the journal.
+  More Details retains the analytics view.
+- Settings retains the four existing categories, presented as numbered rows
+  (two columns in landscape). Apps uses borderless icons (3×3 in portrait, 4×2 in landscape), with a
+  bookmark focus marker, visible page count and 44px-wide previous/next touch
+  targets. Swipes and physical navigation use the same page capacity. Library/Apps layout selectors are hidden for
+  this theme; stored preferences still apply to other themes.
+
+`BaseTheme` owns the shared paper geometry and monochrome drawing helpers in
+`src/components/themes/inx/PaperUi.cpp`. Activities use `GUI` and logical input.
+No additional framebuffer or directory-sized metadata container is introduced:
+the catalog reuses its row caches, and wrapping is capped at three lines with a
+192-byte UTF-8-safe stack buffer. Built-in Chinese book titles use the 12pt
+common-character font; the HTML preview's desktop font appearance is indicative.
+
+Build with `pio run -e murphy_m4_cn` and `pio run -e simulator_murphy_m4`.
+`MainTabOrderTest` checks all 120 permutations, every source/destination move,
+relative-order preservation, invalid orders and navigation/touch consistency.
+`MurphyMainTabsTest` checks the M4 default order, wrap navigation and every horizontal
+touch position at 480px and 800px. On hardware, verify long titles/authors,
+missing covers, empty recents, nested folders, each catalog filter, recent-list
+paging, day-detail taps and hourly activity, custom tab order across restart,
+restore-default order, settings categories and all app pages. Change reader
+orientation and return to the main UI; check input after refresh, and inspect thin rules,
+hatching and ghosting on the real panel before release.
 
 ## Hardware release gate
 

@@ -26,6 +26,7 @@ class ReadingStatsExtendedActivity final : public Activity {
   // INX: share the tab-bar header with the stats tab instead of the plain
   // text header.
   MainTab mainTab() const override { return MainTab::Statistics; }
+  bool mainTabBackReturnsToTabs() const override { return false; }
 
   void onEnter() override;
   void loop() override;

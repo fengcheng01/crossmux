@@ -362,6 +362,7 @@ void startDeepSleepWithTimer(HalPowerManager& pm, HalGPIO& gpio, const uint64_t 
   (void)timerUs;
   pm.startDeepSleep(gpio);
 #else
+  Storage.prepareForDeepSleep();
   pm.startDeepSleep(gpio, timerUs);
 #endif
 }

@@ -32,6 +32,8 @@ class AppsMenuActivity final : public Activity {
   static int getAppIndexForVisibleIndex(int visibleIndex);
   bool usesIconLayout() const;
   int iconIndexFromPoint(int x, int y) const;
+  int iconPageCapacity() const;
+  int iconPageStart(int visibleCount) const;
   void openSelected();
   void drawIconGrid(const Rect& rect, int visibleCount, bool showSelection) const;
 

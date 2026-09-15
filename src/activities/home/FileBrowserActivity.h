@@ -14,6 +14,17 @@ class FileBrowserActivity final : public UiListActivity {
  private:
   enum class EditAction : uint8_t { Rename, Move, Delete };
   enum class BrowserState : uint8_t { Browsing, ChoosingMoveDestination };
+  enum class PaperFilter : uint8_t { All, InProgress, Finished, Count };
+  static constexpr freeink::ui::ActionId ACTION_PAPER_FILTER = 2;
+  static constexpr freeink::ui::ActionId ACTION_PAPER_TRANSFER = 3;
+  PaperFilter paperFilter = PaperFilter::All;
+  bool rowsUsePaperStyle = false;
+  uint32_t rowSessionSerial = 0;
+  bool usesPaperCatalog() const;
+  bool matchesPaperFilter(const std::string& filename) const;
+  void buildPaperCatalog(UiScreen& screen);
+  static void paperFilterTrampoline(const freeink::ui::ActionEvent& event, void* user);
+  static void paperTransferTrampoline(const freeink::ui::ActionEvent& event, void* user);
 
   // Deletion
   bool removeDirFile(const std::string& fullPath);

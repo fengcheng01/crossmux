@@ -28,6 +28,7 @@ class ReadingStatsActivity final : public Activity {
   void guardBackReturn();
   bool usesInxLayout() const;
   void renderInx();
+  void renderPaper();
 
  public:
   explicit ReadingStatsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool mainTabEnabled = false)

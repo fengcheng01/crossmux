@@ -62,6 +62,15 @@ class GfxRenderer {
     return mapTwoBitPixel(mode, 3 - coverage, absoluteFourLevel);
   }
 
+  // Ordered spatial coverage for single-refresh text: 0/3 keep their endpoints,
+  // while 1/2 retain approximately one/two thirds of pixels in a fixed 4x4 tile.
+  static constexpr bool glyphDitherPixel(const uint8_t coverage, const int x, const int y) {
+    if (coverage == 0) return false;
+    if (coverage >= 3) return true;
+    constexpr uint8_t thresholds[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    return thresholds[static_cast<unsigned>(y) & 3][static_cast<unsigned>(x) & 3] < (coverage == 1 ? 5 : 11);
+  }
+
   static constexpr bool framebufferState(const RenderMode mode, const bool state,
                                          const bool absoluteFourLevel = false) {
     if (absoluteFourLevel) return mode == BW ? state : !state;
@@ -254,6 +263,8 @@ class GfxRenderer {
   int getScreenHeight() const;
   void tapToLogical(float nx, float ny, int& outX, int& outY) const;
   void displayBuffer(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
+  // Explicit clean paint: consumes any generic override so no HALF/FULL is stacked.
+  void displaySleepClean() const;
   void displayBufferDriveAll(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
   // Force the next displayBuffer() to use `mode`, overriding its argument once.
   void requestNextRefresh(const HalDisplay::RefreshMode mode) const {
@@ -369,8 +380,7 @@ class GfxRenderer {
   // Enables partial-repaint patterns (e.g. moving a selection highlight)
   // without re-rendering the whole page.
   size_t readFramebufferRegion(int x, int y, int w, int h, uint8_t* dst, size_t dstCapacity) const;
-  void writeFramebufferRegion(int x, int y, int w, int h, const uint8_t* src) const;
-
+  void writeFramebufferRegion(int x, int y, int w, int h, const uint8_t* src);
   // Text
   // Page-local guard for synthetic bold. Restores the previous renderer state
   // so EPUB content cannot leak the effect into status bars or other UI.
@@ -442,6 +452,9 @@ class GfxRenderer {
   // cleanWhite=false: fast AA tier — the white LUT group stays idle so page
   // turns drive only ink pixels (ghosts cleared by the periodic clean pass).
   void displayGrayBufferAbsolute(bool cleanWhite = true) const;
+  void flashToWhite() const;
+  void displayGrayBufferFromWhite() const;
+  void displayGrayBufferDirect() const;
   void displaySwiftAa(const uint8_t* edgePlane) const;
   bool supportsSwiftAa() const;
 

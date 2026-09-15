@@ -258,7 +258,7 @@ bool ActivityManager::handleMainTabInput() {
   int y = 0;
   if (mappedInput.wasScreenTapped(x, y)) {
     if (y >= tabTop && y < tabBottom) {
-      const MainTab target = MainTabs::fromX(x, renderer.getScreenWidth());
+      const MainTab target = MainTabs::fromX(x, renderer.getScreenWidth(), MainTabs::orderedValues());
       if (target != MainTab::None) {
         mainTabFocus = MainTabFocus::Content;
         if (target != currentTab)
@@ -291,11 +291,11 @@ bool ActivityManager::handleMainTabInput() {
   switch (mainTabFocus) {
     case MainTabFocus::Tabs:
       if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
-        goToMainTab(MainTabs::adjacent(currentTab, -1));
+        goToMainTab(MainTabs::adjacent(currentTab, -1, MainTabs::orderedValues()));
         return true;
       }
       if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
-        goToMainTab(MainTabs::adjacent(currentTab, 1));
+        goToMainTab(MainTabs::adjacent(currentTab, 1, MainTabs::orderedValues()));
         return true;
       }
       if (mappedInput.isPressed(MappedInputManager::Button::Left) ||

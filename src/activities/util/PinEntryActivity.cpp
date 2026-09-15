@@ -36,7 +36,8 @@ void PinEntryActivity::onEnter() {
   // Nudge the block down into the leftover band so the pad is not glued to
   // the top bezel (device feedback: portrait M4 left a large empty footer).
   const int keypadBottom = keypadY + keyH * 4 + keyGap * 3;
-  const int shift = std::clamp(std::max(0, bottom - keypadBottom) / 3, 16, 48);
+  const int slack = std::max(0, bottom - keypadBottom);
+  const int shift = slack <= 0 ? 0 : std::min(slack, std::clamp(slack / 3, 16, 48));
   titleTop += shift;
   messageTop += shift;
   boxTop += shift;

@@ -27,6 +27,13 @@ constexpr ThemeMetrics makeValues() {
   metrics.menuSpacing = 0;
   metrics.scrollBarWidth = 6;
   metrics.scrollBarRightOffset = 2;
+#if FREEINK_DEVICE_MURPHY_M4
+  metrics.headerHeight = 74;
+  metrics.contentSidePadding = 26;
+  metrics.listSidePadding = 26;
+  metrics.listSelectionStyle = 2;
+  metrics.listSeparatorStyle = 1;
+#endif
   return metrics;
 }
 inline constexpr ThemeMetrics values = makeValues();
@@ -34,6 +41,7 @@ inline constexpr ThemeMetrics values = makeValues();
 
 class InxTheme final : public LyraTheme {
  public:
+  bool usesPaperStyle() const override;
   void drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
                   const char* subtitle = nullptr) const override;
   void drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label,

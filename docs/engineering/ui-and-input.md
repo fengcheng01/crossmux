@@ -215,3 +215,16 @@ shared icon assets and other themes remain unchanged.
 > User-facing text must use the `tr()` macro — see
 > [hardware-constraints.md](hardware-constraints.md) → Resource Protocol rule 5,
 > and the i18n workflow in [generated-files.md](generated-files.md).
+
+### Murphy Paper page details
+
+The reading journal More Details activity keeps the Statistics tab visible, but
+sets `mainTabBackReturnsToTabs()` to false. Back, including either side inward
+swipe, is handled by the detail activity and pops one level; the parent consumes
+the triggering release before accepting another action.
+
+Paper journal daily totals and hourly activity use the same display day ordinal.
+Positive sessions below one minute display `<1` rather than zero; reading days
+include every day with positive recorded duration. Zero days have no bar. The
+root `/crash_report.txt` diagnostic is excluded from recent books without deleting
+the report or excluding similarly named books in other directories.

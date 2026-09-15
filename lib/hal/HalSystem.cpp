@@ -15,15 +15,18 @@
 #include "esp_private/panic_internal.h"
 #include "esp_timer.h"
 
+#if defined(__XTENSA__)
+#include "xtensa_context.h"
+#endif
+
 #define MAX_PANIC_STACK_DEPTH 32
 #define PANIC_CAPTURE_MAGIC 0x50414E49u
 
 RTC_NOINIT_ATTR char panicMessage[256];
 RTC_NOINIT_ATTR HalSystem::StackFrame panicStack[MAX_PANIC_STACK_DEPTH];
-// RISC-V exception registers from the faulting frame. panicMessage stays empty
-// on the CPU-fault path (print_backtrace without panic_abort), and the stack
-// dump alone can't identify the faulting code — mepc (faulting PC), mcause and
-// mtval (faulting address) can, once symbolized against the ELF.
+// Exception registers from the faulting frame (RISC-V mepc/mcause/mtval, or
+// Xtensa pc/exccause/excvaddr stored in the same slots). panicMessage stays
+// empty on the CPU-fault path (print_backtrace without panic_abort).
 RTC_NOINIT_ATTR uint32_t panicMepc;
 RTC_NOINIT_ATTR uint32_t panicMcause;
 RTC_NOINIT_ATTR uint32_t panicMtval;
@@ -51,52 +54,54 @@ void IRAM_ATTR __wrap_panic_abort(const char* message) {
   __real_panic_abort(message);
 }
 
+static void IRAM_ATTR captureStackFromSp(uint32_t sp) {
+  for (size_t i = 0; i < MAX_PANIC_STACK_DEPTH; i++) {
+    panicStack[i].sp = 0;
+  }
+  const int per_line = 8;
+  int depth = 0;
+  for (int x = 0; x < 1024; x += per_line * sizeof(uint32_t)) {
+    uint32_t* spp = reinterpret_cast<uint32_t*>(sp + x);
+    panicStack[depth].sp = sp + x;
+    for (int y = 0; y < per_line; y++) {
+      panicStack[depth].spp[y] = spp[y];
+    }
+    depth++;
+    if (depth >= MAX_PANIC_STACK_DEPTH) {
+      break;
+    }
+  }
+}
+
 void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
   if (!frame) {
     __real_panic_print_backtrace(frame, core);
     return;
   }
 
-#if !__riscv
-  __real_panic_print_backtrace(frame, core);
-  return;
-#else
-  for (size_t i = 0; i < MAX_PANIC_STACK_DEPTH; i++) {
-    panicStack[i].sp = 0;
-  }
-
-  // Copied from components/esp_system/port/arch/riscv/panic_arch.c
-  RvExcFrame* exc = (RvExcFrame*)frame;
-  uint32_t sp = exc->sp;
   // Register capture must happen before the marker: a reset between the two
   // would otherwise report garbage registers as real.
+#if defined(__XTENSA__)
+  // M4 is ESP32-S3 (Xtensa). The previous wrapper only decoded RISC-V frames,
+  // so S3 CPU faults landed as empty "no abort message" reports with no PC.
+  const XtExcFrame* exc = static_cast<const XtExcFrame*>(frame);
+  panicMepc = static_cast<uint32_t>(exc->pc);
+  panicMcause = static_cast<uint32_t>(exc->exccause);
+  panicMtval = static_cast<uint32_t>(exc->excvaddr);
+  panicRegsMarker = PANIC_CAPTURE_MAGIC;
+  captureStackFromSp(static_cast<uint32_t>(exc->a1));
+  panicCaptureMarker = PANIC_CAPTURE_MAGIC;
+#elif defined(__riscv)
+  const RvExcFrame* exc = static_cast<const RvExcFrame*>(frame);
   panicMepc = exc->mepc;
   panicMcause = exc->mcause;
   panicMtval = exc->mtval;
   panicRegsMarker = PANIC_CAPTURE_MAGIC;
-  const int per_line = 8;
-  int depth = 0;
-  for (int x = 0; x < 1024; x += per_line * sizeof(uint32_t)) {
-    uint32_t* spp = (uint32_t*)(sp + x);
-    // panic_print_hex(sp + x);
-    // panic_print_str(": ");
-    panicStack[depth].sp = sp + x;
-    for (int y = 0; y < per_line; y++) {
-      // panic_print_str("0x");
-      // panic_print_hex(spp[y]);
-      // panic_print_str(y == per_line - 1 ? "\r\n" : " ");
-      panicStack[depth].spp[y] = spp[y];
-    }
-
-    depth++;
-    if (depth >= MAX_PANIC_STACK_DEPTH) {
-      break;
-    }
-  }
+  captureStackFromSp(exc->sp);
   panicCaptureMarker = PANIC_CAPTURE_MAGIC;
+#endif
 
   __real_panic_print_backtrace(frame, core);
-#endif
 }
 }
 
@@ -249,12 +254,30 @@ std::string getPanicInfo(bool full) {
       snprintf(reasonLine, sizeof(reasonLine), "%s (reset reason: %s)", panicMessage, resetReasonLabel);
     }
 
-    // Faulting instruction + cause from the RISC-V exception frame. mcause low
-    // nibble: 2=illegal instruction, 5=load access fault, 7=store access fault,
-    // 11=environment call (mtval then holds the faulting address for 5/7).
+    // Faulting instruction + cause from the exception frame.
+    // RISC-V mcause low nibble: 2=illegal, 5=load, 7=store, 11=ecall.
+    // Xtensa exccause: 0=illegal, 9=load prohibited, 10=store prohibited.
     char excLine[160] = {};
     if (panicRegsMarker == PANIC_CAPTURE_MAGIC) {
       const char* cause = "exception";
+#if defined(__XTENSA__)
+      switch (panicMcause) {
+        case 0:
+          cause = "illegal instruction";
+          break;
+        case 9:
+          cause = "load prohibited";
+          break;
+        case 10:
+          cause = "store prohibited";
+          break;
+        default:
+          break;
+      }
+      snprintf(excLine, sizeof(excLine), "\n\nCPU exception: %s (exccause=0x%08lX) at pc=0x%08lX, excvaddr=0x%08lX",
+               cause, static_cast<unsigned long>(panicMcause), static_cast<unsigned long>(panicMepc),
+               static_cast<unsigned long>(panicMtval));
+#else
       switch (panicMcause & 0xF) {
         case 2:
           cause = "illegal instruction";
@@ -274,6 +297,7 @@ std::string getPanicInfo(bool full) {
       snprintf(excLine, sizeof(excLine), "\n\nCPU exception: %s (mcause=0x%08lX) at mepc=0x%08lX, mtval=0x%08lX", cause,
                static_cast<unsigned long>(panicMcause), static_cast<unsigned long>(panicMepc),
                static_cast<unsigned long>(panicMtval));
+#endif
     }
 
     std::string info;

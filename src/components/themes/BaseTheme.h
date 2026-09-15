@@ -257,6 +257,58 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
 
 class BaseTheme {
  public:
+  struct PaperMetrics {
+    int padding = 26;
+    int gap = 24;
+    int statusHeight = 40;
+    int headingHeight = 64;
+    int titleFont = NOTOSERIF_14_FONT_ID;
+    int bookFont = UI_12_FONT_ID;
+    int bodyFont = UI_10_FONT_ID;
+    int smallFont = SMALL_FONT_ID;
+    int numberFont = NOTOSERIF_18_FONT_ID;
+  };
+
+  struct PaperHomeLayout {
+    Rect status;
+    Rect kicker;
+    Rect hero;
+    Rect cover;
+    Rect details;
+    Rect note;
+    Rect shelfHeading;
+    Rect shelf;
+    Rect footer;
+    int shelfCapacity = 1;
+  };
+
+  virtual bool usesPaperStyle() const { return false; }
+  const PaperMetrics& paperMetrics() const;
+  PaperHomeLayout paperHomeLayout(const GfxRenderer& renderer, Rect content) const;
+  struct PaperAppLayout {
+    Rect grid;
+    Rect footer;
+    Rect previous;
+    Rect next;
+    int columns = 3;
+    int rows = 3;
+    int capacity() const { return columns * rows; }
+  };
+  PaperAppLayout paperAppLayout(const GfxRenderer& renderer, Rect content) const;
+  void drawPaperBookmark(const GfxRenderer& renderer, Rect rect) const;
+  void drawPaperAppIcon(const GfxRenderer& renderer, Rect rect, UIIcon icon) const;
+  void drawPaperStatus(const GfxRenderer& renderer, Rect rect) const;
+  int drawPaperHeading(const GfxRenderer& renderer, Rect rect, const char* title, const char* detail = nullptr) const;
+  int drawPaperText(const GfxRenderer& renderer, Rect rect, int font, const char* text, bool bold = false,
+                    int maxLines = 1) const;
+  void drawPaperRule(const GfxRenderer& renderer, Rect rect, int thickness = 1) const;
+  void drawPaperFocus(const GfxRenderer& renderer, Rect rect) const;
+  void drawPaperProgress(const GfxRenderer& renderer, Rect rect, uint8_t percent) const;
+  void drawPaperCover(const GfxRenderer& renderer, Rect rect, const char* title, const char* author) const;
+  void drawPaperAction(const GfxRenderer& renderer, Rect rect, const char* label, bool selected = false,
+                       bool filled = false) const;
+  void drawPaperBar(const GfxRenderer& renderer, Rect rect, bool emphasized) const;
+
 #ifdef ENABLE_CHINESE_VERSION
   static constexpr int STATUS_NUMERIC_FONT_ID = -858375107;
 #else

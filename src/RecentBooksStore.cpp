@@ -31,6 +31,7 @@ bool RecentBooksStore::fromJson(JsonVariantConst doc) {
     if (getCount() >= MAX_RECENT_BOOKS) break;
     RecentBook book;
     book.path = obj["path"] | "";
+    if (book.path == "/crash_report.txt") continue;
     book.title = obj["title"] | "";
     book.author = obj["author"] | "";
     book.coverBmpPath = obj["coverBmpPath"] | "";
@@ -43,6 +44,9 @@ bool RecentBooksStore::fromJson(JsonVariantConst doc) {
 
 void RecentBooksStore::addBook(const std::string& path, const std::string& title, const std::string& author,
                                const std::string& coverBmpPath) {
+  // The root crash report is a firmware diagnostic, not a recent book.
+  if (path == "/crash_report.txt") return;
+
   // Drop stale entries first so a new add can't evict a valid book in their stead.
   pruneMissing();
 

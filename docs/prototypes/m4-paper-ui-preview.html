@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>墨菲 M4 · 纸间 UI 预览</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Avenir Next", Futura, "Trebuchet MS", sans-serif;
+      background: #111311;
+      color: #e8e9e2;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      background:
+        linear-gradient(rgba(255, 255, 255, .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px),
+        #111311;
+      background-size: 32px 32px;
+    }
+
+    button, select, input { font: inherit; }
+
+    .prototype-lab {
+      --accent: #e66f3a;
+      --screen-width: 480px;
+      --screen-height: 800px;
+      --safe-top: 9px;
+      --safe-right: 3px;
+      --safe-bottom: 3px;
+      --safe-left: 3px;
+      --shell: #171917;
+      --shell-edge: #343833;
+      --control: #090a09;
+      --control-edge: #555b53;
+      --ink: #161714;
+      --paper: #efeee7;
+      display: grid;
+      min-height: 100vh;
+      grid-template-rows: auto 1fr;
+    }
+
+    .prototype-lab[data-shell="white"] {
+      --shell: #deddd6;
+      --shell-edge: #f6f4eb;
+      --control: #b8b8b0;
+      --control-edge: #f5f3eb;
+    }
+
+    .lab-header {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 28px;
+      align-items: end;
+      padding: 22px 28px;
+      border-bottom: 1px solid #32352f;
+      background: rgba(17, 19, 17, .94);
+    }
+
+    .identity { display: flex; gap: 14px; align-items: center; }
+    .identity-mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #6f756c;
+      color: var(--accent);
+      font: 800 13px/1 Georgia, serif;
+      letter-spacing: -.08em;
+      transform: rotate(-2deg);
+    }
+    .identity p, .identity h1 { margin: 0; }
+    .identity p {
+      color: #888e84;
+      font-size: 10px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    .identity h1 {
+      margin-top: 4px;
+      font: 500 20px/1.1 "Avenir Next", Futura, sans-serif;
+      letter-spacing: .02em;
+    }
+
+    .controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+    .control { display: grid; gap: 5px; }
+    .control label {
+      color: #7f857b;
+      font-size: 9px;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    .control select {
+      min-height: 34px;
+      padding: 0 34px 0 11px;
+      border: 1px solid #44483f;
+      border-radius: 0;
+      background: #1c1f1b;
+      color: #f1f1eb;
+    }
+    .safe-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 11px;
+      border: 1px solid #44483f;
+      background: #1c1f1b;
+      color: #c8cbc2;
+      font-size: 12px;
+    }
+    .safe-toggle input { accent-color: var(--accent); }
+
+    .lab-body {
+      display: grid;
+      grid-template-columns: 250px minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    .readout {
+      padding: 24px 20px;
+      border-right: 1px solid #32352f;
+      background: rgba(20, 23, 20, .82);
+    }
+    .readout h2 {
+      margin: 0 0 22px;
+      color: #8d9388;
+      font-size: 10px;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+    }
+    .metric {
+      padding: 12px 0;
+      border-top: 1px solid #343830;
+    }
+    .metric span { display: block; }
+    .metric .label {
+      color: #70766d;
+      font-size: 9px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .metric .value {
+      margin-top: 5px;
+      color: #edece4;
+      font: 500 16px/1.25 "Avenir Next", Futura, sans-serif;
+    }
+    .metric .note {
+      margin-top: 5px;
+      color: #8a9086;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .button-map { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 10px; }
+    .button-map span {
+      padding: 6px 2px;
+      border: 1px solid #484c44;
+      color: #c6cac0;
+      font: 700 9px/1 "Avenir Next", sans-serif;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .warning {
+      margin: 18px 0 0;
+      padding-left: 10px;
+      border-left: 2px solid var(--accent);
+      color: #969c91;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .stage-viewport {
+      position: relative;
+      min-width: 0;
+      min-height: 620px;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      padding: 32px;
+    }
+    .stage-viewport::before {
+      content: "NATIVE PIXEL CANVAS / AUTO SCALE";
+      position: absolute;
+      top: 15px;
+      right: 19px;
+      color: #555b52;
+      font-size: 9px;
+      letter-spacing: .16em;
+    }
+    .device-sizer { position: relative; }
+    .device-frame {
+      position: absolute;
+      inset: 0 auto auto 0;
+      width: max-content;
+      height: max-content;
+      padding: 34px;
+      border: 1px solid var(--shell-edge);
+      border-radius: 22px;
+      background: var(--shell);
+      box-shadow: 0 26px 70px rgba(0, 0, 0, .48), inset 0 0 0 2px rgba(0, 0, 0, .28);
+      transform-origin: top left;
+      transition: background-color .18s ease, border-color .18s ease;
+    }
+    .prototype-lab[data-orientation="portrait"] .device-frame { padding-bottom: 78px; }
+    .prototype-lab[data-orientation="portrait-inverted"] .device-frame { padding-top: 78px; }
+    .prototype-lab[data-orientation="landscape-cw"] .device-frame { padding-left: 78px; }
+    .prototype-lab[data-orientation="landscape-ccw"] .device-frame { padding-right: 78px; }
+
+    #prototype-screen {
+      position: relative;
+      isolation: isolate;
+      width: var(--screen-width);
+      height: var(--screen-height);
+      overflow: hidden;
+      border: 2px solid #050605;
+      border-radius: 3px;
+      background: var(--paper);
+      color: var(--ink);
+      container-type: size;
+      font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+    }
+    #prototype-screen::after {
+      content: "";
+      position: absolute;
+      z-index: 20;
+      inset: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+      border: 1px dashed rgba(215, 76, 33, .78);
+      pointer-events: none;
+      opacity: 0;
+    }
+    .prototype-lab[data-show-safe="false"] #prototype-screen::after { opacity: 1; }
+
+    .screen-status {
+      height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 2px solid var(--ink);
+      font: 700 15px/1 "Avenir Next", Futura, sans-serif;
+      letter-spacing: .04em;
+    }
+    .battery { display: inline-flex; align-items: center; gap: 7px; }
+    .battery-shape {
+      width: 27px;
+      height: 12px;
+      padding: 2px;
+      border: 2px solid currentColor;
+    }
+    .battery-shape::before { content: ""; display: block; width: 74%; height: 100%; background: currentColor; }
+    .screen-layout { min-height: calc(100% - 42px); display: grid; grid-template-rows: auto 1fr auto; }
+    .screen-heading { padding: 30px 28px 18px; }
+    .screen-heading p, .screen-heading h2 { margin: 0; }
+    .screen-heading p {
+      font: 700 12px/1 "Avenir Next", Futura, sans-serif;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    .screen-heading h2 { margin-top: 9px; font-size: 34px; line-height: 1.05; }
+    .settings-list { padding: 0 28px; }
+    .setting-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: center;
+      min-height: 74px;
+      border-top: 1px solid rgba(22, 23, 20, .34);
+    }
+    .setting-row:first-child { border-top: 2px solid var(--ink); }
+    .setting-row strong { display: block; font-size: 20px; }
+    .setting-row small { display: block; margin-top: 4px; font: 12px/1.3 "Avenir Next", sans-serif; color: #5c5e58; }
+    .setting-value {
+      min-width: 96px;
+      padding: 9px 12px;
+      border: 2px solid var(--ink);
+      font: 700 13px/1 "Avenir Next", sans-serif;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .screen-hints {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      padding: 16px 22px 20px;
+      font: 700 11px/1 "Avenir Next", Futura, sans-serif;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .screen-hints span { padding-top: 9px; border-top: 3px solid var(--ink); }
+
+    [data-orientation^="landscape"] .screen-layout {
+      grid-template-columns: .8fr 1.2fr;
+      grid-template-rows: 1fr auto;
+    }
+    [data-orientation^="landscape"] .screen-heading { padding: 26px 24px; border-right: 2px solid var(--ink); }
+    [data-orientation^="landscape"] .screen-heading h2 { font-size: 31px; }
+    [data-orientation^="landscape"] .settings-list { padding: 20px 24px 0; }
+    [data-orientation^="landscape"] .setting-row { min-height: 64px; }
+    [data-orientation^="landscape"] .screen-hints { grid-column: 1 / -1; padding: 12px 22px 16px; }
+
+    .front-controls { position: absolute; display: flex; gap: 12px; }
+    .front-key {
+      width: 76px;
+      height: 16px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--control-edge);
+      border-radius: 8px;
+      background: var(--control);
+      color: #8c9188;
+      font: 700 8px/1 "Avenir Next", sans-serif;
+    }
+    [data-orientation="portrait"] .front-controls { left: 50%; bottom: 24px; transform: translateX(-50%); }
+    [data-orientation="portrait-inverted"] .front-controls { left: 50%; top: 24px; flex-direction: row-reverse; transform: translateX(-50%); }
+    [data-orientation="landscape-cw"] .front-controls { left: 24px; top: 50%; flex-direction: column; transform: translateY(-50%); }
+    [data-orientation="landscape-ccw"] .front-controls { right: 24px; top: 50%; flex-direction: column-reverse; transform: translateY(-50%); }
+    [data-orientation^="landscape"] .front-key { width: 16px; height: 76px; }
+
+    .edge-control {
+      position: absolute;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--control-edge);
+      background: var(--control);
+      color: #9aa096;
+      font: 800 8px/1 "Avenir Next", sans-serif;
+    }
+    .x4-rocker { position: absolute; display: flex; gap: 2px; }
+    .x4-rocker .edge-control { position: static; width: 14px; height: 50px; }
+    [data-orientation="portrait"] .x4-rocker { right: -8px; top: 43%; flex-direction: column; }
+    [data-orientation="portrait-inverted"] .x4-rocker { left: -8px; top: 43%; flex-direction: column-reverse; }
+    [data-orientation="landscape-cw"] .x4-rocker { right: 36%; bottom: -8px; flex-direction: row-reverse; }
+    [data-orientation="landscape-ccw"] .x4-rocker { left: 36%; top: -8px; flex-direction: row; }
+    [data-orientation^="landscape"] .x4-rocker .edge-control { width: 50px; height: 14px; }
+
+    [data-orientation="portrait"] .x4-power { right: -7px; top: 18%; width: 13px; height: 31px; }
+    [data-orientation="portrait-inverted"] .x4-power { left: -7px; bottom: 18%; width: 13px; height: 31px; }
+    [data-orientation="landscape-cw"] .x4-power { right: 18%; bottom: -7px; width: 31px; height: 13px; }
+    [data-orientation="landscape-ccw"] .x4-power { left: 18%; top: -7px; width: 31px; height: 13px; }
+
+    [data-orientation="portrait"] .x3-up { left: -8px; top: 40%; width: 14px; height: 62px; }
+    [data-orientation="portrait"] .x3-down { right: -8px; top: 40%; width: 14px; height: 62px; }
+    [data-orientation="portrait"] .x3-power { left: 50%; top: -7px; width: 38px; height: 13px; transform: translateX(-50%); }
+    [data-orientation="portrait-inverted"] .x3-up { right: -8px; top: 40%; width: 14px; height: 62px; }
+    [data-orientation="portrait-inverted"] .x3-down { left: -8px; top: 40%; width: 14px; height: 62px; }
+    [data-orientation="portrait-inverted"] .x3-power { left: 50%; bottom: -7px; width: 38px; height: 13px; transform: translateX(-50%); }
+    [data-orientation="landscape-cw"] .x3-up { left: 40%; top: -8px; width: 62px; height: 14px; }
+    [data-orientation="landscape-cw"] .x3-down { left: 40%; bottom: -8px; width: 62px; height: 14px; }
+    [data-orientation="landscape-cw"] .x3-power { right: -7px; top: 50%; width: 13px; height: 38px; transform: translateY(-50%); }
+    [data-orientation="landscape-ccw"] .x3-up { left: 40%; bottom: -8px; width: 62px; height: 14px; }
+    [data-orientation="landscape-ccw"] .x3-down { left: 40%; top: -8px; width: 62px; height: 14px; }
+    [data-orientation="landscape-ccw"] .x3-power { left: -7px; top: 50%; width: 13px; height: 38px; transform: translateY(-50%); }
+
+    [data-device="x3"] .x4-only, [data-device="x4"] .x3-only { display: none; }
+
+    @media (max-width: 900px) {
+      .lab-header { grid-template-columns: 1fr; align-items: start; }
+      .controls { justify-content: flex-start; }
+      .lab-body { grid-template-columns: 1fr; }
+      .readout { border-right: 0; border-bottom: 1px solid #32352f; }
+      .stage-viewport { min-height: 560px; }
+    }
+    @media (max-width: 560px) {
+      .lab-header { padding: 18px; }
+      .controls { display: grid; grid-template-columns: 1fr 1fr; }
+      .control select, .safe-toggle { width: 100%; }
+      .stage-viewport { min-height: 500px; padding: 20px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .device-frame { transition: none; } }
+  
+:root{color-scheme:light dark}body{background:#eeede8;color:#252723}.prototype-lab{--accent:#414b36;--paper:#fff;--ink:#111;background:#eeede8}.lab-header{background:#f8f7f3;border-color:#d8d9d1}.identity p,.control label{color:#72766d}.identity h1{font-family:"Songti SC",serif;font-size:23px}.identity-mark{border-color:#777d70;color:#31392b}.control select,.safe-toggle,#sample-select{background:#fff;color:#242822;border:1px solid #d1d4c9;border-radius:4px}.lab-body{grid-template-columns:280px minmax(0,1fr)}.readout{background:#f8f7f3;border-color:#d8d9d1;padding:30px 26px}.readout h2{color:#61695a;letter-spacing:.13em;margin-bottom:17px}.intro{font:24px/1.55 "Songti SC",SimSun,serif;margin:0 0 28px}.view-picker{display:grid;gap:4px}.view-picker button{display:flex;align-items:center;gap:18px;padding:11px 10px;border:0;border-radius:3px;background:transparent;color:#7b8273;text-align:left;font-size:12px;cursor:pointer}.view-picker button span{font-size:15px;color:#383f32}.view-picker button.active{background:#e8ebdf;color:#303d26}.view-picker button:hover{background:#e8ebdf}.design-note{font:13px/1.8 -apple-system,sans-serif;color:#646c5e;min-height:72px;margin:22px 0}.metric{border-color:#d8dcd0}.metric .label{color:#7a8170}.metric .value{color:#343c2d;font-size:14px}.metric .note,.warning{color:#727a68}.warning{font-size:12px}.stage-viewport{min-height:820px;background:radial-gradient(ellipse at 50% 40%,#f6f5f0,#e8e7e0)}.stage-viewport::before{color:#9b9e91;content:"MONOCHROME / NATIVE PIXEL PREVIEW"}.device-frame{box-shadow:0 24px 55px #2225,inset 0 0 0 2px #ffffff08}#prototype-screen{border-radius:1px;background:#fff;color:#111}#sample-select{padding:8px;margin-top:10px;width:100%;font-size:12px}.m4-brand{display:none}[data-device="m4"] .front-controls,[data-device="m4"] .x4-only,[data-device="m4"] .x3-only{display:none}[data-device="m4"] .device-frame{padding:28px 28px 45px}[data-device="m4"] .m4-brand{display:block;text-align:center;color:#999;font:12px/1 -apple-system,sans-serif;letter-spacing:8px;position:absolute;bottom:16px;left:0;right:0}
+.ui{position:absolute;inset:var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);display:flex;flex-direction:column;background:#fff;color:#111;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;--serif:"Songti SC","STSong",SimSun,"Iowan Old Style",serif}.ui *{box-sizing:border-box}.ui button{color:inherit;background:none;border:0;cursor:pointer;padding:0;font:inherit;text-align:left}.ui button:focus-visible{outline:2px solid #111;outline-offset:3px}.ui .status{display:flex;align-items:center;justify-content:space-between;min-height:40px;padding:8px 24px 0;font-size:15px}.ui .status-right{display:flex;gap:10px;align-items:center}.ui .battery-shape{width:23px;height:11px;border-width:1px}.ui .body{flex:1;min-height:0;position:relative;padding:15px 26px 18px;overflow:hidden}.ui .page{height:100%;display:flex;flex-direction:column}.ui .eyebrow{font-size:14px;letter-spacing:3px;margin:0 0 12px}.ui h2{font:700 38px/1.2 var(--serif);margin:0}.ui .page-head{display:flex;align-items:flex-end;justify-content:space-between;padding-bottom:17px;border-bottom:2px solid #111;margin-bottom:20px}.ui .page-head small{font-size:15px}.ui .nav{height:74px;flex:none;border-top:1px solid #111;margin:0 20px;display:grid;grid-template-columns:repeat(5,1fr)}.ui .nav button{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font-size:14px}.ui .nav button.active{font-weight:700}.ui .nav button.active:before{content:"";position:absolute;top:-1px;left:30%;right:30%;height:4px;background:#111}.ui svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.ui .home-kicker{display:flex;justify-content:space-between;font-size:15px;letter-spacing:2px;padding:5px 0 13px;border-bottom:1px solid #111}.ui .home-main{display:grid;grid-template-columns:160px minmax(0,1fr);gap:24px;align-items:start;margin-top:28px}.ui .cover{position:relative;width:160px;height:226px;background:#fff;border:1px solid #111;padding:18px 16px 12px;display:flex;flex-direction:column;overflow:hidden;font-family:var(--serif)}.ui .cover:before{content:"";position:absolute;top:0;bottom:0;left:6px;border-left:1px solid #111}.ui .cover-top{font:10px/1.2 -apple-system,sans-serif;letter-spacing:2px;border-bottom:1px solid #111;padding-bottom:8px}.ui .cover-title{font-size:34px;line-height:1.1;font-weight:700;margin-top:17px}.ui .cover-art{margin-top:13px;flex:1;background:repeating-linear-gradient(160deg,transparent 0 12px,#111 12px 13px,transparent 13px 23px);clip-path:polygon(0 60%,25% 0,45% 40%,70% 12%,100% 70%,100% 100%,0 100%)}.ui .cover-bottom{font-size:12px;display:flex;justify-content:space-between;padding-top:6px}.ui .book-info{padding-top:2px}.ui .book-info h2{font-size:37px;line-height:1.3;overflow-wrap:anywhere}.ui .author{font-size:16px;margin:12px 0 0}.ui .chapter{margin:25px 0 9px;font-size:16px;line-height:1.55}.ui .progress{height:3px;background:repeating-linear-gradient(90deg,#111 0 1px,#fff 1px 3px);position:relative}.ui .progress i{display:block;height:100%;background:#111}.ui .progress-meta{display:flex;justify-content:space-between;font-size:13px;margin-top:8px}.ui .continue{display:flex;justify-content:space-between;align-items:center;margin:27px 0 0;border-bottom:2px solid #111!important;padding:0 0 11px!important;width:100%;font-size:20px!important;font-weight:600!important}.ui .continue span{font-size:25px}.ui .reading-note{font:21px/1.6 var(--serif);margin:29px 0 0;padding:15px 0;border-top:1px solid #111;border-bottom:1px solid #111}.ui .reading-note small{display:block;font:13px/1.4 -apple-system,sans-serif;margin-bottom:5px;letter-spacing:2px}.ui .recent-section{margin-top:26px}.ui .section-label{display:flex;justify-content:space-between;align-items:center;font-size:16px;margin-bottom:9px}.ui .section-label small{font-size:13px}.ui .recent-row{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;width:100%;min-height:64px;border-bottom:1px solid #111!important}.ui .number{font:20px/1 Georgia,serif}.ui .recent-title{font:700 22px/1.3 var(--serif)}.ui .recent-title small{display:block;font:13px/1.4 -apple-system,sans-serif;margin-top:4px}.ui .recent-meta{font-size:14px}.ui .index-tabs{display:flex;gap:22px;padding-bottom:15px;font-size:16px}.ui .index-tabs button.active{border-bottom:2px solid #111;padding-bottom:6px;font-weight:600}.ui .catalog{flex:1}.ui .catalog-row{width:100%;display:grid;grid-template-columns:38px 1fr auto;gap:12px;align-items:center;min-height:94px;border-bottom:1px solid #111!important}.ui .catalog-row strong{font:700 25px/1.3 var(--serif);display:block}.ui .catalog-row small{display:block;font-size:14px;margin-top:8px}.ui .catalog-tail{font-size:14px}.ui .library-footer{display:flex;justify-content:space-between;font-size:14px;padding-top:18px}.ui .stats-lead{display:flex;align-items:flex-end;justify-content:space-between;margin:0 0 23px}.ui .stats-value{font:84px/1 Georgia,serif;letter-spacing:-5px}.ui .stats-value small{font:17px/1 -apple-system,sans-serif;letter-spacing:0;margin-left:9px}.ui .stats-period{font-size:15px;margin-bottom:7px}.ui .stats-side{border-left:1px solid #111;padding-left:20px;padding-bottom:4px;font-size:14px;line-height:1.9}.ui .stats-side strong{font:28px/1 Georgia,serif}.ui .chart-header{display:flex;justify-content:space-between;padding-top:15px;border-top:1px solid #111;font-size:15px}.ui .chart{display:flex;gap:15px;align-items:stretch;height:191px;padding-top:24px;margin-bottom:11px}.ui .bar-column{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:8px;font-size:13px;text-align:center!important;position:relative}.ui .bar-value{font-size:14px}.ui .bar{width:27px;background:repeating-linear-gradient(135deg,#111 0 1px,#fff 1px 4px);min-height:2px}.ui .bar-column.active .bar{background:#111}.ui .bar-date{width:100%;border-top:1px solid #111;padding-top:9px;height:30px}.ui .bar-column.active .bar-date{font-weight:700;border-top-width:3px}.ui .insight{font:24px/1.55 var(--serif);border-top:1px solid #111;border-bottom:1px solid #111;padding:16px 0;margin-top:14px}.ui .insight small{display:block;font:14px/1.5 -apple-system,sans-serif;margin-top:6px}.ui .timeline{margin-top:23px}.ui .timeline-track{height:16px;display:grid;grid-template-columns:repeat(24,1fr);gap:3px;align-items:center;margin-top:17px}.ui .timeline-track i{height:2px;background:#111}.ui .timeline-track i.on{height:14px}.ui .timeline-labels{display:flex;justify-content:space-between;font-size:12px;margin-top:9px}.ui .settings-intro{font:23px/1.5 var(--serif);margin:0 0 23px}.ui .setting-item{display:grid;grid-template-columns:34px 1fr auto;gap:15px;align-items:center;width:100%;min-height:94px;border-bottom:1px solid #111!important}.ui .setting-item strong{display:block;font-size:22px;font-weight:500}.ui .setting-item small{display:block;font-size:14px;margin-top:8px}.ui .setting-item .arrow{font-size:23px}.ui .version{margin-top:auto;padding-top:20px;font-size:13px;display:flex;justify-content:space-between}.ui .apps-intro{font:23px/1.5 var(--serif);margin:0 0 25px}.ui .apps-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:29px 20px}.ui .app{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center!important;font-size:17px!important;padding:13px 0!important}.ui .app svg{width:48px;height:48px;stroke-width:1.3}.ui .apps-bottom{margin-top:auto;border-top:1px solid #111;padding-top:20px;font:20px/1.6 var(--serif)}.ui .empty{margin:auto;text-align:center}.ui .empty h2{font-size:33px}.ui .empty p{font-size:17px;line-height:1.8}.ui .empty button{padding:13px 23px;border:1px solid #111;font-size:18px;margin-top:12px}.ui .reader-top{display:flex;justify-content:space-between;font-size:14px;border-bottom:1px solid #111;padding-bottom:12px}.ui .reader-title{font:700 29px/1.5 var(--serif);margin:28px 0 20px}.ui .reader-text{font:24px/1.9 var(--serif);margin:0;text-align:justify;text-indent:2em}.ui .reader-text+p{margin-top:16px}.ui .reader-footer{margin-top:auto;border-top:1px solid #111;padding-top:14px;display:flex;justify-content:space-between;font-size:14px}.ui .sheet-shade{position:absolute;inset:0;background:repeating-linear-gradient(45deg,#0005 0 1px,transparent 1px 4px);z-index:30;display:flex;align-items:flex-end}.ui .sheet{background:#fff;width:100%;padding:25px 28px;border-top:2px solid #111}.ui .sheet-head{display:flex;justify-content:space-between;align-items:center;font-size:24px;padding-bottom:15px;border-bottom:1px solid #111}.ui .sheet-head button{font-size:16px}.ui .sheet-options button{width:100%;padding:18px 0;border-bottom:1px solid #111;font-size:20px;display:flex;justify-content:space-between}.ui .sheet p{font-size:15px;line-height:1.7}.ui .long-cover .cover-title{font-size:25px;line-height:1.3}.ui .long-title h2{font-size:27px}.ui .long-title .chapter{margin-top:15px}.ui .long-title .continue{font-size:18px!important;margin-top:18px}
+@container (max-height:550px){.ui .status{min-height:31px;padding-top:4px;font-size:13px}.ui .body{padding:10px 25px 13px}.ui .nav{height:56px}.ui .nav button{flex-direction:row;gap:7px;font-size:13px}.ui .nav svg{width:20px;height:20px}.ui .home-page{display:grid;grid-template-columns:1.2fr 1fr;grid-template-rows:auto 1fr;gap:0 30px}.ui .home-kicker{grid-column:1/-1;padding:0 0 9px;font-size:13px}.ui .home-main{grid-column:1;grid-row:2;margin-top:18px;grid-template-columns:130px 1fr;gap:20px}.ui .cover{width:130px;height:204px}.ui .cover-title{font-size:28px}.ui .book-info h2{font-size:30px}.ui .author{font-size:14px;margin-top:8px}.ui .chapter{font-size:14px;margin-top:16px}.ui .continue{font-size:17px!important;margin-top:18px}.ui .reading-note{display:none}.ui .recent-section{grid-column:2;grid-row:2;margin-top:18px}.ui .recent-row{min-height:84px}.ui .page-head{margin-bottom:12px;padding-bottom:11px}.ui h2{font-size:30px}.ui .catalog{display:grid;grid-template-columns:1fr 1fr;column-gap:28px}.ui .catalog-row{min-height:78px}.ui .catalog-row strong{font-size:22px}.ui .library-footer{padding-top:10px}.ui .stats-page{display:grid;grid-template-columns:.9fr 1.3fr;grid-template-rows:auto 1fr;gap:0 28px}.ui .stats-page .page-head{grid-column:1/-1}.ui .stats-lead{grid-column:1;grid-row:2;align-self:start;flex-wrap:wrap;gap:20px}.ui .stats-value{font-size:69px}.ui .stats-side{width:100%;border-left:0;padding-left:0;border-top:1px solid #111;padding-top:10px;display:flex;gap:20px}.ui .stats-chart-block{grid-column:2;grid-row:2}.ui .chart-header{border:0;padding-top:0}.ui .chart{height:175px;padding-top:15px}.ui .insight{font-size:19px;margin-top:10px;padding:9px 0}.ui .insight small{font-size:12px}.ui .timeline{display:none}.ui .settings-intro,.ui .apps-intro{font-size:19px;margin:0 0 12px}.ui .settings-items{display:grid;grid-template-columns:1fr 1fr;gap:0 26px}.ui .setting-item{min-height:81px}.ui .setting-item strong{font-size:19px}.ui .setting-item small{font-size:12px}.ui .version{padding-top:12px}.ui .apps-grid{grid-template-columns:repeat(4,1fr);gap:10px 20px}.ui .app{gap:7px;padding:7px 0!important;font-size:15px!important}.ui .app svg{width:36px;height:36px}.ui .apps-bottom{font-size:17px;padding-top:10px}.ui .reader-title{margin:13px 0;font-size:25px}.ui .reader-text{font-size:21px;line-height:1.8}.ui .reader-text+p{display:none}.ui .reader-footer{padding-top:9px}.ui .long-cover .cover-title{font-size:23px}.ui .long-title h2{font-size:24px}}
+@media(max-width:900px){.lab-body{grid-template-columns:1fr}.readout{padding:20px 24px}.intro{font-size:21px}.view-picker{display:flex;flex-wrap:wrap;gap:5px}.view-picker button{gap:6px;padding:10px}.design-note{min-height:0;margin:14px 0}.readout .metric,.readout .warning{display:none}.readout .metric:has(#sample-select){display:block;border:0;max-width:250px}.stage-viewport{min-height:760px}.controls{gap:8px}}@media(max-width:560px){.stage-viewport{min-height:650px}.lab-header{gap:18px}.identity h1{font-size:20px}}
+
+</style>
+</head>
+<body>
+  <main class="prototype-lab" data-device="m4" data-orientation="portrait" data-shell="black" data-show-safe="false">
+    <header class="lab-header">
+      <div class="identity">
+        <div class="identity-mark" aria-hidden="true">墨</div>
+        <div>
+          <p>MURPHY M4 / DESIGN STUDY 01</p>
+          <h1>纸间 · 阅读界面预览</h1>
+        </div>
+      </div>
+      <div class="controls" aria-label="Prototype configuration">
+        <div class="control">
+          <label for="device-select">设备</label>
+          <select id="device-select">
+            <option value="m4">墨菲 M4</option><option value="x4">Xteink X4</option>
+            <option value="x3">Xteink X3</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="orientation-select">方向</label>
+          <select id="orientation-select">
+            <option value="portrait">竖屏</option>
+            <option value="landscape-cw">横屏 · 顺时针</option>
+            <option value="portrait-inverted">竖屏 · 倒置</option>
+            <option value="landscape-ccw">横屏 · 逆时针</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="shell-select">外壳</label>
+          <select id="shell-select">
+            <option value="black">黑色</option>
+            <option value="white">白色</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="safe-toggle">辅助</label>
+          <label class="safe-toggle"><input id="safe-toggle" type="checkbox"> 安全边界</label>
+        </div>
+      </div>
+    </header>
+
+    <div class="lab-body">
+      <aside class="readout" aria-label="设计说明">
+        <h2>纸本排版 / 阅读手账</h2>
+        <p class="intro">让书成为主角。<br>用字、留白和墨色，<br>建立阅读器自己的气质。</p>
+        <div class="view-picker" aria-label="切换预览页面">
+          <button data-page="home" class="active">01 <span>正在读</span></button>
+          <button data-page="library">02 <span>书库</span></button>
+          <button data-page="stats">03 <span>阅读手账</span></button>
+          <button data-page="settings">04 <span>设置</span></button>
+          <button data-page="apps">05 <span>应用</span></button>
+        </div>
+        <p class="design-note" id="design-note"></p>
+        <div class="metric"><span class="label">预览内容</span><select id="sample-select"><option value="normal">正常阅读</option><option value="long">长书名 / 文字封面</option><option value="empty">首次使用 / 空数据</option></select></div>
+        <div class="metric"><span class="label">Target</span><span class="value" id="target-readout">墨菲 M4</span><span class="note" id="product-readout"></span></div>
+        <div class="metric"><span class="label">Logical canvas</span><span class="value" id="canvas-readout">480 × 800</span><span class="note">原生逻辑像素，预览随窗口缩放。</span></div>
+        <div class="metric"><span class="label">安全边界 TRBL</span><span class="value" id="safe-readout"></span></div>
+        <div class="metric"><span class="label">Controls</span><span class="value" id="side-readout"></span><span class="note" id="page-readout"></span></div>
+        <p class="warning">可点击底部导航、书籍和继续阅读；统计柱条可选择日期。字体采用本机宋体 / 系统字体，落地需对照固件字库。示例数据，仅供评审；预览不模拟墨水屏刷新与残影。</p>
+      </aside>
+
+      <section class="stage-viewport" aria-label="Device preview">
+        <div class="device-sizer">
+          <div class="device-frame" id="device-frame">
+            <div id="prototype-screen"><div class="ui" id="ui-root"></div></div>
+            <div class="m4-brand" aria-hidden="true">墨 菲</div>
+
+            <div class="front-controls" aria-label="Four remappable front controls">
+              <span class="front-key" title="Default Back">1</span><span class="front-key" title="Default Confirm">2</span><span class="front-key" title="Default Left">3</span><span class="front-key" title="Default Right">4</span>
+            </div>
+            <div class="x4-only x4-rocker" aria-label="X4 right-side rocker"><span class="edge-control" title="Raw Up">U</span><span class="edge-control" title="Raw Down">D</span></div>
+            <span class="x4-only x4-power edge-control" title="Power">P</span>
+            <span class="x3-only x3-up edge-control" title="Raw Up: physical left in portrait">U</span>
+            <span class="x3-only x3-down edge-control" title="Raw Down: physical right in portrait">D</span>
+            <span class="x3-only x3-power edge-control" title="Power">P</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const DEVICE_PROFILES = Object.freeze({
+        m4: Object.freeze({name: "墨菲 M4", panel: [800, 480], product: "触屏 · 单色墨水屏", side: "Up / Down · 短按电源 Confirm"}),
+        x4: Object.freeze({ name: "Xteink X4", panel: [800, 480], product: "4.3 in · 5.98 mm · ≈75 g", side: "Right rocker" }),
+        x3: Object.freeze({ name: "Xteink X3", panel: [792, 528], product: "3.7 in · 4.98 mm · ≈58 g", side: "Left / right edges" })
+      });
+      const ORIENTATIONS = Object.freeze({
+        portrait: Object.freeze({ swap: true, safe: [9, 3, 3, 3] }),
+        "landscape-cw": Object.freeze({ swap: false, safe: [3, 9, 3, 3] }),
+        "portrait-inverted": Object.freeze({ swap: true, safe: [3, 3, 9, 3] }),
+        "landscape-ccw": Object.freeze({ swap: false, safe: [3, 3, 3, 9] })
+      });
+      const FRONT_BUTTONS = Object.freeze(["Back", "Confirm", "Left", "Right"]);
+
+      const lab = document.querySelector(".prototype-lab");
+      const frame = document.querySelector("#device-frame");
+      const sizer = document.querySelector(".device-sizer");
+      const viewport = document.querySelector(".stage-viewport");
+      const deviceSelect = document.querySelector("#device-select");
+      const orientationSelect = document.querySelector("#orientation-select");
+      const shellSelect = document.querySelector("#shell-select");
+      const safeToggle = document.querySelector("#safe-toggle");
+
+      function logicalCanvas(device, orientation) {
+        const [panelWidth, panelHeight] = DEVICE_PROFILES[device].panel;
+        return ORIENTATIONS[orientation].swap ? [panelHeight, panelWidth] : [panelWidth, panelHeight];
+      }
+
+      function syncScale() {
+        frame.style.transform = "none";
+        const naturalWidth = frame.offsetWidth;
+        const naturalHeight = frame.offsetHeight;
+        const scale = Math.min((viewport.clientWidth - 48) / naturalWidth, (viewport.clientHeight - 48) / naturalHeight, 1);
+        frame.style.transform = `scale(${Math.max(scale, .1)})`;
+        sizer.style.width = `${naturalWidth * scale}px`;
+        sizer.style.height = `${naturalHeight * scale}px`;
+      }
+
+      function applyConfiguration() {
+        const device = deviceSelect.value;
+        const orientation = orientationSelect.value;
+        const profile = DEVICE_PROFILES[device];
+        const [width, height] = logicalCanvas(device, orientation);
+        const safe = device === "m4" ? [0, 0, 0, 0] : ORIENTATIONS[orientation].safe;
+
+        lab.dataset.device = device;
+        lab.dataset.orientation = orientation;
+        lab.dataset.shell = shellSelect.value;
+        lab.dataset.showSafe = String(safeToggle.checked);
+        lab.style.setProperty("--screen-width", `${width}px`);
+        lab.style.setProperty("--screen-height", `${height}px`);
+        ["top", "right", "bottom", "left"].forEach((edge, index) => lab.style.setProperty(`--safe-${edge}`, `${safe[index]}px`));
+
+        document.querySelector("#target-readout").textContent = profile.name;
+        document.querySelector("#product-readout").textContent = profile.product;
+        document.querySelector("#canvas-readout").textContent = `${width} × ${height}`;
+        document.querySelector("#safe-readout").textContent = safe.join(" / ");
+        document.querySelector("#side-readout").textContent = profile.side;
+        document.querySelector("#page-readout").textContent = device === "x3"
+          ? "Left raw Up · Right raw Down"
+          : device === "m4" ? "触屏导航 · Up / Down · Confirm" : "Up = PageBack · Down = PageForward";
+        requestAnimationFrame(syncScale);
+      }
+
+      [deviceSelect, orientationSelect, shellSelect, safeToggle].forEach(control => control.addEventListener("change", applyConfiguration));
+      new ResizeObserver(syncScale).observe(viewport);
+      window.addEventListener("resize", syncScale);
+
+      const expectedCanvases = Object.freeze({
+        "m4/portrait": [480,800], "m4/landscape-cw": [800,480], "m4/portrait-inverted": [480,800], "m4/landscape-ccw": [800,480],
+        "x4/portrait": [480, 800], "x4/landscape-cw": [800, 480],
+        "x4/portrait-inverted": [480, 800], "x4/landscape-ccw": [800, 480],
+        "x3/portrait": [528, 792], "x3/landscape-cw": [792, 528],
+        "x3/portrait-inverted": [528, 792], "x3/landscape-ccw": [792, 528]
+      });
+      Object.entries(expectedCanvases).forEach(([key, expected]) => {
+        const [device, orientation] = key.split("/");
+        console.assert(logicalCanvas(device, orientation).join("×") === expected.join("×"), `Canvas mismatch: ${key}`);
+      });
+      console.assert(ORIENTATIONS.portrait.safe.join("/") === "9/3/3/3", "Portrait safe margins changed");
+      console.assert(ORIENTATIONS["landscape-cw"].safe.join("/") === "3/9/3/3", "CW safe margins changed");
+      console.assert(ORIENTATIONS["portrait-inverted"].safe.join("/") === "3/3/9/3", "Inverted safe margins changed");
+      console.assert(ORIENTATIONS["landscape-ccw"].safe.join("/") === "3/3/3/9", "CCW safe margins changed");
+      console.assert(FRONT_BUTTONS.join("/") === "Back/Confirm/Left/Right", "Default front button order changed");
+
+      applyConfiguration();
+    })();
+  </script>
+<script>
+(()=>{
+'use strict';
+const icons={home:'<path d="M3 11 12 3l9 8M5 10v11h5v-7h4v7h5V10"/>',library:'<path d="M4 3h5v18H4zM11 3h4v18h-4zM17 4l4-1 3 17-4 1z"/>',stats:'<path d="M4 20V10h3v10M11 20V4h3v16M18 20v-7h3v7M2 22h21"/>',settings:'<path d="M3 6h18M3 12h18M3 18h18M7 3v6M16 9v6M10 15v6"/>',apps:'<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',light:'<circle cx="12" cy="12" r="4"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3M4 4l2 2M18 18l2 2M4 20l2-2M18 6l2-2"/>',type:'<path d="M3 5h18M12 5v16M7 21h10M3 5v4M21 5v4"/>',transfer:'<path d="M4 7h16l-4-4M20 17H4l4 4M20 7l-4 4M4 17l4-4"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',calendar:'<rect x="3" y="5" width="18" height="16"/><path d="M7 2v6M17 2v6M3 11h18M7 15h2M12 15h2M17 15h1M7 18h2M12 18h2"/>',air:'<path d="M3 8c6-6 12-6 18 0M6 12c4-4 8-4 12 0M9 16c2-2 4-2 6 0"/><circle cx="12" cy="20" r="1"/>',grid:'<rect x="3" y="3" width="18" height="18"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>',avatar:'<circle cx="12" cy="8" r="4"/><path d="M4 22v-4c0-6 16-6 16 0v4"/>',timer:'<circle cx="12" cy="14" r="8"/><path d="M9 2h6M12 2v4M18 5l2 2M12 10v5l-3 2"/>'};
+const icon=(name)=>`<svg viewBox="0 0 26 26" aria-hidden="true">${icons[name]||icons.apps}</svg>`;
+const root=document.querySelector('#ui-root');
+const titles={home:'正在读',library:'书库',stats:'手账',settings:'设置',apps:'应用'};
+const notes={home:'去掉主书外框，让书名、封面和留白建立层次。章节与进度退居辅助位置。',library:'用书目目录代替重复卡片。作者、状态与序号沿固定列排列，扫描更轻松。',stats:'先看本周阅读积累，再看七天趋势。用一句数据解释收束，减少并列面板。',settings:'分类成为简洁索引。用标题、摘要和细线组织信息，保持足够的触控高度。',apps:'直接展示统一线条的图标，减少图标外框。更安静，也让每个入口更容易辨认。',reader:'正文示意：阅读时收起主导航，保留章节与进度。这里的段落为原型原创示例。'};
+const books=[['山茶文具店','小川糸','第六章 · 夏日来信',42],['人间草木','汪曾祺','第八章 · 草木春秋',68],['悉达多','赫尔曼·黑塞','第四章 · 觉醒',23],['长日将尽','石黑一雄','尚未开始',0],['苏东坡传','林语堂','已读完',100]];
+let page='home',sample='normal',book=0,day=6,filter='全部',settings={阅读:'宋体 · 24 px',显示与灯光:'亮度 35% · 自然光',操作:'触屏与按键',书籍与传输:'Wi-Fi / USB',日期与时间:'2026.09.13',设备:'墨菲 M4'};
+const head=(title,right)=>`<header class="page-head"><h2>${title}</h2><small>${right}</small></header>`;
+const current=()=>sample==='long'?['那些在漫长岁月里陪伴我们走过四季的故事','示例作者','第三章 · 那些值得记住的日子',42]:books[book];
+function cover(b){return `<div class="cover ${sample==='long'?'long-cover':''}" aria-label="书名字体封面示意"><div class="cover-top">READING / ${String(book+1).padStart(2,'0')}</div><div class="cover-title">${sample==='long'?'四季<br>与故事':b[0]}</div><div class="cover-art"></div><div class="cover-bottom"><span>${b[1]}</span><span>文 学</span></div></div>`;}
+function empty(title,desc,action='前往书库',to='library'){return `<section class="empty"><p class="eyebrow">从一页开始</p><h2>${title}</h2><p>${desc}</p><button data-go="${to}">${action} →</button></section>`;}
+function home(){if(sample==='empty')return `<div class="page">${empty('给自己一点阅读时间','把第一本书放进来，<br>这里会记住你读到的那一页。')}</div>`;const b=current();return `<div class="page home-page"><div class="home-kicker"><span>正在读</span><span>星期日 · 九月十三</span></div><section class="home-main">${cover(b)}<div class="book-info ${sample==='long'?'long-title':''}"><h2>${b[0]}</h2><p class="author">${b[1]}</p><p class="chapter">${b[2]}</p><div class="progress"><i style="width:${b[3]}%"></i></div><div class="progress-meta"><span>阅读进度</span><span>${b[3]}%</span></div><button class="continue" data-go="reader">继续阅读 <span>→</span></button></div></section><div class="reading-note"><small>这本书的阅读积累</small>已陪伴你 3 天，共 86 分钟。</div><section class="recent-section"><div class="section-label"><span>最近翻过的书</span><button data-go="library">全部 →</button></div>${books.slice(1,3).map((b,i)=>`<button class="recent-row" data-book="${i+1}"><span class="number">0${i+2}</span><span class="recent-title">${b[0]}<small>${b[1]}</small></span><span class="recent-meta">${b[3]}%</span></button>`).join('')}</section></div>`;}
+function library(){return `<div class="page">${head('书库',sample==='empty'?'0 本书':'5 本书')}<div class="index-tabs">${['全部','在读','已读'].map(x=>`<button data-filter="${x}" class="${filter===x?'active':''}">${x}</button>`).join('')}</div>${sample==='empty'?empty('书架还是空的','通过 Wi-Fi 或 USB 传入书籍，<br>开始你的第一段阅读。','传入书籍','transfer'):`<div class="catalog">${books.map((b,i)=>({b,i})).filter(({b})=>filter==='全部'||(filter==='在读'?b[3]>0&&b[3]<100:b[3]===100)).map(({b,i})=>`<button class="catalog-row" data-read-book="${i}"><span class="number">${String(i+1).padStart(2,'0')}</span><span><strong>${sample==='long'&&i===0?'那些陪伴我们走过四季的故事':b[0]}</strong><small>${b[1]}</small></span><span class="catalog-tail">${b[3]===100?'读完':b[3]?b[3]+'%':'未读'}</span></button>`).join('')}</div><footer class="library-footer"><span>本地书籍</span><button data-go="transfer">传入书籍 ↗</button></footer>`}</div>`;}
+function stats(){const values=sample==='empty'?[0,0,0,0,0,0,0]:[18,0,32,24,15,46,28];const total=values.reduce((a,b)=>a+b,0);return `<div class="page stats-page">${head('阅读手账','09.07 — 09.13')}<section class="stats-lead"><div><div class="stats-period">这一周，读了</div><div class="stats-value">${total}<small>分钟</small></div></div><div class="stats-side"><div>今日 <strong>${values[6]}</strong> 分钟</div><div>阅读 <strong>${values.filter(x=>x>0).length}</strong> 天</div></div></section><section class="stats-chart-block"><div class="chart-header"><span>七天的阅读节奏</span><span id="day-result" aria-live="polite">${day===6?'今日':'9 月 '+(day+7)+' 日'} · ${values[day]} 分钟</span></div><div class="chart">${values.map((v,i)=>`<button class="bar-column ${day===i?'active':''}" data-day="${i}" aria-label="9月${i+7}日，${v}分钟" aria-pressed="${day===i}"><span class="bar-value">${v||'—'}</span><i class="bar" style="height:${Math.max(2,v/46*125)}px"></i><span class="bar-date">${i===6?'今日':'周'+['一','二','三','四','五','六'][i]}</span></button>`).join('')}</div><div class="insight">${sample==='empty'?'每一页，都值得记录。':'这一周，有六天留给了阅读。'}<small>${sample==='empty'?'开始阅读后，这里会显示你的阅读节奏。':'周六读得最久，累计 46 分钟。'}</small></div></section><section class="timeline"><div class="section-label"><span>今天的阅读时段</span><small>${sample==='empty'?'尚无记录':'晚间 · 21:00'}</small></div><div class="timeline-track">${Array.from({length:24},(_,h)=>`<i class="${sample!=='empty'&&h===21?'on':''}"></i>`).join('')}</div><div class="timeline-labels"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div></section></div>`;}
+function settingsPage(){const entries=[['阅读','type'],['显示与灯光','light'],['操作','settings'],['书籍与传输','transfer'],['日期与时间','clock'],['设备','apps']];return `<div class="page">${head('设置','墨菲 M4')}<p class="settings-intro">调成你习惯的样子。</p><div class="settings-items">${entries.map(([name,ico])=>`<button class="setting-item" data-setting="${name}">${icon(ico)}<span><strong>${name}</strong><small>${settings[name]}</small></span><span class="arrow">›</span></button>`).join('')}</div><div class="version"><span>CrossMux / 纸间设计预览</span><span>设计稿 01</span></div></div>`;}
+function apps(){const entries=[['无线传书','transfer'],['AirPage','air'],['时钟','clock'],['日历','calendar'],['倒计时','timer'],['数独','grid'],['五子棋','apps'],['头像','avatar']];return `<div class="page">${head('应用','8 个入口')}<p class="apps-intro">阅读之间，一点小休息。</p><div class="apps-grid">${entries.map(([name,ico])=>`<button class="app" data-app="${name}">${icon(ico)}<span>${name}</span></button>`).join('')}</div><div class="apps-bottom">合上其他事情，<br>再读一页。</div></div>`;}
+function reader(){const b=current();return `<div class="page"><div class="reader-top"><button data-go="home">‹ 返回</button><span>${b[0].length>12?b[0].slice(0,12)+'…':b[0]}</span><button data-setting="阅读">排版</button></div><h3 class="reader-title">第六章 · 夏日来信</h3><p class="reader-text">午后的光落在书桌上，窗外的树影缓缓移动。我把读到一半的书重新翻开，纸页之间，夹着昨天留下的书签。那些尚未读完的句子，像一条安静的小路，等着我继续往前走。</p><p class="reader-text">时间并没有因此停下来，但这一刻不必急着赶路。读过的每一页，都让日常多出一点可以回望的东西。</p><footer class="reader-footer"><span>夏日来信</span><button data-reader-next>128 / 304 · 下一页 →</button></footer></div>`;}
+function render(){document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));document.querySelector('#design-note').textContent=notes[page]||notes.home;root.innerHTML=`<div class="status"><span>21:36</span><span class="status-right"><span>82%</span><i class="battery-shape" aria-hidden="true"></i></span></div><div class="body">${({home,library,stats,settings:settingsPage,apps,reader}[page]||home)()}</div>${page==='reader'?'':`<nav class="nav" aria-label="主导航">${Object.entries(titles).map(([key,title])=>`<button data-go="${key}" class="${page===key?'active':''}" ${page===key?'aria-current="page"':''}>${icon(key)}<span>${title}</span></button>`).join('')}</nav>`}`;}
+const choices={阅读:['宋体 · 24 px','宋体 · 26 px','黑体 · 24 px'],显示与灯光:['亮度 35% · 自然光','亮度 50% · 暖光','关闭灯光'],操作:['触屏与按键','触屏翻页','按键翻页'],书籍与传输:['Wi-Fi 传书','USB 数据线'],日期与时间:['24 小时制','12 小时制'],设备:['墨菲 M4 · 设计预览']};
+function sheet(title,options,setting){const shade=document.createElement('div');shade.className='sheet-shade';shade.innerHTML=`<section class="sheet" role="dialog" aria-modal="true" aria-label="${title}"><header class="sheet-head"><span>${title}</span><button data-close>关闭 ×</button></header>${options?`<div class="sheet-options">${options.map(x=>`<button data-option="${x}">${x}<span>${settings[setting]===x?'✓':'›'}</span></button>`).join('')}</div>`:'<p>这是入口效果示意。当前预览展示界面风格，数据传输与工具功能需在固件中运行。</p>'}</section>`;root.append(shade);const previous=document.activeElement;shade.querySelector('[data-close]').focus();shade.addEventListener('click',e=>{if(e.target===shade||e.target.closest('[data-close]')){shade.remove();previous?.focus()}const opt=e.target.closest('[data-option]');if(opt){settings[setting]=opt.dataset.option;render();root.querySelector(`[data-setting="${setting}"]`)?.focus()}});shade.addEventListener('keydown',e=>{if(e.key==='Escape'){shade.remove();previous?.focus()}if(e.key==='Tab'){const buttons=[...shade.querySelectorAll('button')],first=buttons[0],last=buttons.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}});}
+document.addEventListener('click',e=>{const p=e.target.closest('[data-page],[data-go]');if(p){const next=p.dataset.page||p.dataset.go;if(next==='transfer'){sheet('传入书籍',['Wi-Fi 传书','USB 数据线'],'书籍与传输');return}page=next;render();return}const b=e.target.closest('[data-book],[data-read-book]');if(b){book=Number(b.dataset.book||b.dataset.readBook);page=b.hasAttribute('data-read-book')?'reader':'home';render();return}const f=e.target.closest('[data-filter]');if(f){filter=f.dataset.filter;render();return}const d=e.target.closest('[data-day]');if(d){day=Number(d.dataset.day);render();return}const st=e.target.closest('[data-setting]');if(st){sheet(st.dataset.setting,choices[st.dataset.setting],st.dataset.setting);return}const a=e.target.closest('[data-app]');if(a){sheet(a.dataset.app,a.dataset.app==='无线传书'?choices['书籍与传输']:null,'书籍与传输');return}if(e.target.closest('[data-reader-next]')){const t=root.querySelector('[data-reader-next]');t.textContent=t.textContent.startsWith('128')?'129 / 304 · 下一页 →':'128 / 304 · 下一页 →'}});
+document.querySelector('#sample-select').addEventListener('change',e=>{sample=e.target.value;render()});
+render();
+})();
+</script>
+</body>
+</html>

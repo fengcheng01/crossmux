@@ -100,10 +100,10 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
-### Versions 56 / 57
+### Versions 58 / 59
 
 > Chinese builds (`ENABLE_CHINESE_VERSION`) carry an independent version counter,
-> currently **57**; Latin builds use **56**. The byte layout is identical between
+> currently **59**; Latin builds use **58**. The byte layout is identical between
 > flavors, but the same built-in font IDs resolve to different font data and
 > metrics, so pagination caches are not reusable across firmware flavors.
 >
@@ -128,7 +128,9 @@ if (parsedSize != fileSize) {
 > indent and default CJK paragraph indents use two ideograph advances instead of
 > three space advances. Versions 56/57 invalidate pagination for focus-word
 > break opportunities, image viewport clamping, and the extra-wide line-spacing
-> option. The counters remain distinct and above every
+> option. Versions 58/59 append internal-link rectangles to each serialized
+> page so the reader can hit-test footnote and cross-reference taps. The
+> counters remain distinct and above every
 > previously shipped value so a firmware-flavor swap cannot read the other flavor's
 > stale cache.
 > `lib/Epub/Epub/Section.cpp` is the source of truth.
@@ -162,6 +164,7 @@ superscript, and subscript. The format also includes:
 - paragraph and list-item LUTs retained for navigation and legacy sync fallback
 - optional per-word Focus Reading split metadata
 - per-page footnote entries
+- per-page internal-link rectangles (href + x/y/width/height) for touch navigation
 - serialized word style bits for underline, strikethrough, superscript, and
   subscript, plus the internal ruby-group continuation marker
 - optional ruby annotation strings for `<ruby>` / `<rt>` content
@@ -178,8 +181,8 @@ import std.mem;
 import std.string;
 import std.core;
 
-#define LATIN_VERSION 54
-#define CHINESE_VERSION 55
+#define LATIN_VERSION 58
+#define CHINESE_VERSION 59
 #define MAX_STRING_LENGTH 65535
 #define FOOTNOTE_NUMBER_LEN 32
 #define FOOTNOTE_HREF_LEN 256
@@ -303,12 +306,23 @@ struct FootnoteEntry {
     char href[FOOTNOTE_HREF_LEN];
 };
 
+struct PageLink {
+    char href[FOOTNOTE_HREF_LEN];
+    s16 x;
+    s16 y;
+    s16 width;
+    s16 height;
+};
+
 struct Page {
     u16 elementCount;
     PageElement elements[elementCount] [[inline]];
 
     u16 footnoteCount;
     FootnoteEntry footnotes[footnoteCount];
+
+    u16 linkCount;
+    PageLink links[linkCount];
 };
 
 struct AnchorEntry {

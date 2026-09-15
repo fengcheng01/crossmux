@@ -80,7 +80,7 @@ constexpr int pageStart(const int selected, const int itemCount, const int conte
 }  // namespace InxMenuGeometry
 
 namespace InxOptionGeometry {
-inline constexpr int visibleRowLimit = 5;
+inline constexpr int visibleRowLimit = 6;
 inline constexpr int rowHeight = 62;
 inline constexpr int headerHeight = 62;
 

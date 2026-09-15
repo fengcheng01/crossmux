@@ -18,6 +18,7 @@ enum class SettingAction {
   CustomiseStatusBar,
   ReadingStatsSettings,
   AppVisibility,
+  MainTabOrder,
   KOReaderSync,
   OPDSBrowser,
   Network,

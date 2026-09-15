@@ -29,10 +29,11 @@ namespace {
 //   52 / 53 - ruby/CJK justification layout and 256-byte footnote hrefs
 //   54 / 55 - one-shot soft-flush indentation and two-CJK-character defaults
 //   56 / 57 - focus-word break opportunities, image viewport clamping, and extra-wide line spacing
+//   58 / 59 - persist internal-link rectangles with each page for touch navigation
 #ifdef ENABLE_CHINESE_VERSION
-constexpr uint8_t SECTION_FILE_VERSION = 57;
+constexpr uint8_t SECTION_FILE_VERSION = 59;
 #else
-constexpr uint8_t SECTION_FILE_VERSION = 56;
+constexpr uint8_t SECTION_FILE_VERSION = 58;
 #endif
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /

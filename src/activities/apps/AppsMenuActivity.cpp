@@ -190,10 +190,33 @@ void AppsMenuActivity::onExit() { Activity::onExit(); }
 
 bool AppsMenuActivity::usesIconLayout() const {
   return UITheme::getInstance().hasMainTabs() &&
-         InxGridGeometry::layoutFrom(SETTINGS.inxAppsLayout) == InxItemLayout::Icons;
+         (GUI.usesPaperStyle() || InxGridGeometry::layoutFrom(SETTINGS.inxAppsLayout) == InxItemLayout::Icons);
+}
+
+int AppsMenuActivity::iconPageCapacity() const {
+  if (!GUI.usesPaperStyle()) return InxGridGeometry::itemsPerPage;
+  return GUI.paperAppLayout(renderer, UITheme::getInstance().getMainTabContentRect(renderer)).capacity();
+}
+
+int AppsMenuActivity::iconPageStart(const int visibleCount) const {
+  return std::clamp(selected, 0, std::max(0, visibleCount - 1)) / iconPageCapacity() * iconPageCapacity();
 }
 
 int AppsMenuActivity::iconIndexFromPoint(const int x, const int y) const {
+  if (GUI.usesPaperStyle()) {
+    const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
+    const auto layout = GUI.paperAppLayout(renderer, content);
+    const Rect grid = layout.grid;
+    if (x < grid.x || x >= grid.x + grid.width || y < grid.y || y >= grid.y + grid.height) return -1;
+    const int columns = layout.columns;
+    const int rows = layout.rows;
+    // Match the integer boundaries used to draw each cell, including uneven widths.
+    const int row = ((y - grid.y + 1) * rows - 1) / grid.height;
+    const int column = ((x - grid.x + 1) * columns - 1) / grid.width;
+    const int slot = row * columns + column;
+    const int index = iconPageStart(getVisibleAppCount()) + slot;
+    return index < getVisibleAppCount() ? index : -1;
+  }
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int top = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int height = renderer.getScreenHeight() - top - metrics.buttonHintsHeight - metrics.verticalSpacing;
@@ -223,6 +246,22 @@ void AppsMenuActivity::loop() {
       return;
     }
     if (mappedInput.wasScreenTapped(x, y)) {
+      if (GUI.usesPaperStyle()) {
+        const auto layout = GUI.paperAppLayout(renderer, UITheme::getInstance().getMainTabContentRect(renderer));
+        const auto inside = [x, y](const Rect rect) {
+          return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
+        };
+        const int capacity = layout.capacity();
+        const int start = iconPageStart(visibleCount);
+        if (inside(layout.previous) || inside(layout.next)) {
+          if (inside(layout.previous) && start > 0)
+            selected = start - capacity;
+          else if (inside(layout.next) && start + capacity < visibleCount)
+            selected = start + capacity;
+          requestUpdate();
+          return;
+        }
+      }
       const int touched = iconIndexFromPoint(x, y);
       if (touched >= 0) {
         selected = touched;
@@ -231,13 +270,15 @@ void AppsMenuActivity::loop() {
       return;
     }
     const auto swipe = mappedInput.wasSwipe();
-    if (swipe == MappedInputManager::SwipeDir::Up) {
-      selected = ButtonNavigator::nextPageIndex(selected, visibleCount, InxGridGeometry::itemsPerPage);
+    if (swipe == MappedInputManager::SwipeDir::Up ||
+        (GUI.usesPaperStyle() && swipe == MappedInputManager::SwipeDir::Left)) {
+      selected = ButtonNavigator::nextPageIndex(selected, visibleCount, iconPageCapacity());
       requestUpdate();
       return;
     }
-    if (swipe == MappedInputManager::SwipeDir::Down) {
-      selected = ButtonNavigator::previousPageIndex(selected, visibleCount, InxGridGeometry::itemsPerPage);
+    if (swipe == MappedInputManager::SwipeDir::Down ||
+        (GUI.usesPaperStyle() && swipe == MappedInputManager::SwipeDir::Right)) {
+      selected = ButtonNavigator::previousPageIndex(selected, visibleCount, iconPageCapacity());
       requestUpdate();
       return;
     }
@@ -260,11 +301,42 @@ void AppsMenuActivity::loop() {
 }
 
 void AppsMenuActivity::drawIconGrid(const Rect& rect, const int visibleCount, const bool showSelection) const {
+  if (GUI.usesPaperStyle()) {
+    const auto& m = GUI.paperMetrics();
+    const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
+    const auto layout = GUI.paperAppLayout(renderer, content);
+    const int columns = layout.columns;
+    const int rows = layout.rows;
+    const int start = iconPageStart(visibleCount);
+    const int focus = selected;
+    const int lineH = renderer.getLineHeight(m.bodyFont);
+    for (int slot = 0; slot < layout.capacity() && start + slot < visibleCount; ++slot) {
+      const int appIndex = getAppIndexForVisibleIndex(start + slot);
+      if (appIndex < 0) continue;
+      const int column = slot % columns;
+      const int row = slot / columns;
+      const int left = rect.x + rect.width * column / columns;
+      const int right = rect.x + rect.width * (column + 1) / columns;
+      const int top = rect.y + rect.height * row / rows;
+      const int bottom = rect.y + rect.height * (row + 1) / rows;
+      const Rect cell{left + 4, top + 4, right - left - 8, bottom - top - 8};
+      const int iconH = std::min(44, cell.height - lineH - 6);
+      GUI.drawPaperAppIcon(renderer, Rect{cell.x, cell.y, cell.width, iconH}, kAppEntries[appIndex].icon);
+      const char* label = I18N.get(kAppEntries[appIndex].titleId);
+      const int labelW = std::min(cell.width, renderer.getTextWidth(m.bodyFont, label));
+      GUI.drawPaperText(renderer, Rect{cell.x + (cell.width - labelW) / 2, cell.y + iconH + 6, labelW, lineH},
+                        m.bodyFont, label, showSelection && start + slot == focus);
+      if (showSelection && start + slot == focus)
+        GUI.drawPaperBookmark(renderer, Rect{cell.x + cell.width - 12, cell.y, 9, 13});
+    }
+
+    return;
+  }
   const int start = InxGridGeometry::pageStart(selected, visibleCount);
   const int cellWidth = rect.width / InxGridGeometry::columns;
   const int cellHeight = rect.height / InxGridGeometry::rows;
   const int lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-  constexpr int iconScale = 2;
+  constexpr int iconScale = 1;
   constexpr int iconSize = InxAppIcons::size * iconScale;
 
   for (int slot = 0; slot < InxGridGeometry::itemsPerPage && start + slot < visibleCount; ++slot) {
@@ -275,15 +347,34 @@ void AppsMenuActivity::drawIconGrid(const Rect& rect, const int visibleCount, co
     const int row = slot / InxGridGeometry::columns;
     const Rect cell{rect.x + column * cellWidth + 4, rect.y + row * cellHeight + 4, cellWidth - 8, cellHeight - 8};
     const bool isSelected = showSelection && visibleIndex == selected;
-    if (isSelected) renderer.fillRect(cell.x, cell.y, cell.width, cell.height, true);
+    const int boxSize = std::min(cellWidth - 16, 64);
+    const int boxX = cell.x + (cell.width - boxSize) / 2;
+    const int boxY = cell.y + std::max(4, (cell.height - boxSize - lineHeight - 8) / 2);
 
-    const int iconX = cell.x + (cell.width - iconSize) / 2;
-    const int iconY = cell.y + std::max(5, (cell.height - iconSize - lineHeight - 8) / 2);
+    if (isSelected) {
+      // Selected squircle box: solid black fill + white icon
+      renderer.fillRoundedRect(boxX, boxY, boxSize, boxSize, 10, Color::Black);
+    } else {
+      // Unselected: white card + 1px black outline (no heavy drop shadows)
+      renderer.fillRoundedRect(boxX, boxY, boxSize, boxSize, 10, Color::White);
+      renderer.drawRoundedRect(boxX, boxY, boxSize, boxSize, 1, 10, true);
+    }
+
+    const int iconX = boxX + (boxSize - iconSize) / 2;
+    const int iconY = boxY + (boxSize - iconSize) / 2;
     InxAppIcons::draw(renderer, kAppEntries[appIndex].icon, iconX, iconY, iconScale, isSelected);
     const std::string label =
-        renderer.truncatedText(UI_10_FONT_ID, I18N.get(kAppEntries[appIndex].titleId), std::max(1, cell.width - 8));
-    const int labelX = cell.x + (cell.width - renderer.getTextWidth(UI_10_FONT_ID, label.c_str())) / 2;
-    renderer.drawText(UI_10_FONT_ID, labelX, iconY + iconSize + 8, label.c_str(), !isSelected);
+        renderer.truncatedText(UI_10_FONT_ID, I18N.get(kAppEntries[appIndex].titleId), std::max(1, cell.width - 6),
+                               isSelected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    const int labelW = renderer.getTextWidth(UI_10_FONT_ID, label.c_str(),
+                                             isSelected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    const int labelX = cell.x + (cell.width - labelW) / 2;
+    const int labelY = boxY + boxSize + 7;
+    renderer.drawText(UI_10_FONT_ID, labelX, labelY, label.c_str(), true,
+                      isSelected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    if (isSelected) {
+      renderer.drawLine(labelX, labelY + lineHeight, labelX + labelW, labelY + lineHeight, 1, true);
+    }
   }
 
   GUI.drawSideScrollBar(renderer, rect, visibleCount, start, InxGridGeometry::itemsPerPage);
@@ -297,17 +388,67 @@ void AppsMenuActivity::render(RenderLock&&) {
   drawPageHeader(Rect{0, metrics.topPadding, sw, metrics.headerHeight}, tr(STR_APPS_TITLE));
 
   const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
-  const int listY = content.y + metrics.verticalSpacing;
-  const int listH = std::max(0, content.height - metrics.verticalSpacing);
+  const int pad = 20;
+  const int contentW = sw - pad * 2;
   const int visibleCount = getVisibleAppCount();
   const auto theme = static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme);
   const bool showSelection = showMainTabContentSelection();
 
-  if (visibleCount == 0) {
-    UITheme::drawCenteredWrappedText(renderer, Rect{0, listY, sw, listH}, UI_12_FONT_ID, tr(STR_NO_APPS_ENABLED), 2);
-  } else if (usesIconLayout()) {
-    drawIconGrid(Rect{0, listY, sw, listH}, visibleCount, showSelection);
+  int y = content.y + 2;
+  Rect paperGrid;
+  if (GUI.usesPaperStyle()) {
+    const auto& m = GUI.paperMetrics();
+    GUI.drawPaperStatus(renderer, Rect{content.x, content.y, content.width, m.statusHeight});
+    char count[32] = {};
+    snprintf(count, sizeof(count), tr(STR_PAPER_APPS_FMT), static_cast<unsigned>(visibleCount));
+    y = GUI.drawPaperHeading(
+        renderer,
+        Rect{content.x + m.padding, content.y + m.statusHeight, content.width - m.padding * 2, m.headingHeight},
+        tr(STR_APPS_TITLE), count);
+    const int h = renderer.getLineHeight(m.bodyFont);
+    GUI.drawPaperText(renderer, Rect{content.x + m.padding, y + 14, content.width - m.padding * 2, h}, m.bodyFont,
+                      tr(STR_PAPER_APPS_SERVICES));
+    const auto layout = GUI.paperAppLayout(renderer, content);
+    paperGrid = layout.grid;
+    y = paperGrid.y;
+    GUI.drawPaperRule(renderer, Rect{layout.footer.x, layout.footer.y, layout.footer.width, 1});
+    GUI.drawPaperText(renderer, Rect{layout.footer.x, layout.footer.y + 12, layout.footer.width - 144, h}, m.smallFont,
+                      tr(STR_PAPER_TOOLS_READY));
+    const int capacity = layout.capacity();
+    const int page = iconPageStart(visibleCount) / capacity;
+    const int pages = std::max(1, (visibleCount + capacity - 1) / capacity);
+    char pageText[16] = {};
+    snprintf(pageText, sizeof(pageText), "%d / %d", page + 1, pages);
+    const int width = renderer.getTextWidth(m.smallFont, pageText);
+    GUI.drawPaperText(renderer, Rect{layout.previous.x + 44 + (48 - width) / 2, layout.footer.y + 12, width, h},
+                      m.smallFont, pageText);
+    if (page > 0)
+      GUI.drawPaperText(renderer, Rect{layout.previous.x + 12, layout.previous.y + 10, 24, h}, m.bodyFont, "<");
+    if (page + 1 < pages)
+      GUI.drawPaperText(renderer, Rect{layout.next.x + 12, layout.next.y + 10, 24, h}, m.bodyFont, ">");
+
   } else {
+    // Top Section Header: "应用" + "%d 个" + 1px divider line
+    renderer.drawText(UI_12_FONT_ID, pad, y, "应用", true, EpdFontFamily::BOLD);
+    char countBuf[32] = {};
+    snprintf(countBuf, sizeof(countBuf), "%d 个", visibleCount);
+    const int cw = renderer.getTextWidth(SMALL_FONT_ID, countBuf);
+    renderer.drawText(SMALL_FONT_ID, pad + contentW - cw, y + 2, countBuf);
+
+    y += renderer.getLineHeight(UI_12_FONT_ID) + 6;
+    renderer.drawLine(pad, y, pad + contentW, y, 1, true);
+    y += 12;
+  }
+
+  const int gridH = GUI.usesPaperStyle() ? paperGrid.height : std::max(0, content.y + content.height - y);
+
+  if (visibleCount == 0) {
+    UITheme::drawCenteredWrappedText(renderer, Rect{0, y, sw, gridH}, UI_12_FONT_ID, tr(STR_NO_APPS_ENABLED), 2);
+  } else if (usesIconLayout()) {
+    drawIconGrid(GUI.usesPaperStyle() ? paperGrid : Rect{0, y, sw, gridH}, visibleCount, showSelection);
+  } else {
+    const int listY = y;
+    const int listH = gridH;
     // Halved inter-row gap (8 -> 4 on LYRA) keeps the home-tile look but tightens the list.
     const int spacing = metrics.menuSpacing / 2;
     const int rowStep = metrics.menuRowHeight + spacing;

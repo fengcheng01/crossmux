@@ -139,12 +139,11 @@ inline bool isTouchMenuTap(const GfxRenderer& renderer, const MappedInputManager
 // Reader menu opens on the menu edge-swipe or a center-third tap. On home-key
 // boards a long press of the capacitive key runs the user-selected long-press
 // function instead (SETTINGS.longPressMenuFunction), not the menu.
-// With touch reader controls Off the reading surface ignores touch entirely,
-// menu included, so a stray brush of the screen can't open it; the menu stays
-// reachable via the Confirm button.
+// Menu gestures honor showReaderMenu independently of touchReaderControls,
+// which only gates page-turn touch zones in detectTouchPageTurn().
 inline bool isTouchMenuGesture(const GfxRenderer& renderer, const MappedInputManager& input) {
-  if (!SETTINGS.touchReaderControls) return false;
-  return (input.hasTouch() && input.wasMenuGesture()) || isTouchMenuTap(renderer, input);
+  if (!input.hasTouch()) return false;
+  return input.wasMenuGesture() || isTouchMenuTap(renderer, input);
 }
 
 inline HalDisplay::RefreshMode consumeRefreshMode(int& pagesUntilFullRefresh) {
@@ -193,15 +192,31 @@ inline void displayBaseWithRefreshCycle(const GfxRenderer& renderer, int& pagesU
   }
 }
 
-// Grayscale anti-aliasing pass. Renders content twice (LSB + MSB) to build
-// the grayscale buffer. Only the content callback is re-rendered — status bars
-// and other overlays should be drawn before calling this.
-// Kept as a template to avoid std::function overhead; instantiated once per reader type.
-// cleanWhite (absoluteFourLevel path): false selects the fast AA tier whose
-// white LUT group stays idle (smooth turns); the periodic true pass clears ghosts.
+enum class GrayRefresh { Overlay, SingleFlash, WhiteFlash, Direct };
+
+inline void displayGrayRefresh(const GfxRenderer& renderer, const GrayRefresh refresh) {
+  switch (refresh) {
+    case GrayRefresh::Overlay:
+      renderer.displayGrayBuffer();
+      break;
+    case GrayRefresh::SingleFlash:
+      renderer.displayGrayBufferAbsolute(false);
+      break;
+    case GrayRefresh::WhiteFlash:
+      renderer.displayGrayBufferFromWhite();
+      break;
+    case GrayRefresh::Direct:
+      renderer.displayGrayBufferDirect();
+      break;
+  }
+}
+
+// Reuse the chunked B/W backup while rendering the two gray planes. Absolute
+// modes require the callback to include every element, including the status bar.
 template <typename RenderFn>
-void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool absoluteFourLevel = false,
-                       const bool cleanWhite = true) {
+void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const GrayRefresh refresh = GrayRefresh::Overlay) {
+  const bool absoluteFourLevel = refresh != GrayRefresh::Overlay;
+  const bool fromWhite = refresh == GrayRefresh::WhiteFlash;
   if (!renderer.storeBwBuffer()) {
     LOG_ERR("READER", "Failed to store BW buffer for anti-aliasing");
     // A combined-base panel may still hold a deferred B/W activation; flush it
@@ -224,9 +239,13 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool ab
     // MSB plane copy right after, so the end state is unchanged.
     renderer.cleanupGrayscaleWithFrameBuffer();
   }
+  // Start only after the B/W backup succeeded. Render overlaps the white
+  // activation, but controller RAM must not be overwritten while it is busy.
+  if (fromWhite) renderer.flashToWhite();
   renderer.clearScreen(0x00);
   renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
   renderFn();
+  if (fromWhite) renderer.waitRefreshComplete();
   renderer.copyGrayscaleLsbBuffers();
 
   renderer.clearScreen(0x00);
@@ -234,34 +253,13 @@ void renderAntiAliased(GfxRenderer& renderer, RenderFn&& renderFn, const bool ab
   renderFn();
   renderer.copyGrayscaleMsbBuffers();
 
-  if (absoluteFourLevel) {
-    renderer.displayGrayBufferAbsolute(cleanWhite);
-  } else {
-    renderer.displayGrayBuffer();
-  }
+  displayGrayRefresh(renderer, refresh);
   renderer.setRenderMode(GfxRenderer::BW);
   renderer.setAbsoluteGrayPlanes(false);
 
   renderer.restoreBwBuffer();
 }
 
-inline bool usesCombinedAa() {
-#if FREEINK_DEVICE_MURPHY_M4
-  // Combined is one FAST 1-bit refresh (no VSL black flash, no gray shadows).
-  // Absolute 4-level left gray ghosts on white and a slow full refresh.
-  // Overlay keeps FAST + gray 0xCC. Night mode skips.
-  if (SETTINGS.screenInverted) return false;
-  return SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_COMBINED;
-#else
-  return false;
-#endif
-}
-
-// Direct AA: one absolute gray refresh per page turn — 2-bit planes written
-// with the absolute four-level encoding, driven by the M4 direct LUT
-// (lut_m4_aa_direct; weak-white 00 clean). No B/W paint, so nothing flashes;
-// the periodic cleanWhite pass runs the factory tier. Night mode skips (the
-// gray pipeline deliberately renders crisp B/W when inverted).
 // Swift AA: the TW recipe — differential repaint base pass (whites re-drive
 // clean every turn, no inversion flash) plus a ~7-frame weak edge pass. The
 // scheduled full-refresh cadence still applies through the normal reader path.
@@ -274,10 +272,30 @@ inline bool usesSwiftAa() {
 #endif
 }
 
+// Selection is separate from capability: inverted/background Direct pages
+// retain a one-bit fallback, while ordinary pages use the pulse-gray trial.
 inline bool usesDirectGrayAa() {
 #if FREEINK_DEVICE_MURPHY_M4
-  if (SETTINGS.screenInverted) return false;
   return SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_DIRECT;
+#else
+  return false;
+#endif
+}
+
+inline bool usesWhiteFlashAa() {
+#if FREEINK_DEVICE_MURPHY_M4
+  return !SETTINGS.screenInverted && SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_WHITE_FLASH;
+#else
+  return false;
+#endif
+}
+
+inline bool usesSingleFlashAa() {
+#if FREEINK_DEVICE_MURPHY_M4
+  // Both modes skip the B/W page paint and use absolute gray planes. The
+  // opt-in white trial adds an OTP white precondition before its own waveform.
+  if (SETTINGS.screenInverted) return false;
+  return SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_SINGLE_FLASH || usesWhiteFlashAa();
 #else
   return false;
 #endif

@@ -39,6 +39,8 @@ class HalDisplay {
                             bool fromProgmem = false) const;
 
   void displayBuffer(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
+  // Complete sleep clean/paint and power-off; ordinary clean fallback elsewhere.
+  void displaySleepClean();
   // FAST, but every pixel is driven (RED = complement of the new frame). Use
   // to bleach a previous image into white without HALF/FULL invert flash.
   void displayBufferDriveAll(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
@@ -107,6 +109,10 @@ class HalDisplay {
   // cleanWhite=false picks the fast tier (00/white LUT group idle — smooth
   // turn, ghosts cleared by the periodic cleanWhite=true pass).
   void displayGrayBufferAbsolute(bool turnOffScreen = false, bool cleanWhite = true);
+  // M4 white-flash trial: OTP FAST-to-white, then the pulse-gray LUT.
+  void flashToWhite();
+  void displayGrayBufferFromWhite(bool turnOffScreen = false);
+  void displayGrayBufferDirect(bool turnOffScreen = false);
   // Swift two-pass AA (repaint base + weak edge pass); edgePlane = the new
   // frame's AA-edge MSB plane (absolute encoding), panel orientation.
   void displaySwiftAa(const uint8_t* edgePlane, bool turnOffScreen = false);

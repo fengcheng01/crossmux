@@ -285,7 +285,14 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
 
   // flush the buffer
   partWordBuffer[partWordBufferIndex] = '\0';
-  currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues, partWordVisibleOffset);
+  uint8_t linkId = 0;
+  if (insideFootnoteLink) {
+    if (!currentTextBlock->linkTargetMatches(currentFootnoteLinkId, currentFootnote.href)) {
+      currentFootnoteLinkId = currentTextBlock->addLinkTarget(currentFootnote.href);
+    }
+    linkId = currentFootnoteLinkId;
+  }
+  currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues, partWordVisibleOffset, linkId);
   partWordBufferIndex = 0;
   nextWordContinues = false;
   listItemBulletOnly = false;
@@ -927,6 +934,8 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       self->footnoteLinkDepth = self->depth;
       strncpy(self->currentFootnote.href, href, sizeof(self->currentFootnote.href) - 1);
       self->currentFootnote.href[sizeof(self->currentFootnote.href) - 1] = '\0';
+      self->currentFootnoteLinkId =
+          self->currentTextBlock ? self->currentTextBlock->addLinkTarget(self->currentFootnote.href) : 0;
       self->currentFootnote.number[0] = '\0';
       self->currentFootnoteLinkTextLen = 0;
 
@@ -1458,6 +1467,7 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
       self->pendingFootnotes.push_back({wordIndex, entry});
     }
     self->insideFootnoteLink = false;
+    self->currentFootnoteLinkId = 0;
   }
 
   // Leaving skip
@@ -1693,6 +1703,15 @@ void ChapterHtmlSlimParser::addLineToPage(std::unique_ptr<TextBlock> line, const
 
   // Apply horizontal left inset (margin + padding) as x position offset
   const int16_t xOffset = line->getBlockStyle().leftInset();
+  const int rubyShift = line->getRubyShift(renderer.getFontAscenderSize(fontId));
+  const int baseLineHeight = renderer.getLineHeight(fontId, lineCompression);
+  for (const auto& link : line->takeLinkSpans()) {
+    if (!currentPage->addLink(link.href, static_cast<int16_t>(xOffset + link.x),
+                              static_cast<int16_t>(currentPageNextY + rubyShift - link.topLift), link.width,
+                              static_cast<int16_t>(baseLineHeight + link.topLift))) {
+      LOG_DBG("EHP", "Dropped page link: %.48s", link.href);
+    }
+  }
   auto pageLine = makeUniqueNoThrow<PageLine>(std::move(line), xOffset, currentPageNextY);
   if (!pageLine) {
     LOG_ERR("EHP", "OOM: PageLine (%u bytes)", static_cast<unsigned>(sizeof(PageLine)));

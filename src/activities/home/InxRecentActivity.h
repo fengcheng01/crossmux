@@ -51,6 +51,9 @@ class InxRecentActivity final : public Activity {
   int thumbnailHeight = 0;
   mutable Rect heroCoverRect_{};
   mutable Rect moreHitRect_{};
+  mutable Rect flowHeroHit_{};
+  mutable Rect flowShelfHit_[RecentBooksStore::MAX_RECENT_BOOKS];
+  mutable int flowPage_ = 0;
   mutable int flowListTop_ = 0;
   mutable int flowRowStep_ = 0;
   mutable int flowVisible_ = 0;
@@ -71,6 +74,7 @@ class InxRecentActivity final : public Activity {
   bool prepareNextMissingCover();
 
   void drawFlow(const Rect& content);
+  void drawPaperFlow(const Rect& content);
   void drawGrid(const Rect& content);
   void drawList(const Rect& content);
   void drawIcons(const Rect& content);

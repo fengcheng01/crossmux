@@ -7,6 +7,7 @@
 
 #include "InxItemLayout.h"
 #include "InxRecentLayout.h"
+#include "activities/MainTab.h"
 #include "util/ReadingGuideLine.h"
 
 // I18nKeys.h is intentionally NOT included here. It is auto-generated and
@@ -295,17 +296,36 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t clockAutoSync = 1;
   // Text rendering settings
   uint8_t extraParagraphSpacing = 0;
-  // 0 = off, 1 = two-pass overlay (default), 2 = M4 combined single waveform,
-  // 3 = M4 direct: one absolute gray refresh per turn (experimental),
-  // 4 = M4 swift: differential repaint base + weak edge pass (experimental).
+  // 0 = off, 1 = two-pass overlay (default), 2 = retired combined mode (migrated to off),
+  // 3 = M4 direct: one absolute pulse-gray refresh (experimental),
+  // 4 = M4 swift, 5 = full-clean black flash, 6 = white-flash grayscale trial.
   enum TEXT_AA : uint8_t {
     TEXT_AA_OFF = 0,
     TEXT_AA_OVERLAY = 1,
-    TEXT_AA_COMBINED = 2,
+    TEXT_AA_RESERVED_2 = 2,
     TEXT_AA_DIRECT = 3,
     TEXT_AA_SWIFT = 4,
-    TEXT_AA_COUNT = 5
+    TEXT_AA_SINGLE_FLASH = 5,
+    TEXT_AA_WHITE_FLASH = 6,
+    TEXT_AA_COUNT = 7
   };
+  // Picker indices are dense; persisted IDs keep the retired slot at 2.
+  static constexpr uint8_t AA_MODE_VALUES[] = {TEXT_AA_OFF, TEXT_AA_OVERLAY, TEXT_AA_DIRECT,
+                                              TEXT_AA_SWIFT, TEXT_AA_SINGLE_FLASH, TEXT_AA_WHITE_FLASH};
+  static constexpr uint8_t normalizeAaMode(uint8_t mode) {
+    if (mode == TEXT_AA_RESERVED_2) return TEXT_AA_OFF;
+    return mode < TEXT_AA_COUNT ? mode : static_cast<uint8_t>(TEXT_AA_OVERLAY);
+  }
+  static constexpr uint8_t aaModeToIndex(uint8_t mode) {
+    mode = normalizeAaMode(mode);
+    for (uint8_t i = 0; i < sizeof(AA_MODE_VALUES); ++i) {
+      if (AA_MODE_VALUES[i] == mode) return i;
+    }
+    return 0;
+  }
+  static constexpr uint8_t aaModeFromIndex(uint8_t index) {
+    return index < sizeof(AA_MODE_VALUES) ? AA_MODE_VALUES[index] : static_cast<uint8_t>(TEXT_AA_OVERLAY);
+  }
   uint8_t textAntiAliasing = TEXT_AA_OVERLAY;
   // M4 experimental: Kindle-style vertical-strip page wipe. Default off.
   uint8_t pageTurnAnimation = 0;
@@ -382,6 +402,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t showButtonHints = 1;
   uint8_t inxRecentLayout = static_cast<uint8_t>(InxRecentLayout::Flow);
   uint8_t inxLibraryLayout = static_cast<uint8_t>(InxItemLayout::Icons);
+  MainTabs::Order mainTabOrder = MainTabs::values;
   uint8_t inxAppsLayout = static_cast<uint8_t>(InxItemLayout::Icons);
   // Show and enable the Standby shortcut on the home screen.
   uint8_t standbyShortcutEnabled = 0;
@@ -554,3 +575,12 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
 
 // Helper macro to access settings
 #define SETTINGS CrossPointSettings::getInstance()
+
+static_assert(CrossPointSettings::normalizeAaMode(2) == CrossPointSettings::TEXT_AA_OFF);
+static_assert(CrossPointSettings::normalizeAaMode(255) == CrossPointSettings::TEXT_AA_OVERLAY);
+static_assert([] {
+  for (const auto mode : CrossPointSettings::AA_MODE_VALUES) {
+    if (CrossPointSettings::aaModeFromIndex(CrossPointSettings::aaModeToIndex(mode)) != mode) return false;
+  }
+  return true;
+}(), "Removing Combined must not renumber persisted AA choices");

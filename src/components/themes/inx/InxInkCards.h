@@ -18,10 +18,11 @@ constexpr int kGap = 12;
 constexpr int kPagePad = 20;
 constexpr int kProgressHeight = 4;
 
-inline void drawCard(const GfxRenderer& renderer, const Rect rect) {
+inline void drawCard(const GfxRenderer& renderer, const Rect rect, int radius = 8) {
   if (rect.width <= 0 || rect.height <= 0) return;
-  renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, kRadius, Color::White);
-  renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, kRadius, true);
+  // 1-bit e-ink card: crisp white paper fill with 1px black outline.
+  renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, radius, Color::White);
+  renderer.drawRoundedRect(rect.x, rect.y, rect.width, rect.height, 1, radius, true);
 }
 
 // Minimum cell height drawMetricCard needs: value + gap + label line heights
@@ -51,7 +52,27 @@ inline void drawMetricCard(const GfxRenderer& renderer, const Rect rect, const c
   const std::string shownLabel = renderer.truncatedText(labelFont, label, innerW);
   renderer.drawText(labelFont, rect.x + pad, y, shownLabel.c_str());
 }
+inline void drawMetricChip(const GfxRenderer& renderer, const Rect rect, const char* label, const char* value, const char* unit = nullptr) {
+  drawCard(renderer, rect, 6);
+  const int labelFont = SMALL_FONT_ID;
+  const int valueFont = NOTOSERIF_14_FONT_ID;
+  const int labelH = renderer.getLineHeight(labelFont);
+  const int valueH = renderer.getLineHeight(valueFont);
+  const int totalH = labelH + 4 + valueH;
+  int y = rect.y + std::max(6, (rect.height - totalH) / 2);
 
+  const int labelW = renderer.getTextWidth(labelFont, label);
+  renderer.drawText(labelFont, rect.x + (rect.width - labelW) / 2, y, label);
+  y += labelH + 4;
+
+  const int valW = renderer.getTextWidth(valueFont, value, EpdFontFamily::BOLD);
+  const int unitW = unit ? renderer.getTextWidth(SMALL_FONT_ID, unit) : 0;
+  const int startX = rect.x + (rect.width - (valW + (unit ? 2 + unitW : 0))) / 2;
+  renderer.drawText(valueFont, startX, y, value, true, EpdFontFamily::BOLD);
+  if (unit) {
+    renderer.drawText(SMALL_FONT_ID, startX + valW + 2, y + (valueH - renderer.getLineHeight(SMALL_FONT_ID)), unit);
+  }
+}
 inline void drawProgress(const GfxRenderer& renderer, const Rect rect, const uint8_t percent) {
   if (rect.width <= 0 || rect.height <= 0) return;
   renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
