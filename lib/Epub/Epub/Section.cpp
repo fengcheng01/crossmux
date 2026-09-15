@@ -148,7 +148,7 @@ void Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
   serialization::writePod(file, spec.embeddedStyle);
   serialization::writePod(file, spec.imageRendering);
   serialization::writePod(file, spec.focusReadingEnabled);
-  serialization::writePod(file, pageCount);  // Placeholder for page count (will be initially 0, patched later)
+  serialization::writePod(file, spec.collectTouchLinks);
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for LUT offset (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for anchor map offset (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for paragraph LUT offset (patched later)
@@ -186,14 +186,14 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     bool fileEmbeddedStyle = false;
     uint8_t fileImageRendering = 0;
     bool fileFocusReadingEnabled = false;
+    bool fileCollectTouchLinks = false;
     const bool headerValid =
         serialization::readPod(file, fileFontId) && serialization::readPod(file, fileLineCompression) &&
         serialization::readPod(file, fileExtraParagraphSpacing) && serialization::readPod(file, fileFirstLineIndent) &&
         serialization::readPod(file, fileParagraphAlignment) && serialization::readPod(file, fileViewportWidth) &&
         serialization::readPod(file, fileViewportHeight) && serialization::readPod(file, fileHyphenationEnabled) &&
         serialization::readPod(file, fileEmbeddedStyle) && serialization::readPod(file, fileImageRendering) &&
-        serialization::readPod(file, fileFocusReadingEnabled);
-
+        serialization::readPod(file, fileFocusReadingEnabled) && serialization::readPod(file, fileCollectTouchLinks);
     if (!headerValid || spec.fontId != fileFontId || spec.lineCompression != fileLineCompression ||
         spec.extraParagraphSpacing != fileExtraParagraphSpacing || spec.firstLineIndent != fileFirstLineIndent ||
         spec.paragraphAlignment != fileParagraphAlignment || spec.viewportWidth != fileViewportWidth ||

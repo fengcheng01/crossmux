@@ -342,9 +342,9 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
   // If the pending anchor is a TOC chapter boundary, force a page break after the previous
   // block is flushed so the chapter starts on a fresh page.
   flushPendingAnchor();
-  if (hasFailed()) return;
+  if (allocationFailed_) return;
   currentTextBlock = makeUniqueNoThrow<ParsedText>(extraParagraphSpacing, firstLineIndent, hyphenationEnabled,
-                                                   focusReadingEnabled, blockStyle, collectTouchLinks);
+                                                   focusReadingEnabled, blockStyle);
   if (!currentTextBlock) {
     LOG_ERR("EHP", "OOM: ParsedText (%u bytes)", static_cast<unsigned>(sizeof(ParsedText)));
     allocationFailed_ = true;
@@ -549,36 +549,21 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     tableCellBlockStyle.alignment = align;
     self->startNewTextBlock(tableCellBlockStyle);
 
-    self->currentTextBlock =
-        makeUniqueNoThrow<ParsedText>(self->extraParagraphSpacing, self->firstLineIndent, self->hyphenationEnabled,
-                                      self->focusReadingEnabled, tableCellBlockStyle, self->collectTouchLinks);
-    if (!self->currentTextBlock) {
-      LOG_ERR("EHP", "OOM: table cell");
-      self->failAllocation("table cell");
-      return;
-    }
-    self->insideTableCell = true;
-    self->tableCellTextBytes = 0;
-    self->wordsExtractedInBlock = 0;
-    self->flushPendingAnchor();
-    if (self->hasFailed()) return;
-    self->pushTableTextStyleEntry(cssStyle);
-
-    if (strcmp(name, "th") == 0 && (!cssStyle.hasFontWeight() || cssStyle.fontWeight == CssFontWeight::Bold)) {
-      self->boldUntilDepth = std::min(self->boldUntilDepth, self->depth);
-    }
-
-    self->depth += 1;
-    return;
-  }
-
-  if (self->tableDepth >= 1 && strcmp(name, "hr") == 0) {
-    self->depth += 1;
-    return;
-  }
-
-  if (self->tableDepth >= 1 && self->insideTableCell && isHeaderOrBlock(name)) {
-    // Collapse block markup inside a cell to a word boundary.
+    const std::string headerText =
+        "Tab Row " + std::to_string(self->tableRowIndex) + ", Cell " + std::to_string(self->tableColIndex) + ":";
+    StyleStackEntry headerStyle;
+    headerStyle.depth = self->depth;
+    headerStyle.hasBold = true;
+    headerStyle.bold = false;
+    headerStyle.hasItalic = true;
+    headerStyle.italic = true;
+    self->inlineStyleStack.push_back(headerStyle);
+    self->updateEffectiveInlineStyle();
+    const CssTextDecoration savedTextDecoration = self->effectiveTextDecoration;
+    self->effectiveTextDecoration = CssTextDecoration::None;
+    self->syntheticCharacterData = true;
+    self->characterData(userData, headerText.c_str(), static_cast<int>(headerText.length()));
+    self->syntheticCharacterData = false;
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
     }
@@ -590,12 +575,6 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     self->depth += 1;
     return;
   }
-
-  if (self->tableDepth == 1 && strcmp(name, "hr") == 0) {
-    self->depth += 1;
-    return;
-  }
-
   if (matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS))) {
     std::string src;
     std::string alt;
@@ -1192,33 +1171,6 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     return;
   }
 
-  if (self->tableDepth == 1 && !self->insideTableCell) {
-    bool onlyWhitespace = true;
-    for (int i = 0; i < len; ++i) {
-      if (!isWhitespace(s[i])) {
-        onlyWhitespace = false;
-        break;
-      }
-    }
-    if (onlyWhitespace) {
-      return;
-    }
-  }
-
-  // Recreate flow storage for valid text (for example a caption) after a row.
-  if (!self->currentTextBlock) {
-    const BlockStyle flowStyle =
-        self->blockStyleStack.empty() ? BlockStyle() : self->blockStyleStack.back().withoutBottom();
-    self->currentTextBlock =
-        makeUniqueNoThrow<ParsedText>(self->extraParagraphSpacing, self->firstLineIndent, self->hyphenationEnabled,
-                                      self->focusReadingEnabled, flowStyle, self->collectTouchLinks);
-    if (!self->currentTextBlock) {
-      LOG_ERR("EHP", "OOM: text block for character data");
-      self->failAllocation("text block for character data");
-      return;
-    }
-    self->wordsExtractedInBlock = 0;
-  }
   // Collect footnote link display text (for the number label)
   // Skip whitespace and brackets to normalize noterefs like "[1]" → "1"
   if (self->insideFootnoteLink) {
@@ -1542,18 +1494,6 @@ void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* n
     self->tableRowIndex = 0;
     self->tableColIndex = 0;
     self->nextWordContinues = false;
-
-    const BlockStyle flowStyle =
-        self->blockStyleStack.empty() ? BlockStyle() : self->blockStyleStack.back().withoutBottom();
-    self->currentTextBlock =
-        makeUniqueNoThrow<ParsedText>(self->extraParagraphSpacing, self->firstLineIndent, self->hyphenationEnabled,
-                                      self->focusReadingEnabled, flowStyle, self->collectTouchLinks);
-    if (!self->currentTextBlock) {
-      LOG_ERR("EHP", "OOM: text block after table");
-      self->failAllocation("text block after table");
-      return;
-    }
-    self->wordsExtractedInBlock = 0;
   }
 
   // Leaving bold tag

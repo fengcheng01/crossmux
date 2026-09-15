@@ -81,8 +81,7 @@ void updateBluetoothLifecycle() {
   static unsigned long nextStartAttemptAt = 0;
   const auto wanted = [] {
     return SETTINGS.bluetoothEnabled && activityManager.keepsBluetoothAlive() &&
-           !activityManager.deferBluetoothStart() && !activityManager.requiresExclusiveStorageLoop() &&
-           WiFi.getMode() == WIFI_MODE_NULL;
+           !activityManager.deferBluetoothStart() && WiFi.getMode() == WIFI_MODE_NULL;
   };
   if (!wanted()) {
     bleinput::stop();

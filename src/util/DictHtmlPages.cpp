@@ -224,8 +224,8 @@ bool buildDictionaryHtmlPages(GfxRenderer& renderer, const std::string& definiti
         nullptr, tmpPath, renderer, SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
         SETTINGS.extraParagraphSpacing, SETTINGS.firstLineIndent != 0, SETTINGS.paragraphAlignment, viewportWidth,
         viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.focusReadingEnabled,
-        [&pagesOut, &resourceLimitHit, &retainedElements, &limitReason](std::unique_ptr<Page> page, uint16_t, uint16_t,
-                                                                        uint32_t) {
+        [&pagesOut, &resourceLimitHit, &retainedElements](std::unique_ptr<Page> page, uint16_t, uint16_t,
+                                                          uint32_t) {
           if (resourceLimitHit) return;
           const size_t pageElements = page->elements.size();
           if (pagesOut.size() >= MAX_STYLED_PAGES || pageElements > MAX_STYLED_PAGE_ELEMENTS - retainedElements ||
