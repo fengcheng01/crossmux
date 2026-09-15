@@ -29,11 +29,22 @@ namespace {
 //   52 / 53 - ruby/CJK justification layout and 256-byte footnote hrefs
 //   54 / 55 - one-shot soft-flush indentation and two-CJK-character defaults
 //   56 / 57 - focus-word break opportunities, image viewport clamping, and extra-wide line spacing
-//   58 / 59 - persist internal-link rectangles with each page for touch navigation
+//   58 / 59 - simple HTML table rows laid out as positioned columns
+//   60 / 61 - touch-link rectangles, inline direction inheritance, block spacing, and linked sup/sub
+//   62 / 63 - touch-link capability in the render spec
+//   64 / 65 - bounded no-PSRAM soft-flush windows
+//   66 / 67 - content-sniffed image decoders and the img2_ image cache prefix
+//
+// The 66/67 bump is not optional alongside the img2_ prefix in imageBasePath
+// below: recognising an image by its content instead of its href extension means
+// entries that used to be skipped now consume an imageCounter value, so a rebuilt
+// chapter numbers its images differently. Reusing a pre-upgrade path would serve
+// the wrong picture, because ImageBlock::ensureExtracted() accepts whatever file
+// already sits at the path (and its .pxc pixel cache) without checking the source.
 #ifdef ENABLE_CHINESE_VERSION
-constexpr uint8_t SECTION_FILE_VERSION = 59;
+constexpr uint8_t SECTION_FILE_VERSION = 67;
 #else
-constexpr uint8_t SECTION_FILE_VERSION = 58;
+constexpr uint8_t SECTION_FILE_VERSION = 66;
 #endif
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
@@ -370,7 +381,14 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
   // Derive the content base directory and image cache path prefix for the parser
   const size_t lastSlash = localPath.find_last_of('/');
   ctx->contentBase = (lastSlash != std::string::npos) ? localPath.substr(0, lastSlash + 1) : "";
-  ctx->imageBasePath = epub->getCachePath() + "/img_" + std::to_string(spineIndex) + "_";
+  // The "img2_" prefix versions the extracted-image namespace. Content-based
+  // decoder selection hands an imageCounter value to entries the old extension
+  // gate skipped, which renumbers every later image in the chapter; without a new
+  // prefix a rebuilt chapter would land on a pre-upgrade file (and reuse its .pxc)
+  // that ImageBlock::ensureExtracted() accepts on existence alone. Bump it in
+  // lockstep with SECTION_FILE_VERSION above. Pre-upgrade "img_*" files are simply
+  // never referenced again.
+  ctx->imageBasePath = epub->getCachePath() + "/img2_" + std::to_string(spineIndex) + "_";
 
   if (spec.embeddedStyle) {
     ctx->cssParser = epub->getCssParser();
