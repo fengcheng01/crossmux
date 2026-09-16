@@ -800,8 +800,8 @@ void SleepActivity::paintClock(GfxRenderer& renderer, const bool minuteTick) {
   }
 
 #if FREEINK_DEVICE_MURPHY_M4
-  // Clock entry/hourly cleanup: one complete vendor E clean/paint, then power-off.
-  // Do not stack OTP whitening or FULL's repeated inversions onto this waveform.
+  // Clock entry/hourly cleanup: one OTP HALF B/W clean/paint, then power-off.
+  // Do not stack gray-exit whitening or FULL's repeated inversions onto it.
   // Ordinary minute ticks stay local.
   if (!minuteTick || (haveTime && minute == 0)) {
     renderer.displaySleepClean();

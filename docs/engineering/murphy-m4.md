@@ -276,6 +276,126 @@ stays white, prior text does not emerge, entry has no repeated black flashes,
 and normal minute changes do not perform a full-screen clean. Also unlock and
 confirm the reading white-flash behavior is unchanged.
 
+### v135 Direct light-edge calibration trial
+
+The user accepts Direct's overall appearance but finds diagonal edges slightly
+harder than Overlay in matched-page photographs. The photographs do not establish
+the correct optical gray values, so this trial changes one variable only:
+Direct's light-gray VSH1 dose goes from 9 to 8 frames. The spare frame becomes
+idle before that dose (3 -> 4), keeping its 24-frame white preconditioning and
+its end at frame 36. Dark gray remains 12 ink frames; black remains 24. The
+per-frame drive of white, dark gray and black is unchanged, despite the shared
+timing-group split changing from 12/12/3/9 to 12/12/4/8.
+
+This tests whether a lighter outer edge gives a smoother transition. It may
+instead make thin edges less visible; improvement is not established by code
+checks. Direct still performs one display activation. Voltage, frame-rate,
+font coverage mapping, reading white flash, Overlay and clock sleep are unchanged.
+No runtime allocation or additional framebuffer is introduced.
+
+The waveform host test compares every target's per-frame source with the accepted
+baseline and allows only the single light-edge ink-to-idle change. It also checks
+end times, totals, white-flash doses and voltage/rate bytes. Device QA: compare
+the same page/font/size/weight at a fixed camera position after settling, especially
+人/以/厉 diagonals and fine tips. Repeat across 30 page turns in EPUB and TXT;
+check for fading, stronger jaggies, residual ink, and thin-then-thick transitions.
+The pre-build v134 binary is preserved alongside the v135 test artifact for rollback.
+
+### v136 Clock B/W cleanup and Direct shared ink window
+
+Device feedback on v135: Clock sleep still has severe residue, and Direct
+still visibly changes from thin, smooth text to thicker, rougher text. The
+v133 full-E sleep experiment is therefore not an accepted solution. Completion
+and power-off ordering tests cannot establish that its physical field is clean.
+
+Clock entry/hourly cleanup now selects the existing M4 OTP HALF sequence
+(0xD4) once with CTRL1 BYPASS_RED and normal B/W target polarity in both RAM
+planes. It consumes gray-exit preparation before painting, reloads the OTP LUT
+instead of the custom gray table, respects the existing batch-specific HALF
+temperature, waits, restores both binary RAM planes, then powers off. Thus
+neither the former white preclear nor a later gray paint is stacked onto HALF.
+Deep sleep adds no display activation; ordinary minute updates stay local.
+This is a single clean request, not the multi-inversion FULL (0xF7) request;
+the visible flash and cleanup still need device verification. The analog-off
+sequence (0x22=0x03) remains as documented in the
+[SSD1677 command table](https://files.waveshare.com/upload/2/2a/SSD1677_1.0.pdf).
+
+Direct v135 synchronized ink END times but not START times: black began at
+frame 12, dark gray at 24, light gray at 28. That code finding is consistent
+with a visible core followed by expanding gray edges. v136 keeps gray erase
+at 24 frames, delays black ink until then, and distributes the gray ink pulses
+inside the same 24-frame write window. All three start at frame 24 and finish
+at 48. Black retains 24 ink frames, light retains 8, and dark is reduced from
+12 to 10 as an optical calibration trial to reduce edge darkening. White keeps
+its original first 36 erase frames and then idles for 12; there is no white
+inversion pulse. Voltages and frame-rate bytes are unchanged. Sparse gray
+pulses can have a different optical response than contiguous pulses, so equal
+start/end times and pulse counts do not prove equal pigment settling.
+
+The tradeoff is 48 timing frames instead of 36 (one third longer at the same
+frame rate); actual page-turn time also includes rendering and SPI. There is
+still one Direct activation, with no B/W preview or edge overlay. White-flash
+and Overlay reading modes, font coverage and font weight are unchanged. LUT
+construction is compile-time, with no new runtime allocation or framebuffer.
+
+Host checks cover Direct's common start/end, 8/10/24 ink doses, complete gray
+erase, unchanged white drive/voltage/rate, and absence of white-going reversal
+once ink starts. Recording-bus checks cover a single sleep 0xD4, BYPASS_RED,
+normal B/W planes, no custom LUT upload, batch temperature, delayed BUSY,
+power-off, minute updates and no extra activation at deep sleep. Hardware QA:
+compare Direct in EPUB/TXT using CangEr JinKai, including a slow-motion video
+and a settled photo; check the thin-to-thick interval, fine strokes, gray loss,
+page speed and residue after 30 turns. Lock from both gray modes and Home,
+inspect immediately/10 seconds/one minute, then unlock; confirm no repeated
+full-screen flashes and no old text emerging after shutdown. Keep v135 as a
+rollback comparison, not as a known-good sleep baseline.
+
+### v137 Revert sparse gray pulses; finish shutdown inside the update
+
+Hardware rejected v136: Direct became thicker and Clock immediately developed
+background residue. Its sparse 48-frame gray waveform is removed; Direct returns
+to the v135 36-frame 8/12/24 VSH1 baseline. This is rollback of a regression,
+not a claim that the old thin-to-thick transition is solved by those doses.
+
+A correction to the pulse model: the
+[SSD1677 table 6-6 and waveform registers](https://files.waveshare.com/upload/2/2a/SSD1677_1.0.pdf)
+define VS=00 as VSS, not Hi-Z. With a nonzero DCVCOM, it must not be modeled as
+an electrically neutral pause. Longer interleaved VSS intervals and equal VSH1
+counts do not guarantee equal optical gray. Existing historical sections above
+record the experiments; their use of the word idle is not proof of neutrality.
+
+M4 now supports a completed update that includes analog/clock shutdown before
+BUSY finishes. Direct always requests this shutdown, independently of the
+optional reading fading fix. Its sequence is 0xCF (Mode 2, custom LUT, power-off),
+not 0xC7 (Mode 1). Both gray planes remain intact throughout the update and
+shutdown; the reader can only restore its thresholded B/W baseline afterward.
+Clock's single OTP HALF uses 0xD7 instead of 0xD4 followed by a separate 0x03.
+The low two bits enable analog/clock disable stages; they do not add a display
+activation or change the selected display mode. After the clock sync, deep sleep
+therefore issues no further master activation.
+
+Standalone M4 shutdown (e.g. after a powered minute update) uses 0x83, starting
+the sequencer clock before disabling analog/clock, as used by the
+[GDEQ0426T82 reference driver](https://github.com/ZinggJM/GxEPD2/blob/master/src/gdeq/GxEPD2_426_GDEQ0426T82.cpp).
+It contains no display stage. The existing 200ms settle is retained, followed
+by a refresh-completion wait that handles delayed BUSY assertion. No change is
+made to deep-sleep mode, GPIO wiring, analog voltage settings, font weight or
+font coverage. White-flash LUT bytes are unchanged; a requested fading-fix
+shutdown also uses the M4 integrated path. Other boards retain their previous
+separate shutdown policy and 0x03 standalone sequence.
+
+This targets powered post-refresh/cleanup behavior; without electrical traces,
+neither persistent drive nor shutdown timing has been proven to cause the
+photographed residue. Host tests verify CF/D7 complete power-off before RAM
+cleanup, late BUSY, no extra display activation, standalone 83, unchanged
+white-flash CC when shutdown was not requested, and other-board isolation.
+No extra framebuffer or runtime allocation is introduced. Hardware QA must
+compare stable text and a slow-motion page turn, then lock from the reader
+and from a fresh boot's Home without opening a book. Observe immediately and
+at 10 seconds/next minute; this distinguishes gray carry-over from a general
+sleep transition failure. If the issue persists, obtain refresh/BUSY timing
+logs or a power/logic trace before further arbitrary waveform calibration.
+
 ### Local M4 test version increments
 
 `scripts/m4_test_version.py` runs for `murphy_m4_cn` builds with a `.vN` version
@@ -306,8 +426,8 @@ the build log; it overrides the static ini seed without rewriting the ini.
   again. Test a partial popup and fast consecutive navigation.
 - Check navigation during the white interval and low-memory fallback. The page
   must not remain blank or lose its status bar.
-- Confirm About displays v133 for this candidate. An unchanged rebuild must
-  retain it; the next source change/build must display v134.
+- Confirm About displays v137 for this candidate. An unchanged rebuild must
+  retain it; the next source change/build must display v138.
 - The simulator cannot validate physical gray response, ghosting or flash color.
 
 Silent restarts (USB eject/disconnect, web-server teardown) save the panel's
