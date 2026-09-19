@@ -194,6 +194,11 @@ void ActivityManager::loop() {
       // Current activity has requested a new activity to be launched
       if (RenderLock::peek()) break;
       RenderLock lock;
+#if FREEINK_DEVICE_MURPHY_M4
+      const bool cleanMainTab = pendingAction.load() == PendingAction::Replace && currentActivity &&
+                                pendingActivity->mainTab() != MainTab::None &&
+                                currentActivity->mainTab() != pendingActivity->mainTab();
+#endif
 
       if (pendingAction.load() == PendingAction::Replace) {
         // Destroy the current activity
@@ -210,6 +215,12 @@ void ActivityManager::loop() {
       }
       pendingAction.store(PendingAction::None);
       currentActivity = std::move(pendingActivity);
+#if FREEINK_DEVICE_MURPHY_M4
+      // Large layout changes need one all-pixels differential drive. It clears
+      // the outgoing tab through the panel's white-going path while avoiding
+      // the HALF waveform's visible black flash.
+      if (cleanMainTab) renderer.requestNextDriveAll();
+#endif
 
       // Drop any one-shot tap/release edge events the outgoing activity already
       // consumed this frame. The SDK's InputManager clears these in update(),

@@ -904,53 +904,69 @@ void ReadingStatsActivity::renderPaper() {
                   16;
   const int actionHeight = std::max(44, textH + 12);
   moreHitRect_ = Rect{x, content.y + content.height - actionHeight - 6, width, actionHeight};
-  const int summaryWidth = (width - m.gap) * 3 / 5;
-  GUI.drawPaperText(renderer, Rect{x, top, summaryWidth, textH}, textFont, tr(STR_PAPER_LAST_WEEK));
+  const int smallH = renderer.getLineHeight(m.smallFont);
+
+  // 1. Top Section: Clean Unified Hero Header
+  GUI.drawPaperText(renderer, Rect{x, top, width, textH}, textFont, tr(STR_PAPER_LAST_WEEK));
   char minutes[24] = {};
   formatPaperMinutes(totalMs, minutes, sizeof(minutes));
-  const int valueY = top + textH + 6;
-  const int valueW = std::min(summaryWidth, renderer.getTextWidth(m.numberFont, minutes, EpdFontFamily::BOLD));
-  GUI.drawPaperText(renderer, Rect{x, valueY, valueW, numberH}, m.numberFont, minutes, true);
-  if (valueW + 12 < summaryWidth) {
-    GUI.drawPaperText(renderer, Rect{x + valueW + 10, valueY + numberH - textH, summaryWidth - valueW - 10, textH},
-                      textFont, tr(STR_MINUTES_UNIT));
-  }
-  const int sideX = x + summaryWidth + m.gap;
-  const int sideW = width - summaryWidth - m.gap;
-  char summary[64] = {};
+  char fullMinBuf[32] = {};
+  snprintf(fullMinBuf, sizeof(fullMinBuf), "%s %s", minutes, tr(STR_MINUTES_UNIT));
+  const int valueY = top + textH + 2;
+  GUI.drawPaperText(renderer, Rect{x, valueY, width, numberH}, m.numberFont, fullMinBuf, true);
+
+  // Subtitle row: "今日 %s 分钟  ·  折合 %.1f 小时  ·  本周专注 %u / 7 天"
   char todayMinutes[24] = {};
   formatPaperMinutes(dayMs[6], todayMinutes, sizeof(todayMinutes));
-  snprintf(summary, sizeof(summary), tr(STR_PAPER_TODAY_MIN_FMT), todayMinutes);
-  const int todayLines = renderer.getTextWidth(textFont, summary) > sideW ? 2 : 1;
-  const int sideHeight = (todayLines + 1) * textH + 12;
-  const int summaryHeight = std::max(textH + 6 + numberH, sideHeight);
-  const int sideY = top + (summaryHeight - sideHeight) / 2;
-  GUI.drawPaperText(renderer, Rect{sideX, sideY, sideW, todayLines * textH}, textFont, summary, false, todayLines);
-  snprintf(summary, sizeof(summary), tr(STR_PAPER_DAYS_SHORT_FMT), readDays);
-  GUI.drawPaperText(renderer, Rect{sideX, sideY + todayLines * textH + 12, sideW, textH}, textFont, summary);
-  const int summaryBottom = top + summaryHeight;
+  const double totalHours = static_cast<double>(totalMs) / 3600000.0;
+  char metaLine[96] = {};
+  snprintf(metaLine, sizeof(metaLine), "今日 %s %s  ·  折合 %.1f 小时  ·  本周专注 %u / 7 天",
+           todayMinutes, tr(STR_MINUTES_UNIT), totalHours, readDays);
+  const int metaY = valueY + numberH + 4;
+  GUI.drawPaperText(renderer, Rect{x, metaY, width, smallH}, m.smallFont, metaLine);
+
+  const int summaryBottom = metaY + smallH + 8;
+  GUI.drawPaperRule(renderer, Rect{x, summaryBottom, width, 1});
+
+  // 2. 7-Day Chart Block (Taller & more spacious: 190px)
   const int chartX = x;
   const int chartW = width;
-  const int chartY = summaryBottom + 18;
-  const int lowerReserve = wide ? 8 : textH * 2 + 80 + (totalMs ? textH + 12 : 0);
-  const int chartH = std::min(wide ? 140 : 260, std::max(100, moreHitRect_.y - chartY - lowerReserve));
-  GUI.drawPaperText(renderer, Rect{chartX, chartY, chartW, textH}, textFont, tr(STR_PAPER_RHYTHM), true);
-  const int plotTop = chartY + textH + textH + 16;
-  const int plotBottom = chartY + chartH - textH - 8;
+  const int chartY = summaryBottom + 12;
+  const int chartH = wide ? 120 : 190;
+  // Header row:
+  GUI.drawPaperText(renderer, Rect{chartX, chartY, chartW / 2, textH}, textFont, tr(STR_PAPER_RHYTHM), true);
+  char todayHeader[48] = {};
+  snprintf(todayHeader, sizeof(todayHeader), "%s · %s %s", tr(STR_PAPER_TODAY), todayMinutes, tr(STR_MINUTES_UNIT));
+  const int todayHdrW = renderer.getTextWidth(m.smallFont, todayHeader);
+  GUI.drawPaperText(renderer, Rect{chartX + chartW - todayHdrW, chartY + (textH - smallH) / 2, todayHdrW, smallH},
+                    m.smallFont, todayHeader);
+
+  // Plot Area:
+  const int plotTop = chartY + textH + 8;
+  const int plotBottom = chartY + chartH - smallH - 6;
   const int plotH = std::max(1, plotBottom - plotTop);
+
   for (int i = 0; i < kInxDayBars; ++i) {
     const int left = chartX + chartW * i / kInxDayBars;
     const int right = chartX + chartW * (i + 1) / kInxDayBars;
-    const int barW = std::min(34, (right - left) * 3 / 5);
+    constexpr int barW = 16;
     const int barX = left + (right - left - barW) / 2;
-    const int barH = dayMs[i] ? std::max(2, static_cast<int>(dayMs[i] * plotH / maxMs)) : 0;
-    if (barH > 0) GUI.drawPaperBar(renderer, Rect{barX, plotBottom - barH, barW, barH}, true);
-    char value[16] = {};
-    formatPaperMinutes(dayMs[i], value, sizeof(value));
-    const int valueWidth = std::min(right - left - 4, renderer.getTextWidth(textFont, value));
-    GUI.drawPaperText(renderer,
-                      Rect{left + (right - left - valueWidth) / 2, plotBottom - barH - textH - 4, valueWidth, textH},
-                      textFont, value);
+    const int maxBarH = std::max(12, plotH - smallH - 4);
+    const int barH = dayMs[i] ? std::max(4, static_cast<int>(dayMs[i] * maxBarH / maxMs)) : 0;
+
+    if (barH > 0) {
+      GUI.drawPaperBar(renderer, Rect{barX, plotBottom - barH, barW, barH}, true);
+      if (i == 6) {
+        renderer.drawRect(barX - 2, plotBottom - barH - 2, barW + 4, barH + 2);
+      }
+      char value[16] = {};
+      formatPaperMinutes(dayMs[i], value, sizeof(value));
+      const int valueWidth = std::min(right - left - 2, renderer.getTextWidth(m.smallFont, value));
+      GUI.drawPaperText(renderer,
+                        Rect{left + (right - left - valueWidth) / 2, plotBottom - barH - smallH, valueWidth, smallH},
+                        m.smallFont, value);
+    }
+
     char date[12] = {};
     int year;
     unsigned month, day;
@@ -961,50 +977,144 @@ void ReadingStatsActivity::renderPaper() {
       snprintf(date, sizeof(date), "-");
     }
     const char* label = i == 6 ? tr(STR_PAPER_TODAY) : date;
-    const int labelWidth = std::min(right - left - 4, renderer.getTextWidth(textFont, label));
-    GUI.drawPaperText(renderer, Rect{left + (right - left - labelWidth) / 2, plotBottom + 6, labelWidth, textH},
-                      textFont, label, i == 6);
-    if (i == 6)
-      GUI.drawPaperRule(renderer, Rect{left + (right - left - labelWidth) / 2, plotBottom + textH + 7, labelWidth, 2},
-                        2);
+    const int labelWidth = std::min(right - left - 4, renderer.getTextWidth(m.smallFont, label));
+    GUI.drawPaperText(renderer, Rect{left + (right - left - labelWidth) / 2, plotBottom + 4, labelWidth, smallH},
+                      m.smallFont, label, i == 6);
+    if (i == 6) {
+      GUI.drawPaperRule(renderer, Rect{left + (right - left - labelWidth) / 2, plotBottom + smallH + 5, labelWidth, 2}, 2);
+    }
     dayBarHit_[i] = Rect{left, chartY + textH + 4, right - left, chartH - textH - 4};
     if (showFocus && focus == i + 1) GUI.drawPaperFocus(renderer, dayBarHit_[i]);
   }
   GUI.drawPaperRule(renderer, Rect{chartX, plotBottom, chartW, 1});
-  int y = chartY + chartH + 12;
-  if (totalMs && y + textH <= moreHitRect_.y - 8) {
+
+  // Trophy badge under chart:
+  int y = chartY + chartH + 6;
+  if (totalMs) {
     char peakText[96] = {};
     int year;
     unsigned month, day;
     TimeUtils::getDateFromDayOrdinal(dayBarOrdinal_[peak], year, month, day);
     char peakMinutes[24] = {};
     formatPaperMinutes(dayMs[peak], peakMinutes, sizeof(peakMinutes));
-    snprintf(peakText, sizeof(peakText), tr(STR_PAPER_PEAK_DAY_FMT), month, day, peakMinutes);
-    y = GUI.drawPaperText(renderer, Rect{x, y, width, textH}, textFont, peakText) + 12;
+    const double peakHours = static_cast<double>(dayMs[peak]) / 3600000.0;
+    snprintf(peakText, sizeof(peakText), "最长沉浸日 %02u.%02u · 达 %s 分钟 (%.1f 小时)", month, day, peakMinutes, peakHours);
+    y = GUI.drawPaperText(renderer, Rect{x, y, width, smallH}, m.smallFont, peakText) + 6;
+  } else {
+    y = GUI.drawPaperText(renderer, Rect{x, y, width, smallH}, m.smallFont, tr(STR_PAPER_EVERY_PAGE)) + 6;
   }
-  if (!wide && y + textH + textH + 58 <= moreHitRect_.y - 8) {
-    GUI.drawPaperRule(renderer, Rect{x, y, width, 1});
-    y += 10;
-    y = GUI.drawPaperText(renderer, Rect{x, y, width, textH}, textFont, tr(STR_TODAY_READING_DAYPART), true) + 8;
+  GUI.drawPaperRule(renderer, Rect{x, y, width, 1});
+  y += 6;
+
+  // 4. 24-Hour Daypart & Intensity Section
+  if (!wide && y + textH + 45 <= moreHitRect_.y) {
+    GUI.drawPaperText(renderer, Rect{x, y, width * 3 / 5, textH}, textFont, tr(STR_TODAY_READING_DAYPART), true);
+
+    uint64_t maxHourMs = 0;
+    int peakHour = 20;
+    for (int h = 0; h < 24; ++h) {
+      const uint64_t ms = READING_STATS.getDayHourReadingMs(reference, h);
+      if (ms > maxHourMs) { maxHourMs = ms; peakHour = h; }
+    }
+
+    char peakHdr[48] = {};
+    if (maxHourMs > 0) {
+      const unsigned peakMins = static_cast<unsigned>((maxHourMs + 30000ULL) / 60000ULL);
+      snprintf(peakHdr, sizeof(peakHdr), "%02d:00 - %02d:00 · 专注 %u 分钟", peakHour, peakHour + 1, peakMins);
+    } else {
+      snprintf(peakHdr, sizeof(peakHdr), "今日尚未阅读");
+    }
+    const int peakHdrW = renderer.getTextWidth(m.smallFont, peakHdr);
+    GUI.drawPaperText(renderer, Rect{x + width - peakHdrW, y + (textH - smallH) / 2, peakHdrW, smallH},
+                      m.smallFont, peakHdr);
+    y += textH + 8;
+
+    // Horizontal line/track with variable height fill (shorter reading -> lower height!)
     const int trackY = y;
-    GUI.drawPaperRule(renderer, Rect{x, trackY + 10, width, 1});
+    constexpr int kTrackH = 22;
+    const int baselineY = trackY + kTrackH;
+    GUI.drawPaperRule(renderer, Rect{x, baselineY, width, 1});
+
+    const uint64_t maxScaleMs = std::max<uint64_t>(maxHourMs, 30ULL * 60000ULL);
     for (int h = 0; h < 24; ++h) {
       const int left = x + width * h / 24;
       const int right = x + width * (h + 1) / 24;
-      const bool active = READING_STATS.getDayHourReadingMs(reference, h) > 0;
-      GUI.drawPaperBar(renderer, Rect{left, trackY + 8, 1, 5}, true);
-      if (active) GUI.drawPaperBar(renderer, Rect{left + 1, trackY, std::max(1, right - left - 2), 22}, true);
+      const uint64_t hourMs = READING_STATS.getDayHourReadingMs(reference, h);
+      const int barW = std::max(2, right - left - 1);
+      const int barX = left + 1;
+
+      if (hourMs == 0) {
+        GUI.drawPaperRule(renderer, Rect{barX, baselineY - 2, 1, 3}, 1);
+      } else {
+        const uint32_t hourMins = static_cast<uint32_t>((hourMs + 30000ULL) / 60000ULL);
+        const int blockH = hourMins <= 1 ? 3 : std::max(4, std::min(kTrackH, static_cast<int>(hourMs * kTrackH / maxScaleMs)));
+        GUI.drawPaperBar(renderer, Rect{barX, baselineY - blockH, barW, blockH}, true);
+      }
     }
-    y += 28;
-    static constexpr const char* ticks[] = {"00", "06", "12", "18", "24"};
+    y = baselineY + 4;
+
+    static constexpr const char* ticks[] = {"00:00", "06:00", "12:00", "18:00", "24:00"};
     for (int i = 0; i < 5; ++i) {
-      const int tickW = renderer.getTextWidth(textFont, ticks[i]);
+      const int tickW = renderer.getTextWidth(m.smallFont, ticks[i]);
       const int tickX = std::clamp(x + width * i / 4 - tickW / 2, x, x + width - tickW);
-      GUI.drawPaperText(renderer, Rect{tickX, y, tickW, textH}, textFont, ticks[i]);
+      GUI.drawPaperText(renderer, Rect{tickX, y, tickW, smallH}, m.smallFont, ticks[i]);
     }
-    y += textH + 8;
+    y += smallH + 8;
+    GUI.drawPaperRule(renderer, Rect{x, y, width, 1});
+    y += 10;
   }
-  GUI.drawPaperAction(renderer, moreHitRect_, tr(STR_MORE_DETAILS), showFocus && focus == 0);
+
+  // 5. Reading Habit Insight Card
+  if (!wide && y + 60 <= moreHitRect_.y - 6) {
+    uint64_t dpMs[4] = {};
+    for (int h = 0; h < 24; ++h) {
+      const uint64_t ms = READING_STATS.getDayHourReadingMs(reference, h);
+      dpMs[h / 6] += ms;
+    }
+    const uint64_t todayTotal = dpMs[0] + dpMs[1] + dpMs[2] + dpMs[3];
+
+    const char* habitType = "漫游型读者";
+    const char* habitDesc = "随时翻开书页，享受片刻专注时光";
+    if (todayTotal > 0) {
+      int maxDp = 0;
+      for (int d = 1; d < 4; ++d) {
+        if (dpMs[d] > dpMs[maxDp]) maxDp = d;
+      }
+      if (maxDp == 3) {
+        habitType = "晚间沉浸型读者";
+        habitDesc = "专注时段多集中在夜晚，享受静谧阅读时光";
+      } else if (maxDp == 2) {
+        habitType = "午后漫读型读者";
+        habitDesc = "习惯在午后闲暇时光阅读，步调悠闲自在";
+      } else if (maxDp == 1) {
+        habitType = "晨间自律型读者";
+        habitDesc = "在清晨开启专注，保持着规律的早读习惯";
+      } else {
+        habitType = "深夜静读型读者";
+        habitDesc = "习惯在深夜静心潜读，沉浸在书页之中";
+      }
+    } else if (readDays >= 4) {
+      habitType = "持续精进型读者";
+      habitDesc = "本周已达成多日阅读，保持着优秀的阅读节奏";
+    }
+
+    const int cardH = 54;
+    const Rect habitCard{x, y, width, cardH};
+    renderer.fillRect(habitCard.x, habitCard.y, habitCard.width, habitCard.height, false);
+    renderer.drawRect(habitCard.x, habitCard.y, habitCard.width, habitCard.height);
+    // Left 4px accent bar
+    renderer.fillRect(habitCard.x, habitCard.y, 4, habitCard.height, true);
+
+    char hTitle[48] = {};
+    snprintf(hTitle, sizeof(hTitle), "阅读习惯画像 · %s", habitType);
+    renderer.drawText(UI_10_FONT_ID, habitCard.x + 12, habitCard.y + 8, hTitle, true, EpdFontFamily::BOLD);
+    renderer.drawText(SMALL_FONT_ID, habitCard.x + 12, habitCard.y + 30, habitDesc);
+
+    y += cardH + 10;
+  }
+
+  moreHitRect_ = Rect{x, content.y + content.height - actionHeight - 6, width, actionHeight};
+  GUI.drawPaperAction(renderer, moreHitRect_, "查看全部书目阅读档案与历史明细  ›", showFocus && focus == 0);
   const auto labels = mainTabButtonLabels(tr(STR_BACK), tr(STR_SELECT), true);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();

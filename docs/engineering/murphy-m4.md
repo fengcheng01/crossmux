@@ -396,6 +396,98 @@ at 10 seconds/next minute; this distinguishes gray carry-over from a general
 sleep transition failure. If the issue persists, obtain refresh/BUSY timing
 logs or a power/logic trace before further arbitrary waveform calibration.
 
+### v140 Stability and Direct font coverage candidate
+
+v139 hardware feedback: clock lock still dirties immediately, faint journal
+residue survives tab switches, the reading bottom looks dirty, Direct sometimes
+dirties after a page turn, and its AA remains weaker than single flash.
+
+This candidate addresses concrete state/transport issues, not a proven optical
+root cause:
+
+- M4 display SPI is now 20 MHz, the SSD1677 rev 1.0 write limit, instead of
+  the board profile's 40 MHz. Other board profiles are unchanged. Transferring
+  one 48 KB plane has a theoretical wire time of 19.2 ms instead of 9.6 ms;
+  actual page latency also includes SPI overhead, rasterization and waveform.
+- M4 normal B/W updates always include analog/clock shutdown. Gray overlays
+  explicitly bring power back up. The software power flag now follows the
+  actual custom update disable bits rather than claiming CC powered off.
+- Clock entry/hourly cleanup powers off, SWRESETs/reinitializes the controller,
+  then paints the composed clock with one OTP HALF D7 update. Gray-to-B/W UI
+  exits use the same reset followed by HALF, replacing prewhite + FAST. This
+  discards prior custom registers; it never toggles the touch-shared reset pin.
+  SWRESET and power-only commands add no display activation. Ordinary clock
+  minute windows remain partial; deep sleep adds no further display activation.
+- Cross-tab replacements arm one HALF under the render lock, after outgoing
+  onExit. Focus movement within a tab remains FAST. A single clean flash is
+  expected on large layout changes; multi-inversion FULL is not introduced.
+- Every full gray activation restores the full RAM window after strip writes.
+  The recording-bus regression deliberately leaves a one-row window selected.
+- Direct TTF text uses nearest coverage among 0/85/170/255 before 2-bit packing.
+  Compared with truncation, 43..63 survives as light gray and 192..212 remains
+  dark gray instead of black. This is an uncalibrated coverage trial, not a
+  measured reflectance curve or a promise to remove the optical settling.
+  A page scope selects it before prewarm and restores legacy mapping afterward;
+  glyph caches are invalidated on policy transitions. EPUB and TXT share it.
+  Single/white flash, bitmap fonts, images, glyph geometry, advances and the
+  existing Direct/white waveform bytes are unchanged. No added refresh pass,
+  heap allocation, framebuffer, UI option or on-disk font/cache format.
+
+Host QA: real-driver recording bus checks reset-before-clean, power off before
+reset/RAM synchronization, one paint, async finish, minute tick, full gray
+window and default-board isolation. Coverage QA exhausts all 256 inputs and
+checks the unchanged legacy map, monotonicity, endpoints and nearest-level
+error. Neither host tests nor a successful build establish optical stability.
+
+Hardware QA: compare Direct/single flash using the same font, text, size and
+lighting; watch text immediately and 10 seconds later. Lock both from a reader
+and freshly booted Home, observe immediately/10 seconds/next minute; check
+journal-to-other tabs. Repeat a top/bottom identical pattern with rotated
+content to distinguish physical-position dirt from logical-address residue.
+If time-dependent dirt persists, capture BUSY/SPI and panel-supply traces before
+further waveform dose tuning. Do not mask it by forcibly interrupting refresh.
+
+### v141 Shared glyph smoothing and no-black tab transition
+
+The v141 candidate incorporates the latest hardware feedback that Direct was
+slow and that both TTF and cpfont edges remained jagged:
+
+- Direct rendering now applies one shared corner-step smoothing helper in the
+  renderer. It reads the existing glyph bitmap for both 2-bit TTF and 1-bit
+  cpfont data, lowers only a full-ink convex corner to the intermediate gray
+  class, and leaves stems, interiors and white pixels unchanged. It adds no
+  cache, framebuffer or heap allocation.
+- The M4 Direct pulse schedule is 24 frames instead of 36. Gray target VSH1
+  doses remain 8/12 and black remains 24; the removed tail is a VSS/settle
+  portion, so optical settling and residual ink still require device QA.
+- Main-tab replacements request the existing drive-all differential transport
+  through `GfxRenderer::displayBufferDriveAll`, avoiding the explicit HALF
+  black-clean waveform. The same one-shot path is consumed by the incoming
+  activity's first paint; focus movement remains FAST.
+
+Host tests cover the shared helper, the 24-frame LUT schedule, and the gray
+exit/reset recording bus. Hardware QA must compare Direct and single flash on
+the same TTF/cpfont pages, measure page-turn time, and switch every main tab
+while watching for black flash and residual text.
+
+### v142 Whiteward Direct balance
+
+v142 responds to the first v141 device result: Direct looked dirty because its
+24-frame table had too little VSL preconditioning. The table now uses 30 frames
+with 18 VSL frames for white/gray classes, a 4-frame VSS settle, and the same
+24-frame VSH1 black dose. The waveform remains one custom activation without
+the HALF black-clean sequence. The shared corner helper also recognizes TTF
+light-gray neighbors, so its edge smoothing is applied consistently to TTF and
+cpfont bitmaps. Hardware QA must verify that the added six frames clean the
+background without making page turns unacceptably slow.
+
+### v143 TTF edge neighbor correction
+
+The v143 firmware keeps the v142 30-frame Direct waveform and fixes the
+renderer guard so a TTF light-gray neighbor (coverage 1) participates in the
+same convex-corner test as a cpfont full-ink neighbor. This changes only the
+edge classification; glyph interiors and the waveform are unchanged.
+
 ### Local M4 test version increments
 
 `scripts/m4_test_version.py` runs for `murphy_m4_cn` builds with a `.vN` version
@@ -426,8 +518,8 @@ the build log; it overrides the static ini seed without rewriting the ini.
   again. Test a partial popup and fast consecutive navigation.
 - Check navigation during the white interval and low-memory fallback. The page
   must not remain blank or lose its status bar.
-- Confirm About displays v137 for this candidate. An unchanged rebuild must
-  retain it; the next source change/build must display v138.
+- Confirm About displays v141 for this candidate. An unchanged rebuild must
+  retain it; the next source change/build must display v142.
 - The simulator cannot validate physical gray response, ghosting or flash color.
 
 Silent restarts (USB eject/disconnect, web-server teardown) save the panel's

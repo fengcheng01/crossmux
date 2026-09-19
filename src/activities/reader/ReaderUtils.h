@@ -282,6 +282,29 @@ inline bool usesDirectGrayAa() {
 #endif
 }
 
+// Shared by TTF and cpfont; this changes drawing only, not cached glyph data.
+// Restore on exit so UI and other AA modes keep their original coverage.
+class DirectGlyphSmoothingScope {
+ public:
+  explicit DirectGlyphSmoothingScope(GfxRenderer& renderer) : renderer_(renderer) {
+#if FREEINK_DEVICE_MURPHY_M4
+    enabled_ = usesDirectGrayAa() && !SETTINGS.screenInverted && !SETTINGS.readingBackgroundEnabled;
+    if (enabled_) renderer_.setDirectGlyphSmoothing(true);
+#endif
+  }
+  ~DirectGlyphSmoothingScope() {
+#if FREEINK_DEVICE_MURPHY_M4
+    if (enabled_) renderer_.setDirectGlyphSmoothing(false);
+#endif
+  }
+  DirectGlyphSmoothingScope(const DirectGlyphSmoothingScope&) = delete;
+  DirectGlyphSmoothingScope& operator=(const DirectGlyphSmoothingScope&) = delete;
+
+ private:
+  GfxRenderer& renderer_;
+  bool enabled_ = false;
+};
+
 inline bool usesWhiteFlashAa() {
 #if FREEINK_DEVICE_MURPHY_M4
   return !SETTINGS.screenInverted && SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_WHITE_FLASH;

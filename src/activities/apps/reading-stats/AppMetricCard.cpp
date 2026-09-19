@@ -33,7 +33,10 @@ namespace AppMetricCard {
 
 void draw(const GfxRenderer& renderer, const Rect& rect, const char* label, const std::string& value,
           const Options& options) {
-  if (UITheme::getInstance().hasMainTabs()) {
+  if (options.flatBackground || GUI.usesPaperStyle()) {
+    renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
+    renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
+  } else if (UITheme::getInstance().hasMainTabs()) {
     if (!options.flatBackground) {
       renderer.fillRoundedRect(rect.x, rect.y, rect.width, rect.height, 14, Color::LightGray);
     }

@@ -99,6 +99,7 @@ class GfxRenderer {
   Orientation orientation;
   bool fadingFix;
   bool absoluteGrayPlanes;
+  bool directGlyphSmoothing = false;
   bool solidGlyphs = false;
   bool glyphDither = false;
   mutable uint8_t syntheticBoldPixels = 0;
@@ -112,6 +113,10 @@ class GfxRenderer {
   // reading-stats screens) without threading the mode through every render path.
   mutable bool nextRefreshOverridePending = false;
   mutable HalDisplay::RefreshMode nextRefreshOverride = HalDisplay::FAST_REFRESH;
+  // One-shot all-pixels drive for large UI replacements. This keeps the tab
+  // transition on the panel's white-going differential path without forcing a
+  // HALF black-clean waveform.
+  mutable bool nextDriveAllPending = false;
   std::vector<uint8_t*> bwBufferChunks;
   std::map<int, EpdFontFamily> fontMap;
   // Mutable because ensureSdCardFontReady() is const (called from layout code
@@ -243,6 +248,10 @@ class GfxRenderer {
   void setOrientation(const Orientation o) { orientation = o; }
   Orientation getOrientation() const { return orientation; }
 
+  void setDirectGlyphSmoothing(bool enabled) { directGlyphSmoothing = enabled; }
+  bool usesDirectGlyphSmoothing() const { return directGlyphSmoothing; }
+
+
   // Fading fix control
   void setFadingFix(const bool enabled) { fadingFix = enabled; }
   // Combined AA: encode four distinct RAM classes (black≠white) for one waveform.
@@ -271,6 +280,7 @@ class GfxRenderer {
     nextRefreshOverride = mode;
     nextRefreshOverridePending = true;
   }
+  void requestNextDriveAll() const { nextDriveAllPending = true; }
   void clearNextRefreshOverride() const { nextRefreshOverridePending = false; }
   void requestNextFullRefresh() const { requestNextRefresh(HalDisplay::FULL_REFRESH); }
   // Non-blocking refresh: starts the waveform and returns so CPU work (e.g.

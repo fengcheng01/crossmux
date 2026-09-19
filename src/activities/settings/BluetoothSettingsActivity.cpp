@@ -1,6 +1,5 @@
 #include "BluetoothSettingsActivity.h"
 
-#include <BleKeyboardHost.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
 
@@ -15,6 +14,7 @@
 #include "components/UITheme.h"
 
 #if FREEINK_CAP_BLE_HID_HOST
+#include <BleKeyboardHost.h>
 
 namespace fui = freeink::ui;
 

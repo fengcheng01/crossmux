@@ -17,3 +17,9 @@ target_include_directories(MurphyGrayExitTest PRIVATE
 target_compile_options(MurphyGrayExitTest PRIVATE -UNDEBUG)
 target_link_libraries(MurphyGrayExitTest PRIVATE crosspoint_test_common)
 add_test(NAME MurphyGrayExitTest COMMAND MurphyGrayExitTest)
+
+add_executable(MurphyCoverageTest MurphyCoverageTest.cpp)
+target_include_directories(MurphyCoverageTest PRIVATE ${REPO_ROOT}/lib/GfxRenderer)
+target_compile_options(MurphyCoverageTest PRIVATE -UNDEBUG)
+target_link_libraries(MurphyCoverageTest PRIVATE crosspoint_test_common)
+add_test(NAME MurphyCoverageTest COMMAND MurphyCoverageTest)

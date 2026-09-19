@@ -81,8 +81,10 @@ bool TxtReaderActivity::loadBook() {
     return false;
   }
 
-  const auto fileName = bookPath.substr(bookPath.rfind('/') + 1);
-  READING_STATS.beginSession(bookPath, fileName, "", "", 0, "", 0);
+  if (bookPath.find("crash_report") == std::string::npos && bookPath.find(".log") == std::string::npos) {
+    const auto fileName = bookPath.substr(bookPath.rfind('/') + 1);
+    READING_STATS.beginSession(bookPath, fileName, "", "", 0, "", 0);
+  }
   return true;
 }
 
@@ -677,6 +679,7 @@ void TxtReaderActivity::renderBook() {
 }
 
 void TxtReaderActivity::renderPage() {
+  ReaderUtils::DirectGlyphSmoothingScope fontCoverage(renderer);
   const auto t0 = millis();
   const int lineHeight = renderer.getLineHeight(cachedFontId);
   const int contentWidth = viewportWidth;

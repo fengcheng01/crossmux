@@ -55,6 +55,7 @@ MemorySnapshot readMemory() {
 }
 #endif
 
+#if FREEINK_CAP_BLE_HID_HOST
 const char* specialName(const uint8_t value) {
   switch (static_cast<freeink::SpecialKey>(value)) {
     case freeink::SpecialKey::Enter:
@@ -88,7 +89,7 @@ const char* specialName(const uint8_t value) {
   }
   return nullptr;
 }
-
+#endif
 #if FREEINK_CAP_BLE_HID_HOST
 void logMemory(const char* phase, const MemorySnapshot& memory) {
 #if CROSSPOINT_BLE_HOST_PSRAM
@@ -210,6 +211,7 @@ void stop() {
 }
 
 bool encodeKey(const freeink::KeyEvent& event, uint8_t& kind, uint8_t& value) {
+#if FREEINK_CAP_BLE_HID_HOST
   if (event.special != freeink::SpecialKey::None) {
     kind = 0;
     value = static_cast<uint8_t>(event.special);
@@ -219,9 +221,15 @@ bool encodeKey(const freeink::KeyEvent& event, uint8_t& kind, uint8_t& value) {
   kind = 1;
   value = event.keycode;
   return true;
+#else
+  (void)event;
+  (void)kind;
+  (void)value;
+  return false;
+#endif
 }
-
 void describeKey(const uint8_t kind, const uint8_t value, char* out, const size_t outLen) {
+#if FREEINK_CAP_BLE_HID_HOST
   if (!out || outLen == 0) return;
   if (kind == 0) {
     if (const char* name = specialName(value)) {
@@ -231,6 +239,11 @@ void describeKey(const uint8_t kind, const uint8_t value, char* out, const size_
     }
   }
   snprintf(out, outLen, tr(STR_BT_KEY_CODE), static_cast<unsigned>(value));
+#else
+  (void)kind;
+  (void)value;
+  if (out && outLen > 0) out[0] = '\0';
+#endif
 }
 
 }  // namespace bleinput

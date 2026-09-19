@@ -10,8 +10,10 @@
 namespace {
 using Frame = std::array<uint8_t, 4>;
 using Lut = std::array<uint8_t, 112>;
-struct Paint { uint8_t sequence; Frame bw; Frame red; Lut lut; uint8_t control1; uint8_t temperature; };
+struct Paint { std::array<uint8_t, 4> xRange; std::array<uint8_t, 4> yRange; uint8_t sequence; Frame bw; Frame red; Lut lut; uint8_t control1; uint8_t temperature; };
 Lut loadedLut{};
+std::array<uint8_t, 4> xRange{}, yRange{};
+unsigned resets = 0;
 bool delayedActivationBusy = false;
 Frame bw{}, red{};
 std::vector<Paint> paints;
@@ -38,12 +40,13 @@ void EpdBus::cmd(uint8_t c) {
   command = c;
   offset = 0;
   if (c == 0x32) ++lutWrites;
+  if (c == 0x12) { assert(!analogOn); ++resets; }
   if (c == 0x20) {
     busy = true;
     activations.push_back(sequence);
     if (sequence & 0x40) analogOn = true;
     analogAfterActivation = (sequence & 0x02) == 0 && analogOn;
-    if (sequence & 0x04) paints.push_back({sequence, bw, red, loadedLut, control1, temperature});
+    if (sequence & 0x04) paints.push_back({xRange, yRange, sequence, bw, red, loadedLut, control1, temperature});
   }
   if (c == 0x10) {
     assert(!analogOn);
@@ -52,6 +55,8 @@ void EpdBus::cmd(uint8_t c) {
 }
 void EpdBus::data(uint8_t d) {
   assert(!busy);
+  if (command == 0x44 && offset < 4) xRange[offset++] = d;
+  if (command == 0x45 && offset < 4) yRange[offset++] = d;
   if (command == 0x22) sequence = d;
   if (command == 0x21 && offset++ == 0) control1 = d;
   if (command == 0x1A && offset++ == 0) temperature = d;
@@ -69,7 +74,7 @@ void EpdBus::fillPlane(uint8_t c, uint8_t value, uint16_t h, uint16_t wb) {
   cmd(c);
   for (unsigned i = 0; i < h * wb; ++i) data(value);
 }
-void EpdBus::reset(uint16_t) { busy = false; }
+void EpdBus::reset(uint16_t) { busy = false; analogOn = false; analogAfterActivation = false; }
 void EpdBus::waitBusy(const char*) {
   // A level-only poll can miss a delayed assertion. Keep the activation
   // outstanding so subsequent RAM writes/power-off commands fail the test.
@@ -95,10 +100,9 @@ int main() {
     panel.cleanupGrayscaleBuffers(bus, oldPage.data());
   };
   auto checkExit = [&] {
-    assert(paints.size() == 2);
-    assert(paints[0].sequence == 0xFC && paints[0].bw == white && paints[0].red == black);
-    assert(paints[1].sequence == 0xFC && paints[1].bw == menu && paints[1].red == white);
-    assert(!busy);
+    assert(paints.size() == 1);
+    assert(paints[0].sequence == 0xD7 && paints[0].bw == menu && paints[0].red == menu);
+    assert(!busy && !analogOn);
   };
 
   gray();
@@ -110,12 +114,12 @@ int main() {
   checkExit();  // RAM cleanup must not lose physical-gray state or retain old shadow.
   paints.clear();
   panel.display(bus, menu.data(), menu.data(), RefreshMode::Fast, false);
-  assert(paints.size() == 1 && paints[0].sequence == 0xFC);  // White clear is one-shot.
+  assert(paints.size() == 1 && paints[0].sequence == 0xFF);  // Gray-exit clean is one-shot.
 
   gray();
   paints.clear();
   panel.displayWindow(bus, menu.data(), oldPage.data(), 0, 0, 8, 1, false);
-  checkExit();  // Partial menu requests repaint the whole composed frame after white.
+  checkExit();  // Partial menu requests clean the whole composed frame.
 
   gray();
   paints.clear();
@@ -139,7 +143,10 @@ int main() {
     assert(paints[0].bw == menu && paints[0].red == menu);
     assert(bw == menu && red == menu);  // Binary baseline for minute tick and unlock.
     assert(!busy && !analogOn);  // Also required with turnOff=false (reading fading fix off).
-    assert(activations.size() == 1 && activations[0] == 0xD7);
+    assert(resets == 1);  // Previous custom voltage/register state cannot survive.
+    assert(activations.back() == 0xD7);
+    assert(activations.size() <= 2);
+    if (activations.size() == 2) assert(activations.front() == 0x83);
     // Shutdown is part of the paint, before BUSY completes and RAM is restored.
     const auto count = activations.size();
     const auto sleeps = sleepCommands;
@@ -149,6 +156,7 @@ int main() {
   };
   auto requestClock = [&] {
     lutWrites = 0;
+    resets = 0;
     assert(panel.requestSleepClean());
   };
 
@@ -179,7 +187,7 @@ int main() {
   checkClock();  // Completed inline and powered down; no false pending refresh.
   paints.clear();
   panel.display(bus, menu.data(), menu.data(), RefreshMode::Fast, false);
-  assert(paints.size() == 1 && paints[0].sequence == 0xFC);  // No stale gray-exit request.
+  assert(paints.size() == 1 && paints[0].sequence == 0xFF);  // No stale gray-exit request.
 
   panel.deepSleep(bus);
   panel.begin(bus);
@@ -187,9 +195,9 @@ int main() {
   paints.clear();
   activations.clear();
   panel.displayWindow(bus, menu.data(), menu.data(), 0, 0, 16, 2, false);
-  assert(paints.size() == 1 && paints[0].sequence == 0xFC);
+  assert(paints.size() == 1 && paints[0].sequence == 0xFF);
   panel.deepSleep(bus);
-  assert(!busy && !analogOn && activations.back() == 0x83);
+  assert(!busy && !analogOn && activations.back() == 0xFF);
 
   // Direct facade requests turnOff=true even when the reading fading fix is off.
   panel.begin(bus);
@@ -207,12 +215,23 @@ int main() {
   panel.deepSleep(bus);
   assert(activations == std::vector<uint8_t>({0xC0, 0xCF}));  // No second activation on sleep.
 
+  // The last 1-row strip/window must never delimit the following gray page.
+  panel.writeGrayscalePlaneStrip(bus, GrayPlane::Lsb, oldPage.data(), 1, 1);
+  panel.writeGrayscalePlaneStrip(bus, GrayPlane::Msb, oldPage.data(), 1, 1);
+  paints.clear();
+  panel.displayGray(bus, oldPage.data(), true, lut_m4_direct_pulse.data(), true, true);
+  assert(paints.size() == 1);
+  assert((paints[0].xRange == std::array<uint8_t, 4>{0, 0, 15, 0}));
+  assert((paints[0].yRange == std::array<uint8_t, 4>{1, 0, 0, 0}));
+
   // Reading white flash with no power-off request still uses its accepted CC waveform.
   panel.begin(bus);
   paints.clear();
   panel.displayGray(bus, oldPage.data(), false, lut_m4_white_pulse.data(), true, true);
   assert(paints.size() == 1 && paints[0].sequence == 0xCC && paints[0].lut == lut_m4_white_pulse);
   delayedActivationBusy = false;
+
+  panel.deepSleep(bus);
 
   auto otherConfig = ssd1677DefaultConfig();
   Ssd1677Driver other(otherConfig);
@@ -227,5 +246,12 @@ int main() {
   other.displayGray(bus, oldPage.data(), true, lut_m4_direct_pulse.data(), true, true);
   assert(paints.size() == 1 && paints[0].sequence == 0xCC);
   assert(activations == std::vector<uint8_t>({0xCC, 0x03}) && !analogOn);
-  std::puts("PASS: Direct CF/clock D7 power-off before RAM cleanup, standalone 83, single paint, white/other-board isolation");
+  // Overlay CC keeps its analog rails on; software must not skip sleep shutdown.
+  activations.clear();
+  other.displayGray(bus, oldPage.data(), false, nullptr, false, true);
+  assert(analogOn);
+  other.deepSleep(bus);
+  assert(!analogOn && activations.back() == 0x03);
+
+  std::puts("PASS: clean reset, one D7 paint, BW power-off, full gray window, Direct CF and other-board isolation");
 }

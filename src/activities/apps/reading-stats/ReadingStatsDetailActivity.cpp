@@ -20,6 +20,7 @@
 #include "InxItemLayout.h"
 #include "ReadingStatsStore.h"
 #include "components/UITheme.h"
+#include "components/themes/inx/InxInkCards.h"
 #include "components/icons/settings2.h"
 #include "fontIds.h"
 #include "util/BookCoverLoader.h"
@@ -191,7 +192,9 @@ std::string formatDate(const uint32_t timestamp) {
 std::string formatDateRange(const uint32_t startTimestamp, const uint32_t endTimestamp) {
   const std::string start = TimeUtils::formatDate(startTimestamp);
   const std::string end = TimeUtils::formatDate(endTimestamp);
-  return (start.empty() ? "?" : start) + " - " + (end.empty() ? "?" : end);
+  if (start.empty() && end.empty()) return tr(STR_NOT_SET);
+  const std::string endStr = end.empty() ? tr(STR_IN_PROGRESS) : end;
+  return (start.empty() ? tr(STR_NOT_SET) : start) + " - " + endStr;
 }
 
 uint32_t getCompletionDateForDisplay(const ReadingBookStats& book) { return book.completedAt; }
@@ -245,24 +248,39 @@ std::string buildEstimatedTimeLeftText(const ReadingBookStats& book) {
   }
   return estimateText;
 }
+void drawDetailCard(const GfxRenderer& renderer, const Rect& rect, const char* label,
+                    const std::string& value) {
+  renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
+  renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
 
-void drawMetricCard(const GfxRenderer& renderer, const Rect& rect, const char* label, const std::string& value) {
-  AppMetricCard::Options options;
-  options.shrinkValue = false;
-  options.labelMode = AppMetricCard::LabelMode::Truncate;
-  AppMetricCard::draw(renderer, rect, label, value, options);
+  const int padX = 10;
+  const int smallFont = SMALL_FONT_ID;
+  const int labelH = renderer.getLineHeight(smallFont);
+
+  // 1. Label on top
+  renderer.drawText(smallFont, rect.x + padX, rect.y + 6, label);
+
+  // 2. Value in middle/bottom (bold, shrinks if too wide)
+  const int valFont = renderer.getTextWidth(UI_12_FONT_ID, value.c_str(), EpdFontFamily::BOLD) > (rect.width - padX * 2)
+                          ? UI_10_FONT_ID
+                          : UI_12_FONT_ID;
+  const int valY = rect.y + 6 + labelH + 4;
+  renderer.drawText(valFont, rect.x + padX, valY, value.c_str(), true, EpdFontFamily::BOLD);
 }
 
 void drawAdjustTimeButton(const GfxRenderer& renderer, const Rect& rect, const bool selected) {
-  const bool foregroundBlack = AppMetricCard::drawSelectablePanel(renderer, rect, selected);
-
-  constexpr int iconSize = 32;
-  const int iconX = rect.x + (rect.width - iconSize) / 2;
-  const int iconY = rect.y + (rect.height - iconSize) / 2;
-  if (foregroundBlack)
-    renderer.drawIcon(Settings2Icon, iconX, iconY, iconSize);
-  else
-    renderer.drawIconInverted(Settings2Icon, iconX, iconY, iconSize);
+  if (selected) {
+    renderer.fillRect(rect.x, rect.y, rect.width, rect.height, true);
+  } else {
+    renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
+    renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
+  }
+  const char* label = tr(STR_ADJUST);
+  const int font = UI_10_FONT_ID;
+  const int textW = renderer.getTextWidth(font, label);
+  const int textX = rect.x + (rect.width - textW) / 2;
+  const int textY = rect.y + (rect.height - renderer.getLineHeight(font)) / 2;
+  renderer.drawText(font, textX, textY, label, !selected, EpdFontFamily::BOLD);
 }
 
 Rect offsetRect(Rect rect, const int dy) {
@@ -280,9 +298,7 @@ struct DetailHeroLayout {
 DetailHeroLayout detailHeroLayout(const ThemeMetrics& metrics, const int contentTop, const int coverWidth,
                                   const int coverHeight, const int scrollOffset) {
   const Rect coverBase{metrics.contentSidePadding, contentTop, coverWidth, coverHeight};
-  const Rect adjustBase{coverBase.x + (coverBase.width - ADJUST_BUTTON_SIZE) / 2,
-                        coverBase.y + coverBase.height + metrics.verticalSpacing, ADJUST_BUTTON_SIZE,
-                        ADJUST_BUTTON_SIZE};
+  const Rect adjustBase{coverBase.x, coverBase.y + coverBase.height + 6, coverBase.width, 28};
   return {coverBase, adjustBase, offsetRect(coverBase, -scrollOffset), offsetRect(adjustBase, -scrollOffset)};
 }
 
@@ -308,19 +324,39 @@ void drawProgressBlock(const GfxRenderer& renderer, const Rect& rect, const char
   renderer.drawText(UI_10_FONT_ID, rect.x + rect.width - percentWidth, rect.y, percentText.c_str(), true,
                     EpdFontFamily::BOLD);
 
-  // Place the bar a line-height below the label row so CJK text doesn't overlap it.
   const int barTop = rect.y + renderer.getLineHeight(UI_10_FONT_ID) + 4;
-  const Rect barRect{rect.x, barTop, rect.width, 10};
-  AppMetricCard::drawProgressBar(renderer, barRect, percent);
+  const Rect barRect{rect.x, barTop, rect.width, 5};
+  InxInkCards::drawHairProgress(renderer, barRect, percent);
 }
 
-void drawCover(const GfxRenderer& renderer, const Rect& rect, const std::string& coverPath) {
-  const auto drawFallback = [&renderer, &rect]() {
-    const char* label = tr(STR_BOOK);
-    const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label, EpdFontFamily::BOLD);
-    const int textX = rect.x + (rect.width - textWidth) / 2;
-    const int textY = rect.y + rect.height / 2;
-    renderer.drawText(UI_10_FONT_ID, textX, textY, label, true, EpdFontFamily::BOLD);
+void drawCover(const GfxRenderer& renderer, const Rect& rect, const std::string& coverPath, const ReadingBookStats* book) {
+  const auto drawFallback = [&renderer, &rect, book]() {
+    renderer.fillRect(rect.x, rect.y, rect.width, rect.height, false);
+    renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
+    renderer.drawLine(rect.x + 5, rect.y, rect.x + 5, rect.y + rect.height - 1);
+
+    if (book) {
+      const char* title = book->title.empty() ? book->path.c_str() : book->title.c_str();
+      const int titleW = rect.width - 12;
+      const int tFont = renderer.getTextWidth(UI_10_FONT_ID, title, EpdFontFamily::BOLD) > titleW
+                            ? SMALL_FONT_ID
+                            : UI_10_FONT_ID;
+      const auto lines = renderer.wrappedText(tFont, title, titleW, 2, EpdFontFamily::BOLD);
+      int ty = rect.y + 20;
+      for (const auto& l : lines) {
+        const int lw = renderer.getTextWidth(tFont, l.c_str(), EpdFontFamily::BOLD);
+        renderer.drawText(tFont, rect.x + 5 + (titleW - lw) / 2, ty, l.c_str(), true, EpdFontFamily::BOLD);
+        ty += renderer.getLineHeight(tFont) + 3;
+      }
+      if (!book->author.empty()) {
+        const int aw = renderer.getTextWidth(SMALL_FONT_ID, book->author.c_str());
+        renderer.drawText(SMALL_FONT_ID, rect.x + 5 + (titleW - aw) / 2, rect.y + rect.height - 24, book->author.c_str());
+      }
+    } else {
+      const char* label = tr(STR_BOOK);
+      const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, label, EpdFontFamily::BOLD);
+      renderer.drawText(UI_10_FONT_ID, rect.x + (rect.width - textWidth) / 2, rect.y + rect.height / 2, label, true, EpdFontFamily::BOLD);
+    }
   };
 
   renderer.drawRect(rect.x, rect.y, rect.width, rect.height);
@@ -337,17 +373,12 @@ void drawCover(const GfxRenderer& renderer, const Rect& rect, const std::string&
 
   Bitmap bitmap(file);
   if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-    if (UITheme::getInstance().hasMainTabs()) {
-      if (!renderer.drawBitmapCropToFill(bitmap, rect.x + 2, rect.y + 2, rect.width - 4, rect.height - 4)) {
-        drawFallback();
-      }
-    } else {
-      renderer.drawBitmap(bitmap, rect.x + 2, rect.y + 2, rect.width - 4, rect.height - 4);
+    if (!renderer.drawBitmapCropToFill(bitmap, rect.x + 2, rect.y + 2, rect.width - 4, rect.height - 4)) {
+      drawFallback();
     }
   } else {
     drawFallback();
   }
-  file.close();
 }
 }  // namespace
 
@@ -598,6 +629,8 @@ void ReadingStatsDetailActivity::render(RenderLock&&) {
     renderer.displayBuffer();
     return;
   }
+  unsigned activeDays = 0;
+  for (const auto& d : book->readingDays) if (d.readingMs > 0) ++activeDays;
 
   const int pageHeight = renderer.getScreenHeight();
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
@@ -662,7 +695,7 @@ void ReadingStatsDetailActivity::render(RenderLock&&) {
       // and the base-screen store stay outside this scope (clip auto-cleared).
       const GfxRenderer::ClipScope clip(renderer, 0, contentTop, pageWidth, viewportBottom - contentTop);
 
-      drawCover(renderer, coverRect, resolvedCoverBmpPath);
+      drawCover(renderer, coverRect, resolvedCoverBmpPath, book);
       drawAdjustTimeButton(renderer, adjustButtonRect, false);
 
       currentY = titleTop + scrollDy;
@@ -695,42 +728,66 @@ void ReadingStatsDetailActivity::render(RenderLock&&) {
                                pageWidth - metrics.contentSidePadding * 2, SUMMARY_BANNER_HEIGHT},
                           tr(STR_BOOK_FINISHED), tr(STR_COMPLETED_THIS_SESSION), true);
       }
-
       const int cardWidth = (pageWidth - metrics.contentSidePadding * 2 - METRIC_CARD_GAP) / 2;
+      constexpr int kCardH = 70;
 
-      drawMetricCard(renderer, Rect{metrics.contentSidePadding, drawCardsTop, cardWidth, METRIC_CARD_HEIGHT},
-                     tr(STR_LAST_SESSION), ReadingStatsAnalytics::formatDurationHm(book->lastSessionMs));
-      drawMetricCard(
-          renderer,
-          Rect{metrics.contentSidePadding + cardWidth + METRIC_CARD_GAP, drawCardsTop, cardWidth, METRIC_CARD_HEIGHT},
-          tr(STR_TOTAL_TIME), ReadingStatsAnalytics::formatDurationHm(book->totalReadingMs));
-      drawMetricCard(renderer,
-                     Rect{metrics.contentSidePadding, drawCardsTop + METRIC_CARD_HEIGHT + METRIC_CARD_GAP, cardWidth,
-                          METRIC_CARD_HEIGHT},
-                     tr(STR_SESSIONS), std::to_string(book->sessions));
-      drawMetricCard(renderer,
+      // Card 1: 上次翻阅
+      std::string lastReadVal = book->lastSessionMs > 0 ? ReadingStatsAnalytics::formatDurationHm(book->lastSessionMs) : "暂无";
+      drawDetailCard(renderer, Rect{metrics.contentSidePadding, drawCardsTop, cardWidth, kCardH},
+                     "上次翻阅", lastReadVal);
+
+      // Card 2: 累计总阅读用时
+      drawDetailCard(renderer,
+                     Rect{metrics.contentSidePadding + cardWidth + METRIC_CARD_GAP, drawCardsTop, cardWidth, kCardH},
+                     "累计总阅读用时", ReadingStatsAnalytics::formatDurationHm(book->totalReadingMs));
+
+      // Card 3: 翻开阅读频次
+      drawDetailCard(renderer,
+                     Rect{metrics.contentSidePadding, drawCardsTop + kCardH + METRIC_CARD_GAP, cardWidth, kCardH},
+                     "翻开阅读频次", std::to_string(book->sessions) + " 次");
+
+      // Card 4: 当前阅读状态
+      drawDetailCard(renderer,
                      Rect{metrics.contentSidePadding + cardWidth + METRIC_CARD_GAP,
-                          drawCardsTop + METRIC_CARD_HEIGHT + METRIC_CARD_GAP, cardWidth, METRIC_CARD_HEIGHT},
-                     tr(STR_STATUS), book->completed ? std::string(tr(STR_DONE)) : std::string(tr(STR_IN_PROGRESS)));
-      drawMetricCard(renderer,
-                     Rect{metrics.contentSidePadding, drawCardsTop + (METRIC_CARD_HEIGHT + METRIC_CARD_GAP) * 2,
-                          pageWidth - metrics.contentSidePadding * 2, METRIC_CARD_HEIGHT},
-                     tr(STR_LAST_READ_DATE), formatDate(book->lastReadAt));
-      drawMetricCard(renderer,
-                     Rect{metrics.contentSidePadding, drawCardsTop + (METRIC_CARD_HEIGHT + METRIC_CARD_GAP) * 3,
-                          pageWidth - metrics.contentSidePadding * 2, METRIC_CARD_HEIGHT},
-                     tr(STR_START_END_DATE), formatDateRange(book->firstReadAt, getCompletionDateForDisplay(*book)));
-      drawMetricCard(renderer,
-                     Rect{metrics.contentSidePadding, drawCardsTop + (METRIC_CARD_HEIGHT + METRIC_CARD_GAP) * 4,
-                          pageWidth - metrics.contentSidePadding * 2, METRIC_CARD_HEIGHT},
-                     tr(STR_ESTIMATED_TIME_LEFT), buildEstimatedTimeLeftText(*book));
+                          drawCardsTop + kCardH + METRIC_CARD_GAP, cardWidth, kCardH},
+                     "当前阅读状态", book->completed ? "已读完" : "在读中");
+
+      // Card 5 (full width): 阅读周期记录
+      drawDetailCard(renderer,
+                     Rect{metrics.contentSidePadding, drawCardsTop + (kCardH + METRIC_CARD_GAP) * 2,
+                          pageWidth - metrics.contentSidePadding * 2, kCardH},
+                     "阅读周期记录", formatDateRange(book->firstReadAt, getCompletionDateForDisplay(*book)));
+
+      // Card 6 (full width): 预计剩余时间
+      drawDetailCard(renderer,
+                     Rect{metrics.contentSidePadding, drawCardsTop + (kCardH + METRIC_CARD_GAP) * 3,
+                          pageWidth - metrics.contentSidePadding * 2, kCardH},
+                     "预计剩余时间", buildEstimatedTimeLeftText(*book));
+
+      // Bottom action button: 继续阅读本书
+      const int btnY = drawCardsTop + (kCardH + METRIC_CARD_GAP) * 4 + 6;
+      GUI.drawPaperAction(renderer,
+                          Rect{metrics.contentSidePadding, btnY, pageWidth - metrics.contentSidePadding * 2, 42},
+                          "继续阅读本书  ›", false, true);
     }
 
     renderer.fillRect(0, 0, pageWidth, contentTop, false);
     if (viewportBottom < pageHeight) {
       renderer.fillRect(0, viewportBottom, pageWidth, pageHeight - viewportBottom, false);
     }
-    HeaderDateUtils::drawHeaderWithDate(renderer, tr(STR_READING_STATS));
+    if (GUI.usesPaperStyle()) {
+      const int hY = metrics.topPadding + 6;
+      GUI.drawPaperText(renderer, Rect{metrics.contentSidePadding, hY, 80, 24}, UI_10_FONT_ID, "‹ 返回");
+      const int titleW = renderer.getTextWidth(UI_12_FONT_ID, "书籍阅读统计", EpdFontFamily::BOLD);
+      renderer.drawText(UI_12_FONT_ID, (pageWidth - titleW) / 2, hY, "书籍阅读统计", true, EpdFontFamily::BOLD);
+      char rBuf[32] = {};
+      snprintf(rBuf, sizeof(rBuf), "已读 %u 天", activeDays);
+      const int rW = renderer.getTextWidth(UI_10_FONT_ID, rBuf);
+      renderer.drawText(UI_10_FONT_ID, pageWidth - metrics.contentSidePadding - rW, hY, rBuf);
+      GUI.drawPaperRule(renderer, Rect{metrics.contentSidePadding, contentTop - 2, pageWidth - metrics.contentSidePadding * 2, 1});
+    } else {
+      HeaderDateUtils::drawHeaderWithDate(renderer, tr(STR_READING_STATS));
+    }
 
     storeBaseScreenBuffer();
   }

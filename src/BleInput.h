@@ -1,7 +1,14 @@
 #pragma once
 
+#if FREEINK_CAP_BLE_HID_HOST
 #include <BleKeyboardHost.h>
+#endif
 #include <BoardConfig.h>
+#if !FREEINK_CAP_BLE_HID_HOST
+namespace freeink {
+struct KeyEvent;
+}
+#endif
 
 #include <cstddef>
 #include <cstdint>

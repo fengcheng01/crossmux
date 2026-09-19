@@ -832,8 +832,11 @@ void InxRecentActivity::drawPaperFlow(const Rect& content) {
     const int textW = row.width - 64 - progressW;
     GUI.drawPaperText(renderer, Rect{textX, row.y + 8, textW, titleH}, m.bookFont, titleOf(recent), true);
     GUI.drawPaperText(renderer, Rect{textX, row.y + titleH + 12, textW, smallH}, m.smallFont, recent.author.c_str());
-    GUI.drawPaperText(renderer, Rect{row.x + row.width - progressW, row.y + 16, progressW, smallH}, m.smallFont,
+    GUI.drawPaperText(renderer, Rect{row.x + row.width - progressW, row.y + 12, progressW, smallH}, m.smallFont,
                       progress);
+    constexpr int kMiniBarW = 40;
+    GUI.drawPaperProgress(renderer, Rect{row.x + row.width - kMiniBarW, row.y + 12 + smallH + 4, kMiniBarW, 3},
+                          progressOf(recentStats));
     GUI.drawPaperRule(renderer, Rect{row.x, row.y + row.height - 1, row.width, 1});
     if (showFocus && focus == index) GUI.drawPaperFocus(renderer, row);
   }

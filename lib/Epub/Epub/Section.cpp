@@ -1,4 +1,6 @@
 #include "Section.h"
+#include <FontCacheManager.h>
+#include <GfxRenderer.h>
 
 #include <HalStorage.h>
 #include <Logging.h>
@@ -128,9 +130,10 @@ void Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
   static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(spec.fontId) + sizeof(spec.lineCompression) +
                                    sizeof(spec.extraParagraphSpacing) + sizeof(spec.firstLineIndent) +
                                    sizeof(spec.paragraphAlignment) + sizeof(spec.viewportWidth) +
-                                   sizeof(spec.viewportHeight) + sizeof(pageCount) + sizeof(spec.hyphenationEnabled) +
+                                   sizeof(spec.viewportHeight) + sizeof(spec.hyphenationEnabled) +
                                    sizeof(spec.embeddedStyle) + sizeof(spec.imageRendering) +
                                    sizeof(spec.focusReadingEnabled) + sizeof(spec.collectTouchLinks) +
+                                   sizeof(pageCount) +
                                    sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t) +
                                    sizeof(uint32_t),
                 "Header size mismatch");
@@ -149,13 +152,13 @@ void Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
   serialization::writePod(file, spec.imageRendering);
   serialization::writePod(file, spec.focusReadingEnabled);
   serialization::writePod(file, spec.collectTouchLinks);
+  serialization::writePod(file, static_cast<uint16_t>(0));  // Placeholder for pageCount (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for LUT offset (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for anchor map offset (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for paragraph LUT offset (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for li LUT offset (patched later)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for visible-offset LUT (patched later)
 }
-
 bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
   if (!Storage.openFileForRead("SCT", filePath, file)) {
     return false;

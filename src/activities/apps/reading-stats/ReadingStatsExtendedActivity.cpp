@@ -372,6 +372,10 @@ void ReadingStatsExtendedActivity::loopInx() {
   int touchX = 0;
   int touchY = 0;
   if (mappedInput.wasScreenTapped(touchX, touchY)) {
+    if (touchY < 50 && touchX < 140) {
+      finish();
+      return;
+    }
     if (touchX >= bookListRect_.x && touchY >= bookListInnerTop_ && touchX < bookListRect_.x + bookListRect_.width &&
         touchY < bookListRect_.y + bookListRect_.height) {
       const int localY = touchY - bookListInnerTop_ + scrollOffset;
@@ -531,98 +535,162 @@ void ReadingStatsExtendedActivity::renderInx() {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int screenWidth = renderer.getScreenWidth();
-  drawPageHeader(Rect{0, metrics.topPadding, screenWidth, metrics.headerHeight}, tr(STR_MORE_DETAILS));
+  const int pad = metrics.contentSidePadding > 0 ? metrics.contentSidePadding : 16;
 
-  const Rect content = UITheme::getInstance().getMainTabContentRect(renderer);
-  const int contentTop = content.y + 8;
-  const int contentBottom = content.y + content.height - 8;
-
-  const Rect goal{INX_PAD, contentTop, screenWidth - INX_PAD * 2, INX_GOAL_H};
-  InxInkCards::drawCard(renderer, goal);
-
-  const uint64_t todayMs = READING_STATS.getTodayReadingMs();
-  const uint64_t goalMs = getDailyReadingGoalMs();
-  const std::string goalValue =
-      ReadingStatsAnalytics::formatDurationHm(todayMs) + " / " + ReadingStatsAnalytics::formatDurationHm(goalMs);
-  const int goalPad = 14;
-  renderer.drawText(UI_12_FONT_ID, goal.x + goalPad, goal.y + 10, tr(STR_DAILY_GOAL), true, EpdFontFamily::BOLD);
-  const int goalValueW = renderer.getTextWidth(UI_12_FONT_ID, goalValue.c_str(), EpdFontFamily::BOLD);
-  renderer.drawText(UI_12_FONT_ID, goal.x + goal.width - goalPad - goalValueW, goal.y + 10, goalValue.c_str(), true,
-                    EpdFontFamily::BOLD);
-
-  const uint8_t goalPercent =
-      goalMs == 0 ? 0 : static_cast<uint8_t>(std::min<uint64_t>(100, todayMs * 100ULL / goalMs));
-  const int barY = goal.y + 10 + renderer.getLineHeight(UI_12_FONT_ID) + 8;
-  InxInkCards::drawHairProgress(renderer, Rect{goal.x + goalPad, barY, goal.width - goalPad * 2, 6}, goalPercent);
-
-  char streakLine[32];
-  snprintf(streakLine, sizeof(streakLine), tr(STR_STREAK_DAYS_FMT),
-           static_cast<int>(READING_STATS.getCurrentStreakDays()));
-  char maxStreakLine[32];
-  snprintf(maxStreakLine, sizeof(maxStreakLine), tr(STR_MAX_STREAK_DAYS_FMT),
-           static_cast<int>(READING_STATS.getMaxStreakDays()));
-  const int streakY = barY + 14;
-  renderer.drawText(SMALL_FONT_ID, goal.x + goalPad, streakY, streakLine);
-  const int maxW = renderer.getTextWidth(SMALL_FONT_ID, maxStreakLine);
-  renderer.drawText(SMALL_FONT_ID, goal.x + goal.width - goalPad - maxW, streakY, maxStreakLine);
-
-  const int innerH = inxListInnerHeight(renderer);
-  const Rect list{INX_PAD, goal.y + goal.height + INX_LIST_GAP, screenWidth - INX_PAD * 2, innerH + 16};
-  InxInkCards::drawCard(renderer, list);
-  bookListRect_ = list;
-  bookRowHeight_ = INX_BOOK_ROW_H;
-  bookListInnerTop_ = list.y + 8;
-
-  const auto& books = READING_STATS.getBooks();
-  const int maxScrollOffset = std::max(0, static_cast<int>(books.size()) * INX_BOOK_ROW_H - innerH);
-  scrollOffset = std::clamp(scrollOffset, 0, maxScrollOffset);
-
-  if (books.empty()) {
-    renderer.drawText(UI_10_FONT_ID, list.x + goalPad, bookListInnerTop_ + 8, tr(STR_NO_READING_STATS));
-  } else {
-    const GfxRenderer::ClipScope clip(renderer, list.x + 8, bookListInnerTop_, list.width - 16, innerH);
-    const int titleFont = UI_10_FONT_ID;
-    const int titleLineH = renderer.getLineHeight(titleFont);
-    for (int index = 0; index < static_cast<int>(books.size()); ++index) {
-      const int rowY = bookListInnerTop_ - scrollOffset + index * INX_BOOK_ROW_H;
-      if (rowY + INX_BOOK_ROW_H <= bookListInnerTop_ || rowY + INX_BOOK_ROW_H > bookListInnerTop_ + innerH) continue;
-      if (index > 0 && rowY > bookListInnerTop_) renderer.drawLine(list.x + 12, rowY, list.x + list.width - 12, rowY);
-      if (index == selectedIndex && showMainTabContentSelection()) {
-        renderer.drawRect(list.x + 8, rowY + 2, list.width - 16, INX_BOOK_ROW_H - 4);
-      }
-
-      const ReadingBookStats& book = books[index];
-      const int durCol = 58;
-      const int textX = list.x + 14;
-      const int textW = std::max(24, list.x + list.width - 12 - durCol - textX);
-      const auto titleLines = renderer.wrappedText(titleFont, bookTitleOf(book), textW, 2, EpdFontFamily::BOLD);
-      int ty = rowY + 8;
-      for (const auto& line : titleLines) {
-        renderer.drawText(titleFont, textX, ty, line.c_str(), true, EpdFontFamily::BOLD);
-        ty += titleLineH;
-      }
-
-      char sessions[24];
-      snprintf(sessions, sizeof(sessions), tr(STR_SESSIONS_COUNT_FMT), static_cast<int>(book.sessions));
-      char chLine[80] = {};
-      if (book.completed) {
-        snprintf(chLine, sizeof(chLine), "%s", tr(STR_DONE));
-      } else if (!book.chapterTitle.empty()) {
-        snprintf(chLine, sizeof(chLine), "%s · %s", sessions, book.chapterTitle.c_str());
-      } else {
-        snprintf(chLine, sizeof(chLine), "%s · %u%%", sessions, static_cast<unsigned>(book.lastProgressPercent));
-      }
-      const std::string chCut = renderer.truncatedText(UI_10_FONT_ID, chLine, textW);
-      renderer.drawText(UI_10_FONT_ID, textX, ty + 2, chCut.c_str());
-      InxInkCards::drawHairProgress(renderer, Rect{textX, rowY + INX_BOOK_ROW_H - 14, textW, 5},
-                                    book.lastProgressPercent);
-      drawDurationColumn(renderer, list.x + list.width - 12, rowY + 8, book.totalReadingMs);
+  const auto& allBooks = READING_STATS.getBooks();
+  unsigned validBookCount = 0;
+  for (const auto& b : allBooks) {
+    if (b.path.find("crash_report") == std::string::npos && b.path.find(".log") == std::string::npos) {
+      ++validBookCount;
     }
   }
 
-  const auto labels =
-      mappedInput.mapLabels(tr(STR_BACK), books.empty() ? "" : tr(STR_SELECT), scrollOffset > 0 ? tr(STR_DIR_UP) : "",
-                            scrollOffset < maxScrollOffset ? tr(STR_DIR_DOWN) : "");
+  // 1. Top Header Bar (Cleanly centered, ASCII < button)
+  constexpr int kHeaderY = 16;
+  renderer.drawText(UI_10_FONT_ID, pad, kHeaderY + 2, "< 返回");
+
+  const char* pageTitle = "阅读档案与目标";
+  const int titleW = renderer.getTextWidth(UI_12_FONT_ID, pageTitle, EpdFontFamily::BOLD);
+  renderer.drawText(UI_12_FONT_ID, (screenWidth - titleW) / 2, kHeaderY, pageTitle, true, EpdFontFamily::BOLD);
+
+  char cntBuf[32] = {};
+  snprintf(cntBuf, sizeof(cntBuf), "共 %u 本在读", validBookCount);
+  const int cntW = renderer.getTextWidth(UI_10_FONT_ID, cntBuf);
+  renderer.drawText(UI_10_FONT_ID, screenWidth - pad - cntW, kHeaderY + 2, cntBuf);
+
+  // Header bottom divider line
+  renderer.drawLine(pad, kHeaderY + 34, screenWidth - pad, kHeaderY + 34);
+
+  const int tH12 = renderer.getLineHeight(UI_12_FONT_ID);
+  const int tHSmall = renderer.getLineHeight(SMALL_FONT_ID);
+
+  // 2. Goal Card (每日目标)
+  constexpr int kGoalTop = 60;
+  constexpr int kGoalCardH = 104;
+  const Rect goal{pad, kGoalTop, screenWidth - pad * 2, kGoalCardH};
+  renderer.fillRect(goal.x, goal.y, goal.width, goal.height, false);
+  renderer.drawRect(goal.x, goal.y, goal.width, goal.height);
+
+  const uint64_t todayMs = READING_STATS.getTodayReadingMs();
+  const uint64_t goalMs = getDailyReadingGoalMs();
+  char goalBuf[64] = {};
+  snprintf(goalBuf, sizeof(goalBuf), "已完成 %s / %s",
+           ReadingStatsAnalytics::formatDurationHm(todayMs).c_str(),
+           ReadingStatsAnalytics::formatDurationHm(goalMs).c_str());
+  if (todayMs >= goalMs && goalMs > 0) {
+    strncat(goalBuf, "  [今日已达标]", sizeof(goalBuf) - strlen(goalBuf) - 1);
+  }
+
+  // Row 1: "每日目标" (bold) + completion status
+  const int row1Y = goal.y + 12;
+  renderer.drawText(UI_12_FONT_ID, goal.x + 14, row1Y, tr(STR_DAILY_GOAL), true, EpdFontFamily::BOLD);
+  const int goalBufW = renderer.getTextWidth(SMALL_FONT_ID, goalBuf);
+  renderer.drawText(SMALL_FONT_ID, goal.x + goal.width - 14 - goalBufW, row1Y + (tH12 - tHSmall) / 2, goalBuf);
+
+  // Row 2: Progress bar (strictly below Row 1 text with 10px clearance)
+  const uint8_t goalPercent = goalMs == 0 ? 0 : static_cast<uint8_t>(std::min<uint64_t>(100, todayMs * 100ULL / goalMs));
+  const int barY = row1Y + tH12 + 10;
+  InxInkCards::drawHairProgress(renderer, Rect{goal.x + 14, barY, goal.width - 28, 6}, goalPercent);
+
+  // Row 3: Streak stats (strictly below progress bar with 10px clearance)
+  char streakLine[32];
+  snprintf(streakLine, sizeof(streakLine), tr(STR_STREAK_DAYS_FMT), static_cast<int>(READING_STATS.getCurrentStreakDays()));
+  char maxStreakLine[32];
+  snprintf(maxStreakLine, sizeof(maxStreakLine), tr(STR_MAX_STREAK_DAYS_FMT), static_cast<int>(READING_STATS.getMaxStreakDays()));
+  const int streakY = barY + 6 + 10;
+  renderer.drawText(SMALL_FONT_ID, goal.x + 14, streakY, streakLine);
+  const int maxW = renderer.getTextWidth(SMALL_FONT_ID, maxStreakLine);
+  renderer.drawText(SMALL_FONT_ID, goal.x + goal.width - 14 - maxW, streakY, maxStreakLine);
+
+  // 3. Book Records Card (累计阅读书目)
+  const int listTop = goal.y + goal.height + 12;
+  const int bottomReserve = metrics.buttonHintsHeight + 8;
+  const int listH = renderer.getScreenHeight() - listTop - bottomReserve;
+  const Rect list{pad, listTop, screenWidth - pad * 2, std::max(120, listH)};
+  renderer.fillRect(list.x, list.y, list.width, list.height, false);
+  renderer.drawRect(list.x, list.y, list.width, list.height);
+
+  // Header row inside list card
+  const int listHeadY = list.y + 10;
+  renderer.drawText(SMALL_FONT_ID, list.x + 14, listHeadY, "累计阅读书目 (已过滤系统日志)");
+  const int sortW = renderer.getTextWidth(SMALL_FONT_ID, "按时长排序");
+  renderer.drawText(SMALL_FONT_ID, list.x + list.width - 14 - sortW, listHeadY, "按时长排序");
+
+  // Divider line strictly below header text (8px gap)
+  const int headLineY = listHeadY + tHSmall + 8;
+  renderer.drawLine(list.x, headLineY, list.x + list.width - 1, headLineY);
+
+  bookListRect_ = list;
+  constexpr int kRowH = 88;
+  bookRowHeight_ = kRowH;
+  bookListInnerTop_ = headLineY + 1;
+  const int innerH = list.height - (bookListInnerTop_ - list.y) - 4;
+
+  const auto& books = READING_STATS.getBooks();
+  const int maxScrollOffset = std::max(0, static_cast<int>(books.size()) * kRowH - innerH);
+  scrollOffset = std::clamp(scrollOffset, 0, maxScrollOffset);
+
+  if (books.empty()) {
+    renderer.drawText(UI_10_FONT_ID, list.x + 14, bookListInnerTop_ + 14, tr(STR_NO_READING_STATS));
+  } else {
+    const GfxRenderer::ClipScope clip(renderer, list.x + 2, bookListInnerTop_, list.width - 4, innerH);
+    for (int index = 0; index < static_cast<int>(books.size()); ++index) {
+      const int rowY = bookListInnerTop_ - scrollOffset + index * kRowH;
+      if (rowY + kRowH <= bookListInnerTop_ || rowY > bookListInnerTop_ + innerH) continue;
+      if (index > 0 && rowY > bookListInnerTop_) {
+        renderer.drawLine(list.x + 8, rowY, list.x + list.width - 8, rowY);
+      }
+
+      const ReadingBookStats& book = books[index];
+      if (book.path.find("crash_report") != std::string::npos || book.path.find(".log") != std::string::npos) {
+        continue;
+      }
+
+      const int textX = list.x + 14;
+      const char* bTitle = bookTitleOf(book);
+
+      // Line 1: Title + Duration (bold)
+      const int line1Y = rowY + 10;
+      const std::string durFull = ReadingStatsAnalytics::formatDurationHm(book.totalReadingMs);
+      const int durW = renderer.getTextWidth(UI_12_FONT_ID, durFull.c_str(), EpdFontFamily::BOLD);
+      const int titleMaxW = list.width - 28 - durW - 12;
+
+      const std::string cutTitle = renderer.truncatedText(UI_12_FONT_ID, bTitle, titleMaxW, EpdFontFamily::BOLD);
+      renderer.drawText(UI_12_FONT_ID, textX, line1Y, cutTitle.c_str(), true, EpdFontFamily::BOLD);
+      renderer.drawText(UI_12_FONT_ID, list.x + list.width - 14 - durW, line1Y, durFull.c_str(), true, EpdFontFamily::BOLD);
+
+      // Line 2: Author · Chapter · Sessions + Progress % (strictly below line1Y + tH12)
+      const int line2Y = line1Y + tH12 + 4;
+      char subLine[96] = {};
+      const char* auth = book.author.empty() ? "" : book.author.c_str();
+      const char* ch = book.chapterTitle.empty() ? "" : book.chapterTitle.c_str();
+      if (*auth && *ch) {
+        snprintf(subLine, sizeof(subLine), "%s · %s · %u次", auth, ch, book.sessions);
+      } else if (*ch) {
+        snprintf(subLine, sizeof(subLine), "%s · %u次", ch, book.sessions);
+      } else {
+        snprintf(subLine, sizeof(subLine), "%u次翻阅", book.sessions);
+      }
+
+      char pctBuf[16] = {};
+      snprintf(pctBuf, sizeof(pctBuf), "全书 %u%%", static_cast<unsigned>(book.lastProgressPercent));
+      const int pctW = renderer.getTextWidth(SMALL_FONT_ID, pctBuf);
+      const int subMaxW = list.width - 28 - pctW - 8;
+      const std::string cutSub = renderer.truncatedText(SMALL_FONT_ID, subLine, subMaxW);
+
+      renderer.drawText(SMALL_FONT_ID, textX, line2Y, cutSub.c_str());
+      renderer.drawText(SMALL_FONT_ID, list.x + list.width - 14 - pctW, line2Y, pctBuf);
+
+      // Line 3: Progress bar (strictly below line2Y + tHSmall)
+      const int line3Y = line2Y + tHSmall + 6;
+      const int barW = list.width - 28;
+      GUI.drawPaperProgress(renderer, Rect{textX, line3Y, barW, 4}, book.lastProgressPercent);
+    }
+  }
+
+  const auto labels = mappedInput.mapLabels(tr(STR_BACK), books.empty() ? "" : tr(STR_SELECT),
+                                            scrollOffset > 0 ? tr(STR_DIR_UP) : "",
+                                            scrollOffset < maxScrollOffset ? tr(STR_DIR_DOWN) : "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }

@@ -1,0 +1,2360 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CrossPoint Reader · 正在阅读 / 手账 / 阅读统计 优化方案</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+      background: #111311;
+      color: #e8e9e2;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100vh;
+      background:
+        linear-gradient(rgba(255, 255, 255, .03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .03) 1px, transparent 1px),
+        #121412;
+      background-size: 28px 28px;
+    }
+
+    button, select, input { font: inherit; color: inherit; }
+    .ink-app button { color: var(--ink); }
+
+    /* Prototype Rig Container */
+    .prototype-lab {
+      --accent: #d35400;
+      --accent-soft: rgba(211, 84, 0, 0.15);
+      --screen-width: 480px;
+      --screen-height: 800px;
+      --safe-top: 9px;
+      --safe-right: 3px;
+      --safe-bottom: 3px;
+      --safe-left: 3px;
+      --shell: #1b1d1a;
+      --shell-edge: #383c36;
+      --control: #0c0e0c;
+      --control-edge: #52584e;
+      --ink: #111210;
+      --ink-muted: #5e625a;
+      --ink-light: #888d84;
+      --paper: #fcfbfa;
+      --paper-pure: #ffffff;
+      --paper-bar: #e5e3dd;
+      --serif: "Songti SC", "Source Han Serif SC", "Noto Serif CJK SC", "STSong", SimSun, Georgia, serif;
+      --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      display: grid;
+      min-height: 100vh;
+      grid-template-rows: auto 1fr;
+    }
+
+    .prototype-lab[data-shell="white"] {
+      --shell: #e4e2da;
+      --shell-edge: #faf8f2;
+      --control: #bebeb4;
+      --control-edge: #ffffff;
+    }
+
+    /* Top Lab Header */
+    .lab-header {
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) auto;
+      gap: 24px;
+      align-items: center;
+      padding: 16px 28px;
+      border-bottom: 1px solid #2d302b;
+      background: rgba(18, 20, 18, 0.94);
+      backdrop-filter: blur(8px);
+    }
+
+    .identity { display: flex; gap: 14px; align-items: center; }
+    .identity-mark {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #737a6e;
+      color: #e67e22;
+      font: 800 14px/1 Georgia, serif;
+      letter-spacing: -.05em;
+      border-radius: 6px;
+    }
+    .identity p {
+      color: #8c9288;
+      font-size: 10px;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .identity h1 {
+      font: 600 19px/1.2 -apple-system, sans-serif;
+      letter-spacing: .02em;
+      color: #f1f2ec;
+    }
+
+    .controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+    .control { display: grid; gap: 4px; }
+    .control label {
+      color: #82877e;
+      font-size: 9px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .control select {
+      min-height: 32px;
+      padding: 0 28px 0 10px;
+      border: 1px solid #43473f;
+      border-radius: 4px;
+      background: #1d201c;
+      color: #f1f1eb;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .control select:focus { outline: 1px solid var(--accent); }
+
+    .safe-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid #43473f;
+      border-radius: 4px;
+      background: #1d201c;
+      color: #c8cbc2;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .safe-toggle input { accent-color: var(--accent); }
+
+    /* Lab Body */
+    .lab-body {
+      display: grid;
+      grid-template-columns: 320px minmax(0, 1fr);
+      min-height: 0;
+    }
+
+    /* Left Aside Panel */
+    .readout {
+      padding: 24px 22px;
+      border-right: 1px solid #2d302b;
+      background: rgba(20, 23, 20, 0.88);
+      overflow-y: auto;
+      max-height: calc(100vh - 73px);
+    }
+    .readout h2 {
+      margin: 0 0 14px;
+      color: #92998d;
+      font-size: 10px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+
+    /* View Switcher Tabs */
+    .screen-nav {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 20px;
+    }
+    .screen-nav-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid #363b33;
+      border-radius: 6px;
+      background: #181b17;
+      color: #b8bcb2;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+      transition: all .15s ease;
+    }
+    .screen-nav-btn:hover { background: #222621; color: #fff; }
+    .screen-nav-btn.active {
+      background: #2a3128;
+      border-color: #65705f;
+      color: #f7f8f4;
+      font-weight: 600;
+    }
+    .screen-nav-btn .num {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      line-height: 20px;
+      text-align: center;
+      background: #272c25;
+      border-radius: 3px;
+      font-size: 11px;
+      font-family: monospace;
+      color: #9ea597;
+    }
+    .screen-nav-btn.active .num {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    /* Version / Comparison Switcher */
+    .mode-switch-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 18px;
+    }
+    .mode-btn {
+      padding: 8px 6px;
+      text-align: center;
+      border: 1px solid #43483f;
+      border-radius: 5px;
+      background: #1c1f1b;
+      color: #a4aaa0;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .mode-btn:hover { color: #fff; }
+    .mode-btn.active {
+      background: #2d3829;
+      border-color: #63775d;
+      color: #8ae474;
+    }
+    .mode-btn[data-mode="current"].active {
+      background: #392823;
+      border-color: #8c564c;
+      color: #f39c89;
+    }
+
+    /* Explanation & Specs */
+    .expl-box {
+      margin: 14px 0 20px;
+      padding: 12px 14px;
+      border-radius: 6px;
+      background: #171a16;
+      border-left: 3px solid var(--accent);
+      color: #c0c6ba;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .expl-box h4 {
+      margin: 0 0 6px;
+      color: #eceee8;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .expl-box ul { padding-left: 18px; margin: 6px 0 0; }
+    .expl-box li { margin-bottom: 4px; }
+
+    .metric-row {
+      padding: 10px 0;
+      border-top: 1px solid #2f342d;
+    }
+    .metric-row .label {
+      color: #787e74;
+      font-size: 9px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .metric-row .val {
+      margin-top: 4px;
+      color: #edece4;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    /* Stage Viewport */
+    .stage-viewport {
+      position: relative;
+      min-width: 0;
+      min-height: 640px;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+    }
+    .stage-viewport::before {
+      content: "E-INK LOGICAL CANVAS · NATIVE PIXELS";
+      position: absolute;
+      top: 14px;
+      right: 18px;
+      color: #555b52;
+      font-size: 9px;
+      letter-spacing: .14em;
+    }
+
+    .device-sizer { position: relative; }
+    .device-frame {
+      position: absolute;
+      inset: 0 auto auto 0;
+      width: max-content;
+      height: max-content;
+      padding: 34px;
+      border: 1px solid var(--shell-edge);
+      border-radius: 22px;
+      background: var(--shell);
+      box-shadow: 0 26px 70px rgba(0, 0, 0, .55), inset 0 0 0 2px rgba(0, 0, 0, .28);
+      transform-origin: top left;
+      transition: background-color .18s ease, border-color .18s ease;
+    }
+    .prototype-lab[data-orientation="portrait"] .device-frame { padding-bottom: 78px; }
+    .prototype-lab[data-orientation="portrait-inverted"] .device-frame { padding-top: 78px; }
+    .prototype-lab[data-orientation="landscape-cw"] .device-frame { padding-left: 78px; }
+    .prototype-lab[data-orientation="landscape-ccw"] .device-frame { padding-right: 78px; }
+
+    /* The Screen Canvas */
+    #prototype-screen {
+      position: relative;
+      isolation: isolate;
+      width: var(--screen-width);
+      height: var(--screen-height);
+      overflow: hidden;
+      border: 2px solid #050605;
+      border-radius: 2px;
+      background: var(--paper);
+      color: var(--ink);
+      container-type: size;
+      user-select: none;
+    }
+    #prototype-screen::after {
+      content: "";
+      position: absolute;
+      z-index: 999;
+      inset: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+      border: 1px dashed rgba(215, 76, 33, .8);
+      pointer-events: none;
+      opacity: 0;
+    }
+    .prototype-lab[data-show-safe="true"] #prototype-screen::after { opacity: 1; }
+
+    /* Physical Controls around the frame */
+    .front-controls { position: absolute; display: flex; gap: 12px; }
+    .front-key {
+      width: 76px;
+      height: 16px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--control-edge);
+      border-radius: 8px;
+      background: var(--control);
+      color: #8c9188;
+      font: 700 8px/1 -apple-system, sans-serif;
+    }
+    [data-orientation="portrait"] .front-controls { left: 50%; bottom: 24px; transform: translateX(-50%); }
+    [data-orientation="portrait-inverted"] .front-controls { left: 50%; top: 24px; flex-direction: row-reverse; transform: translateX(-50%); }
+    [data-orientation="landscape-cw"] .front-controls { left: 24px; top: 50%; flex-direction: column; transform: translateY(-50%); }
+    [data-orientation="landscape-ccw"] .front-controls { right: 24px; top: 50%; flex-direction: column-reverse; transform: translateY(-50%); }
+
+    .edge-control {
+      position: absolute;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--control-edge);
+      background: var(--control);
+      color: #9aa096;
+      font: 800 8px/1 -apple-system, sans-serif;
+    }
+    .x4-rocker { position: absolute; display: flex; gap: 2px; }
+    .x4-rocker .edge-control { position: static; width: 14px; height: 50px; }
+    [data-orientation="portrait"] .x4-rocker { right: -8px; top: 43%; flex-direction: column; }
+    [data-orientation="portrait-inverted"] .x4-rocker { left: -8px; top: 43%; flex-direction: column-reverse; }
+    [data-orientation="landscape-cw"] .x4-rocker { right: 36%; bottom: -8px; flex-direction: row-reverse; }
+    [data-orientation="landscape-ccw"] .x4-rocker { left: 36%; top: -8px; flex-direction: row; }
+    [data-orientation="portrait"] .x4-power { right: -7px; top: 18%; width: 13px; height: 31px; }
+    [data-device="x3"] .x4-only, [data-device="x4"] .x3-only { display: none; }
+
+    /* =====================================================================
+       E-INK SCREEN UI ARCHITECTURE & STYLING
+       ===================================================================== */
+    .ink-app {
+      position: absolute;
+      inset: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+      display: flex;
+      flex-direction: column;
+      background: var(--paper-pure);
+      color: var(--ink);
+      font-family: var(--sans);
+      overflow: hidden;
+    }
+    .ink-app[data-type="serif"] { font-family: var(--serif); }
+
+    /* Status Bar */
+    .ink-status {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: .02em;
+      border-bottom: 1px solid #111;
+      background: var(--paper-pure);
+      flex-shrink: 0;
+    }
+    .ink-status-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .battery-icon {
+      width: 24px;
+      height: 12px;
+      border: 1.5px solid #111;
+      padding: 1.5px;
+      border-radius: 2px;
+      display: inline-flex;
+      position: relative;
+    }
+    .battery-icon::after {
+      content: "";
+      position: absolute;
+      right: -3.5px;
+      top: 2px;
+      width: 2px;
+      height: 5px;
+      background: #111;
+      border-radius: 0 1px 1px 0;
+    }
+    .battery-fill {
+      width: 88%;
+      height: 100%;
+      background: #111;
+    }
+
+    /* Screen Main Body Area */
+    .ink-body {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Bottom Navigation Tab Bar (5 Tabs) */
+    .ink-tabbar {
+      height: 56px;
+      border-top: 1.5px solid #111;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      background: var(--paper-pure);
+      flex-shrink: 0;
+    }
+    .ink-tab-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      color: #444;
+      cursor: pointer;
+      position: relative;
+      background: none;
+      border: none;
+    }
+    .ink-tab-item svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+    .ink-tab-item span { font-size: 11px; font-weight: 600; }
+    .ink-tab-item.active {
+      color: #000;
+      font-weight: 700;
+    }
+    .ink-tab-item.active::before {
+      content: "";
+      position: absolute;
+      top: -1.5px;
+      left: 18%;
+      right: 18%;
+      height: 3px;
+      background: #000;
+    }
+
+    /* Shared Page Header */
+    .page-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 14px 20px 10px;
+      border-bottom: 1px solid #111;
+      flex-shrink: 0;
+    }
+    .page-title-row h2 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+    .page-title-row .date-sub {
+      font-size: 13px;
+      color: #444;
+      font-weight: 500;
+    }
+
+    /* =====================================================================
+       PAGE 1: 正在阅读 (Home Tab)
+       ===================================================================== */
+    .home-view {
+      padding: 16px 20px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      flex: 1;
+    }
+
+    /* Hero Book Card */
+    .hero-book-card {
+      display: grid;
+      grid-template-columns: 118px 1fr;
+      gap: 18px;
+      align-items: stretch;
+    }
+    .book-cover-box {
+      width: 118px;
+      height: 172px;
+      border: 1.5px solid #111;
+      position: relative;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 12px 10px;
+      box-shadow: 3px 3px 0 rgba(0,0,0,0.15);
+    }
+    .book-cover-box::before {
+      content: "";
+      position: absolute;
+      left: 6px;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: #ccc;
+    }
+    .cover-top-tag { font-size: 9px; letter-spacing: .1em; color: #666; }
+    .cover-title-v {
+      font-size: 20px;
+      font-weight: 700;
+      font-family: var(--serif);
+      line-height: 1.25;
+      letter-spacing: .08em;
+      margin-left: 6px;
+    }
+    .cover-author-b { font-size: 11px; color: #555; text-align: right; }
+
+    .hero-info-col {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .hero-meta-top h3 {
+      font-size: 22px;
+      font-weight: 700;
+      font-family: var(--serif);
+      margin-bottom: 4px;
+      line-height: 1.2;
+    }
+    .hero-author {
+      font-size: 13px;
+      color: #444;
+      margin-bottom: 8px;
+    }
+    .hero-chapter {
+      font-size: 13px;
+      color: #222;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 10px;
+    }
+    .hero-progress-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+    .progress-bar-track {
+      height: 5px;
+      background: #e6e6e6;
+      border: 1px solid #111;
+      position: relative;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: #111;
+    }
+    .progress-text-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .btn-continue-read {
+      height: 38px;
+      background: #111;
+      color: #fff !important;
+      border: 1.5px solid #111;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      border-radius: 3px;
+      letter-spacing: .04em;
+    }
+
+    /* Milestone Badge Strip */
+    .reading-milestone-strip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #f4f3ed;
+      border: 1px solid #111;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .milestone-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Recent Section */
+    .recent-shelf-sec {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+    }
+    .sec-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 700;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #111;
+    }
+    .sec-header .more-link {
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .recent-list-row {
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 4px;
+      border-bottom: 1px solid #e0dfd8;
+      cursor: pointer;
+    }
+    .recent-list-row:last-child { border-bottom: none; }
+    .recent-num { font-size: 13px; font-weight: 700; color: #666; }
+    .recent-book-title {
+      font-size: 15px;
+      font-weight: 700;
+      font-family: var(--serif);
+      margin-bottom: 2px;
+    }
+    .recent-book-author { font-size: 12px; color: #555; }
+    .recent-meta-right {
+      text-align: right;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 3px;
+    }
+    .recent-pct { font-size: 13px; font-weight: 700; }
+    .recent-mini-bar {
+      width: 46px;
+      height: 4px;
+      border: 1px solid #111;
+      background: #e6e6e6;
+    }
+    .journal-view {
+      padding: 8px 18px 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+    }
+
+    .paper-rule {
+      height: 1px;
+      background: #d8d6ce;
+      width: 100%;
+      flex-shrink: 0;
+    }
+
+    /* 1. Hero Reading Summary (Unboxed, clean Paper layout) */
+    .journal-hero-stats {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 14px;
+      padding: 2px 0 2px;
+    }
+    .jh-left .kicker { font-size: 11px; color: #555; margin-bottom: 2px; }
+    .jh-left .main-number {
+      font-size: 32px;
+      font-weight: 800;
+      line-height: 1.05;
+      font-family: var(--serif);
+    }
+    .jh-left .unit { font-size: 13px; font-weight: 600; margin-left: 2px; }
+    .jh-left .sub-insight { font-size: 10px; color: #666; margin-top: 2px; }
+
+    .jh-right {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+      border-left: 1px solid #d8d6ce;
+      padding-left: 14px;
+    }
+    .jh-stat-item strong { display: block; font-size: 14px; font-weight: 700; }
+    .jh-stat-item small { font-size: 10px; color: #666; }
+
+    /* 2. 7-Day Chart Block (Clean Paper layout) */
+    .chart-section {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .chart-sec-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .chart-sec-header h4 { font-size: 13px; font-weight: 700; }
+    .chart-selected-detail { font-size: 11px; font-weight: 600; color: #111; }
+
+    .chart-summary-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #333;
+      padding-top: 1px;
+    }
+
+    /* 3. 24h Hourly Intensity Histogram Block */
+    .daypart-box {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .daypart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .daypart-sub { font-size: 11px; font-weight: 600; color: #111; }
+
+    .dayparts-breakdown-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      margin-top: 3px;
+    }
+    .dp-pill {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2px 2px;
+      background: #f7f6f1;
+      border: 1px solid #111;
+      border-radius: 2px;
+      font-size: 9px;
+    }
+    .dp-pill.primary {
+      background: #111;
+      color: #fff;
+    }
+    .dp-pill strong { font-size: 10px; font-weight: 800; }
+    .dp-pill small { font-size: 8px; opacity: 0.85; }
+
+    /* 4. Books Read This Week Block */
+    .week-books-box {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .week-books-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 13px;
+      font-weight: 700;
+      padding-bottom: 2px;
+    }
+    .week-books-header small { font-size: 11px; font-weight: 600; color: #555; }
+
+    .week-book-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 2px 0;
+      cursor: pointer;
+    }
+    .week-book-row:hover { background: #faf9f5; }
+    .wb-meta-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .wb-title-line {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .wb-title {
+      font-size: 13px;
+      font-weight: 700;
+      font-family: var(--serif);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .wb-chapter {
+      font-size: 11px;
+      color: #666;
+    }
+    .wb-progress-track {
+      height: 3px;
+      background: #ecebe5;
+      border: 0.5px solid #888;
+      width: 100%;
+    }
+    .wb-progress-fill { height: 100%; background: #111; }
+    .wb-meta-right {
+      text-align: right;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+    .wb-duration {
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .wb-pct {
+      font-size: 9px;
+      color: #555;
+    }
+
+    .btn-more-details {
+      height: 32px;
+      border: 1.5px solid #111;
+      background: #fff;
+      color: #111;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      cursor: pointer;
+      margin-top: 1px;
+    }
+    .btn-more-details:hover { background: #f0eee8; }
+    /* =====================================================================
+       PAGE 3: 更多详情 / 阅读档案 (Extended Stats Tab)
+       ===================================================================== */
+    .extended-view {
+      padding: 14px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1;
+    }
+
+    /* Goal Hero Card */
+    .goal-hero-card {
+      border: 1.5px solid #111;
+      background: #fff;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .goal-top-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .goal-title { font-size: 15px; font-weight: 700; }
+    .goal-target-val { font-size: 14px; font-weight: 700; }
+    .goal-target-val .badge-done {
+      background: #111;
+      color: #fff;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      margin-left: 6px;
+    }
+    .goal-progress-bar {
+      height: 7px;
+      border: 1px solid #111;
+      background: #eee;
+      position: relative;
+    }
+    .goal-progress-fill { height: 100%; background: #111; }
+    .goal-streak-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #444;
+      font-weight: 600;
+    }
+
+    /* Book Records List */
+    .book-records-card {
+      border: 1.5px solid #111;
+      background: #fff;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .records-card-header {
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      border-bottom: 1px solid #111;
+      background: #f7f6f2;
+      display: flex;
+      justify-content: space-between;
+    }
+    .records-list {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .record-row-item {
+      padding: 10px 14px;
+      border-bottom: 1px solid #e2e1da;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      cursor: pointer;
+    }
+    .record-row-item:hover { background: #fbfaf6; }
+    .record-row-item:last-child { border-bottom: none; }
+    .record-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .record-title {
+      font-size: 15px;
+      font-weight: 700;
+      font-family: var(--serif);
+    }
+    .record-duration {
+      font-size: 17px;
+      font-weight: 800;
+      text-align: right;
+    }
+    .record-duration small { font-size: 11px; font-weight: 600; margin-left: 2px; }
+    .record-mid-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #555;
+    }
+    .record-progress-track {
+      height: 3px;
+      background: #e8e8e8;
+      border: 0.5px solid #888;
+    }
+    .record-progress-fill { height: 100%; background: #111; }
+
+    /* =====================================================================
+       PAGE 4: 单书阅读统计 (Single Book Stats Detail)
+       ===================================================================== */
+    .detail-view {
+      padding: 14px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    /* Detail Hero Meta */
+    .detail-hero-box {
+      display: grid;
+      grid-template-columns: 96px 1fr;
+      gap: 16px;
+      align-items: start;
+      padding-bottom: 12px;
+      border-bottom: 1.5px solid #111;
+    }
+    .detail-cover-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .detail-cover {
+      width: 96px;
+      height: 136px;
+      border: 1.5px solid #111;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      box-shadow: 2px 2px 0 rgba(0,0,0,0.12);
+      padding: 8px;
+      text-align: center;
+    }
+    .detail-cover h4 {
+      font-size: 15px;
+      font-weight: 700;
+      font-family: var(--serif);
+      margin-bottom: 4px;
+    }
+    .detail-cover span { font-size: 11px; color: #666; }
+    .btn-adjust-time {
+      width: 100%;
+      height: 26px;
+      border: 1px solid #111;
+      background: #fff;
+      color: #111;
+      font-size: 11px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+
+    .detail-info-col {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .detail-title {
+      font-size: 20px;
+      font-weight: 700;
+      font-family: var(--serif);
+      line-height: 1.2;
+    }
+    .detail-author { font-size: 12px; color: #555; }
+    .detail-progress-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .progress-bar-row {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .progress-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    /* Redesigned Clean Metrics Matrix (NO DITHER!) */
+    .metrics-matrix {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .metric-card-sharp {
+      border: 1.5px solid #111;
+      background: #fff;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 58px;
+    }
+    .metric-card-sharp.full-w { grid-column: span 2; }
+    .card-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #666;
+      letter-spacing: .02em;
+    }
+    .card-val-big {
+      font-size: 18px;
+      font-weight: 800;
+      color: #000;
+      line-height: 1.2;
+    }
+    .card-val-big small { font-size: 11px; font-weight: 600; margin-left: 2px; }
+    .card-subtext {
+      font-size: 10px;
+      color: #777;
+      margin-top: 2px;
+    }
+
+    /* Current Photo Flaws Simulated Mode (灰度点阵对比如下) */
+    .current-dither-card {
+      border: 1.5px solid #444;
+      border-radius: 12px;
+      padding: 8px 12px;
+      min-height: 56px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      /* 模拟实机实拍中的 Bayer 点阵灰 */
+      background:
+        radial-gradient(#555 15%, transparent 16%) 0 0,
+        radial-gradient(#555 15%, transparent 16%) 3px 3px,
+        #ddd;
+      background-size: 6px 6px;
+      color: #111;
+      position: relative;
+    }
+    .current-dither-card.full-w { grid-column: span 2; }
+    .current-dither-card .cd-val { font-size: 17px; font-weight: 700; }
+    .current-dither-card .cd-lab { font-size: 12px; font-weight: 500; margin-top: 2px; color: #222; }
+
+    /* Flaw Callout Badges */
+    .flaw-tag {
+      position: absolute;
+      top: -8px;
+      right: 8px;
+      background: #c0392b;
+      color: #fff;
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-weight: 700;
+      z-index: 10;
+    }
+
+    .btn-detail-read-now {
+      height: 42px;
+      background: #111;
+      color: #fff !important;
+      border: 1.5px solid #111;
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      letter-spacing: .05em;
+      margin-top: 4px;
+    }
+
+    /* Back Link on Header */
+    .header-back-btn {
+      background: none;
+      border: none;
+      font-size: 14px;
+      font-weight: 700;
+      color: #111;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    /* Responsive Breakpoints */
+    @media (max-width: 900px) {
+      .lab-header { grid-template-columns: 1fr; gap: 14px; }
+      .lab-body { grid-template-columns: 1fr; }
+      .readout { max-height: none; border-right: none; border-bottom: 1px solid #333; }
+      .stage-viewport { min-height: 600px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="prototype-lab" data-device="x4" data-orientation="portrait" data-shell="white" data-show-safe="false">
+    <!-- Lab Top Bar -->
+    <header class="lab-header">
+      <div class="identity">
+        <div class="identity-mark">XM</div>
+        <div>
+          <p>CrossPoint / CrossMux Eink UI</p>
+          <h1>正在阅读 · 手账 · 阅读统计 优化方案</h1>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="control">
+          <label for="device-select">设备规格</label>
+          <select id="device-select">
+            <option value="x4" selected>Xteink X4 / M4 (480 × 800)</option>
+            <option value="x3">Xteink X3 (528 × 792)</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="shell-select">机身外壳</label>
+          <select id="shell-select">
+            <option value="white" selected>白色 White</option>
+            <option value="black">黑色 Black</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="type-select">排版字体</label>
+          <select id="type-select">
+            <option value="serif" selected>书卷宋体 · Serif</option>
+            <option value="sans">纯粹黑体 · Sans</option>
+          </select>
+        </div>
+        <div class="control">
+          <label for="safe-toggle">辅助</label>
+          <label class="safe-toggle"><input id="safe-toggle" type="checkbox"> 安全边界</label>
+        </div>
+      </div>
+    </header>
+
+    <!-- Lab Body -->
+    <div class="lab-body">
+      <!-- Left Sidebar: Screen & Mode Selectors -->
+      <aside class="readout">
+        <h2>页面切换 (对应实拍图)</h2>
+        <nav class="screen-nav">
+          <button class="screen-nav-btn active" data-screen="home">
+            <span class="num">01</span>
+            <div><strong>正在阅读</strong><small style="display:block;font-size:11px;color:#8a8e84;">图1 · 主书封面与最近阅读</small></div>
+          </button>
+          <button class="screen-nav-btn" data-screen="journal">
+            <span class="num">02</span>
+            <div><strong>阅读手账</strong><small style="display:block;font-size:11px;color:#8a8e84;">图2 · 周阅读节奏与时段</small></div>
+          </button>
+          <button class="screen-nav-btn" data-screen="extended">
+            <span class="num">03</span>
+            <div><strong>阅读档案 / 目标</strong><small style="display:block;font-size:11px;color:#8a8e84;">图3 · 每日目标与累计书目</small></div>
+          </button>
+          <button class="screen-nav-btn" data-screen="detail">
+            <span class="num">04</span>
+            <div><strong>单书阅读统计</strong><small style="display:block;font-size:11px;color:#8a8e84;">图4 · 书籍全书/章节与指标</small></div>
+          </button>
+        </nav>
+
+        <h2>方案对照切换</h2>
+        <div class="mode-switch-group">
+          <button class="mode-btn active" data-mode="redesign">✨ 优化后方案</button>
+          <button class="mode-btn" data-mode="current">📷 实机现状对照</button>
+        </div>
+
+        <div class="expl-box" id="screen-expl">
+          <!-- Dynamic explanation injected by JS -->
+        </div>
+
+        <h2>设备指标参数</h2>
+        <div class="metric-row">
+          <div class="label">屏幕规格</div>
+          <div class="val" id="canvas-readout">480 × 800 逻辑像素</div>
+        </div>
+        <div class="metric-row">
+          <div class="label">按键映射逻辑</div>
+          <div class="val">Front 1: Back · Front 2: Confirm · Up/Down: 翻页</div>
+        </div>
+        <div class="metric-row">
+          <div class="label">墨水屏渲染准则</div>
+          <div class="val">高对比度单色 · 杜绝大面积50%点阵灰 · 纯黑细线微排版</div>
+        </div>
+      </aside>
+
+      <!-- Center Device Viewport -->
+      <section class="stage-viewport">
+        <div class="device-sizer">
+          <div class="device-frame" id="device-frame">
+            <!-- Screen Slot -->
+            <div id="prototype-screen">
+              <div class="ink-app" id="ink-app-root" data-type="serif">
+                <!-- Injected Screen Content -->
+              </div>
+            </div>
+
+            <!-- Front Buttons -->
+            <div class="front-controls">
+              <span class="front-key" title="Back">1 · 返回</span>
+              <span class="front-key" title="Confirm">2 · 确认</span>
+              <span class="front-key" title="Left">3 · 左</span>
+              <span class="front-key" title="Right">4 · 右</span>
+            </div>
+            <!-- Side Controls (X4) -->
+            <div class="x4-only x4-rocker">
+              <span class="edge-control" title="PageBack">U</span>
+              <span class="edge-control" title="PageForward">D</span>
+            </div>
+            <span class="x4-only x4-power edge-control" title="Power">P</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      // Device Profiles & Geometry
+      const DEVICE_PROFILES = Object.freeze({
+        x4: Object.freeze({ name: "Xteink X4", panel: [800, 480], product: "4.3 in · 5.98 mm · 75 g", safe: [9, 3, 3, 3] }),
+        x3: Object.freeze({ name: "Xteink X3", panel: [792, 528], product: "3.7 in · 4.98 mm · 58 g", safe: [9, 3, 3, 3] })
+      });
+
+      // App State
+      let currentScreen = "home"; // home | journal | extended | detail
+      let currentMode = "redesign"; // redesign | current
+      let selectedBarDay = 6; // 0..6
+      let selectedHour = 20; // 0..23 (default peak 20:00)
+      const hourlyData = [
+        { hour: 0, mins: 0 },
+        { hour: 1, mins: 1 },  // 1 分钟短翻
+        { hour: 2, mins: 0 },
+        { hour: 3, mins: 0 },
+        { hour: 4, mins: 0 },
+        { hour: 5, mins: 0 },
+        { hour: 6, mins: 0 },
+        { hour: 7, mins: 0 },
+        { hour: 8, mins: 0 },
+        { hour: 9, mins: 0 },
+        { hour: 10, mins: 0 },
+        { hour: 11, mins: 8 },  // 8 分钟
+        { hour: 12, mins: 0 },
+        { hour: 13, mins: 0 },
+        { hour: 14, mins: 0 },
+        { hour: 15, mins: 0 },
+        { hour: 16, mins: 15 }, // 15 分钟
+        { hour: 17, mins: 0 },
+        { hour: 18, mins: 0 },
+        { hour: 19, mins: 0 },
+        { hour: 20, mins: 32 }, // 32 分钟 (峰值)
+        { hour: 21, mins: 30 }, // 30 分钟
+        { hour: 22, mins: 0 },
+        { hour: 23, mins: 0 }
+      ];
+      const rawDays = [
+        { date: "10", mins: 185 },
+        { date: "11", mins: 23 },
+        { date: "12", mins: 0 },
+        { date: "13", mins: 0 },
+        { date: "14", mins: 38 },
+        { date: "15", mins: 68 },
+        { date: "今日", mins: 86 }
+      ];
+      const maxVal = 185;
+      const lab = document.querySelector(".prototype-lab");
+      const frame = document.querySelector("#device-frame");
+      const sizer = document.querySelector(".device-sizer");
+      const viewport = document.querySelector(".stage-viewport");
+      const deviceSelect = document.querySelector("#device-select");
+      const shellSelect = document.querySelector("#shell-select");
+      const typeSelect = document.querySelector("#type-select");
+      const safeToggle = document.querySelector("#safe-toggle");
+      const appRoot = document.querySelector("#ink-app-root");
+      const explBox = document.querySelector("#screen-expl");
+
+      // Explanations for each screen and mode
+      const EXPLANATIONS = {
+        home: {
+          redesign: `
+            <h4>图1「正在阅读」优化核心：</h4>
+            <ul>
+              <li><strong>书籍封面质感重塑</strong>：加入书脊微折痕与页眉信息，提升纸书出版物沉浸感。</li>
+              <li><strong>阅读进度微型标尺</strong>：将原先孤立的 13% 升级为细线横向刻度条 + 已读用时展示。</li>
+              <li><strong>主操作按钮减重</strong>：摒弃傻大黑粗的死黑块，使用高对比度圆角线框键「继续阅读 ›」。</li>
+              <li><strong>阅读徽章条自然融入</strong>：将连续天数与累计时长整合为精致纸本印章条。</li>
+              <li><strong>最近阅读列表密度优化</strong>：加入微型进度条与时间提示，信息丰满、对齐工整。</li>
+            </ul>
+          `,
+          current: `
+            <h4>图1「正在阅读」实机现状问题：</h4>
+            <ul>
+              <li><strong>封面简陋</strong>：仅为单线方框与生硬竖排字，缺乏书籍质感。</li>
+              <li><strong>进度仅有裸露数字</strong>："13%" 悬在虚线上，无图形化进度指示。</li>
+              <li><strong>按钮黑块过重</strong>：纯黑大块打破整屏的轻盈感。</li>
+              <li><strong>最近阅读信息单薄</strong>：仅有序号和百分比，缺少进度条和章节线索。</li>
+            </ul>
+          `
+        },
+        journal: {
+          redesign: `
+            <h4>图2「阅读手账」深度优化：</h4>
+            <ul>
+              <li><strong>解决“时段不清晰”痛点</strong>：彻底摒弃原先二值粗黑块，升级为 <strong>24小时阅读时长柱状图</strong>！1分钟显示为 4px 微标（标注 1m），30分钟显示为 38px 柱体（标注 30m），十倍高度差一目了然；下方并列「深夜/清晨/午后/晚间」4时段占比，支持点击交互查看！</li>
+              <li><strong>解决“页面下方留白”痛点</strong>：新增「本周在读书目投入（400分钟去向）」模块，将本周时长与《三国演义》(60%)、《重生之大涅槃》(30%)、《许仙志》(10%)紧密打通，整屏比例充实严谨，杜绝空洞。</li>
+              <li><strong>双列数据看板与节奏柱状图</strong>：0 分钟以基准刻度点替代浮空“0”；当前日提供醒目高亮聚焦态。</li>
+            </ul>
+          `,
+          current: `
+            <h4>图2「阅读手账」实机现状问题：</h4>
+            <ul>
+              <li><strong>时段粗放无区别</strong>：无论读 1 分钟还是 30 分钟，均显示为完全相同的粗黑块，完全体现不出时段专注度。</li>
+              <li><strong>下方大量留白</strong>：底部仅有一条按钮，留出大面积空白，页面不饱满。</li>
+              <li><strong>柱状图零值浮空</strong>：0 分钟直接浮在基准轴线上，左右比例失衡。</li>
+            </ul>
+          `
+        },
+        extended: {
+          redesign: `
+            <h4>图3「阅读档案/目标」优化核心：</h4>
+            <ul>
+              <li><strong>每日目标勋章卡</strong>：增加「🎉 已达标」印章徽标与双轨进度，连续天数与最长天数整齐分列。</li>
+              <li><strong>过滤无效系统文件</strong>：彻底移除类似 <code>crash_report.txt</code> 的非书籍噪点。</li>
+              <li><strong>书目阅读记录列表重排</strong>：将阅读次数、读至章节、全书百分比进度条与总用时三位一体，点击任一本书直接进入该书单本统计。</li>
+            </ul>
+          `,
+          current: `
+            <h4>图3「阅读档案」实机现状问题：</h4>
+            <ul>
+              <li><strong>脏数据穿透</strong>：列表里竟然把系统崩溃日志 <code>crash_report.txt</code> 当作一本书。</li>
+              <li><strong>达成激励缺失</strong>：今日已读 86m 超过 30m 目标，卡片却无任何达标正向反馈。</li>
+              <li><strong>列表进度线过细</strong>：进度条与阅读时长挤在一起，层次不分明。</li>
+            </ul>
+          `
+        },
+        detail: {
+          redesign: `
+            <h4>图4「单书阅读统计」关键优化：</h4>
+            <ul>
+              <li><strong>彻底清除 50% 灰色点阵底纹！</strong>：墨水屏杀手正是大面积抖动灰底（严重残影、字体重影、对比度骤降）。优化为纯白底 + 1.5px 锐利墨线 + 粗细字阶。</li>
+              <li><strong>修复尴尬的问号</strong>：将 <code>2026-08-28 - ?</code> 优化为规范的「开始日期 — 最近阅读：2026.08.28 — 2026.09.16（历时20天）」。</li>
+              <li><strong>重整零碎虚线按钮</strong>：将封面下怪异的虚线小按键重构为工整的「⏱ 调整时长」功能按钮。</li>
+              <li><strong>智能阅读预测看板</strong>：基于近7天速率，清晰推算「剩余 27.5 小时 · 约 148 次翻阅 · 预计 10 月中旬读完」。</li>
+            </ul>
+          `,
+          current: `
+            <h4>图4「单书阅读统计」致命问题（对照）：</h4>
+            <ul>
+              <li><strong>大面积点阵灰</strong>：7 个卡片全是 50% 密集灰色抖动点阵，在墨水屏实机上发暗、残影极其严重！</li>
+              <li><strong>未完成感</strong>：开始日期直接显示问号 <code>- ?</code>。</li>
+              <li><strong>孤立虚线按键</strong>：封面下挂着一个无对齐的虚线框眼镜图标。</li>
+            </ul>
+          `
+        }
+      };
+
+      function updateExpl() {
+        explBox.innerHTML = EXPLANATIONS[currentScreen][currentMode];
+      }
+
+      // Shared Navigation SVG Icons
+      const ICONS = {
+        library: `<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`,
+        apps: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
+        home: `<svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+        journal: `<svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+        settings: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`
+      };
+
+      function renderTabBar(activeTab) {
+        return `
+          <nav class="ink-tabbar" aria-label="底部导航">
+            <button class="ink-tab-item ${activeTab === 'library' ? 'active' : ''}" data-nav="library">
+              ${ICONS.library}<span>书库</span>
+            </button>
+            <button class="ink-tab-item ${activeTab === 'apps' ? 'active' : ''}" data-nav="apps">
+              ${ICONS.apps}<span>应用</span>
+            </button>
+            <button class="ink-tab-item ${activeTab === 'home' ? 'active' : ''}" data-nav="home">
+              ${ICONS.home}<span>正在阅读</span>
+            </button>
+            <button class="ink-tab-item ${activeTab === 'journal' ? 'active' : ''}" data-nav="journal">
+              ${ICONS.journal}<span>手账</span>
+            </button>
+            <button class="ink-tab-item ${activeTab === 'settings' ? 'active' : ''}" data-nav="settings">
+              ${ICONS.settings}<span>设置</span>
+            </button>
+          </nav>
+        `;
+      }
+
+      function renderStatusBar(time = "20:15", battery = "89%") {
+        return `
+          <header class="ink-status">
+            <span>${time}</span>
+            <div class="ink-status-right">
+              <span>${battery}</span>
+              <div class="battery-icon" aria-hidden="true"><div class="battery-fill"></div></div>
+            </div>
+          </header>
+        `;
+      }
+
+      // =====================================================================
+      // SCREEN RENDERERS
+      // =====================================================================
+
+      // 1. PAGE 1: 正在阅读 (Home)
+      function renderHomeScreen() {
+        if (currentMode === "current") {
+          // Recreate Photo 1 Current Appearance
+          return `
+            ${renderStatusBar("20:15", "89%")}
+            <div class="page-title-row">
+              <h2>正在阅读</h2>
+              <span class="date-sub">09.16</span>
+            </div>
+            <div class="ink-body home-view">
+              <div class="hero-book-card" style="grid-template-columns:110px 1fr;gap:14px;">
+                <div style="border:1px solid #000;padding:12px;height:160px;display:flex;flex-direction:column;justify-content:space-between;position:relative;">
+                  <span class="flaw-tag">单线生硬</span>
+                  <div style="writing-mode:vertical-rl;font-size:18px;letter-spacing:.12em;font-family:var(--serif);margin-left:auto;">三国演义</div>
+                  <div style="font-size:11px;">罗贯中</div>
+                </div>
+                <div class="hero-info-col" style="justify-content:flex-start;gap:8px;">
+                  <h3 style="font-size:22px;font-family:var(--serif);">三国演义</h3>
+                  <div style="font-size:13px;color:#333;">罗贯中</div>
+                  <div style="font-size:13px;color:#333;">第十五回</div>
+                  <div style="border-top:1px dotted #888;padding-top:6px;font-size:14px;font-weight:700;position:relative;">
+                    <span class="flaw-tag">无进度条</span>13%
+                  </div>
+                  <button style="margin-top:auto;height:38px;background:#000;color:#fff;border:none;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:13px;font-weight:700;">
+                    继续阅读 <span style="font-family:sans-serif;">&gt;</span>
+                  </button>
+                </div>
+              </div>
+
+              <div style="font-size:13px;font-weight:600;padding:4px 0;display:flex;align-items:center;gap:6px;">
+                🔖 已读 13 天 · 累计 245 分钟
+              </div>
+
+              <div class="recent-shelf-sec">
+                <div class="sec-header">
+                  <span>▎最近阅读 · 7 本</span>
+                  <span class="more-link">书库</span>
+                </div>
+                <div class="recent-list-row" style="padding:10px 0;">
+                  <span class="recent-num">01</span>
+                  <div>
+                    <div class="recent-book-title">重生之大涅槃</div>
+                    <div class="recent-book-author">奥尔良烤鲟鱼堡</div>
+                  </div>
+                  <span class="recent-pct">45%</span>
+                </div>
+                <div class="recent-list-row" style="padding:10px 0;">
+                  <span class="recent-num">02</span>
+                  <div>
+                    <div class="recent-book-title">三命通会</div>
+                    <div class="recent-book-author">万民英</div>
+                  </div>
+                  <span class="recent-pct">0%</span>
+                </div>
+                <div class="recent-list-row" style="padding:10px 0;">
+                  <span class="recent-num">03</span>
+                  <div>
+                    <div class="recent-book-title">许仙志</div>
+                    <div class="recent-book-author">说梦者</div>
+                  </div>
+                  <span class="recent-pct">0%</span>
+                </div>
+              </div>
+            </div>
+            ${renderTabBar("home")}
+          `;
+        }
+
+        // REDESIGNED Photo 1
+        return `
+          ${renderStatusBar("20:15", "89%")}
+          <div class="page-title-row">
+            <h2>正在阅读</h2>
+            <span class="date-sub">09.16 · 星期三</span>
+          </div>
+          <div class="ink-body home-view">
+            <!-- Hero Book Card -->
+            <div class="hero-book-card">
+              <div class="book-cover-box" title="点击查看单书统计" onclick="switchScreen('detail')">
+                <span class="cover-top-tag">CROSSPOINT</span>
+                <div class="cover-title-v">三国演义</div>
+                <div class="cover-author-b">[明] 罗贯中</div>
+              </div>
+
+              <div class="hero-info-col">
+                <div class="hero-meta-top">
+                  <h3>三国演义</h3>
+                  <div class="hero-author">[明] 罗贯中</div>
+                  <div class="hero-chapter">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                    <span>第十五回 · 太史慈酣斗小霸王</span>
+                  </div>
+                </div>
+
+                <div class="hero-progress-wrap">
+                  <div class="progress-text-row">
+                    <span>全书进度</span>
+                    <span>13% · 第 15 / 120 回</span>
+                  </div>
+                  <div class="progress-bar-track">
+                    <div class="progress-bar-fill" style="width: 13%;"></div>
+                  </div>
+                </div>
+
+                <button class="btn-continue-read" onclick="switchScreen('detail')">
+                  <span>继续阅读本书</span>
+                  <span>›</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Milestone Ribbon -->
+            <div class="reading-milestone-strip">
+              <div class="milestone-left">
+                <span>🔖</span>
+                <span>已连续阅读 <strong>3</strong> 天 · 累计 <strong>4.0</strong> 小时</span>
+              </div>
+              <span style="font-size:11px;background:#111;color:#fff;padding:1px 5px;border-radius:2px;">今日已达标</span>
+            </div>
+
+            <!-- Recent Reading List -->
+            <div class="recent-shelf-sec">
+              <div class="sec-header">
+                <span>▎最近阅读 · 7 本</span>
+                <span class="more-link" onclick="switchScreen('extended')">全部记录 ›</span>
+              </div>
+
+              <div class="recent-list-row" onclick="switchScreen('extended')">
+                <span class="recent-num">01</span>
+                <div>
+                  <div class="recent-book-title">重生之大涅槃</div>
+                  <div class="recent-book-author">奥尔良烤鲟鱼堡 · 读至第三十一章</div>
+                </div>
+                <div class="recent-meta-right">
+                  <span class="recent-pct">45%</span>
+                  <div class="recent-mini-bar"><div class="recent-mini-bar-fill" style="width:45%;"></div></div>
+                </div>
+              </div>
+
+              <div class="recent-list-row" onclick="switchScreen('extended')">
+                <span class="recent-num">02</span>
+                <div>
+                  <div class="recent-book-title">三命通会</div>
+                  <div class="recent-book-author">万民英 · 关于本书</div>
+                </div>
+                <div class="recent-meta-right">
+                  <span class="recent-pct" style="color:#666;">0%</span>
+                  <div class="recent-mini-bar"><div class="recent-mini-bar-fill" style="width:0%;"></div></div>
+                </div>
+              </div>
+
+              <div class="recent-list-row" onclick="switchScreen('extended')">
+                <span class="recent-num">03</span>
+                <div>
+                  <div class="recent-book-title">许仙志</div>
+                  <div class="recent-book-author">说梦者 · 第一章 种梨</div>
+                </div>
+                <div class="recent-meta-right">
+                  <span class="recent-pct">1%</span>
+                  <div class="recent-mini-bar"><div class="recent-mini-bar-fill" style="width:1%;"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          ${renderTabBar("home")}
+        `;
+      }
+
+      // 2. PAGE 2: 阅读手账 (Journal)
+      function renderSvg7DayChart() {
+        const chartW = 440;
+        const baselineY = 110;
+        const colW = chartW / 7;
+        const barWidth = 26;
+        const maxBarH = 80;
+
+        const bars = rawDays.map((d, i) => {
+          const cx = Math.round(colW * i + colW / 2);
+          const isAct = i === selectedBarDay;
+          const h = d.mins > 0 ? Math.max(4, Math.round(d.mins / maxVal * maxBarH)) : 0;
+          const barY = baselineY - h;
+          const barX = Math.round(cx - barWidth / 2);
+
+          const valSvg = d.mins > 0
+            ? `<text x="${cx}" y="${barY - 4}" text-anchor="middle" font-size="10" font-weight="${isAct ? '800' : '700'}" fill="#111">${d.mins}</text>`
+            : '';
+
+          const barSvg = h > 0
+            ? (isAct
+                ? `<rect x="${barX - 2}" y="${barY - 2}" width="${barWidth + 4}" height="${h + 2}" fill="#fff" stroke="#111" stroke-width="1.5"/><rect x="${barX}" y="${barY}" width="${barWidth}" height="${h}" fill="#111"/>`
+                : `<rect x="${barX}" y="${barY}" width="${barWidth}" height="${h}" fill="#111"/>`
+              )
+            : `<line x1="${cx - 3}" y1="${baselineY}" x2="${cx + 3}" y2="${baselineY}" stroke="#aaa" stroke-width="1.5"/>`;
+
+          const labelSvg = `<text x="${cx}" y="${baselineY + 16}" text-anchor="middle" font-size="11" font-weight="${d.date === '今日' ? '800' : '600'}" text-decoration="${d.date === '今日' ? 'underline' : 'none'}" fill="#111">${d.date}</text>`;
+
+          return `
+            <g onclick="selectBarDay(${i})" style="cursor:pointer;">
+              ${valSvg}
+              ${barSvg}
+              ${labelSvg}
+            </g>
+          `;
+        }).join('');
+
+        return `
+          <svg viewBox="0 0 ${chartW} 132" width="100%" height="132" style="display:block;overflow:visible;">
+            <line x1="0" y1="${baselineY}" x2="${chartW}" y2="${baselineY}" stroke="#111" stroke-width="1.5"/>
+            ${bars}
+          </svg>
+        `;
+      }
+
+      function renderSvgHourlyChart() {
+        const chartW = 440;
+        const baselineY = 56;
+        const colW = chartW / 24;
+        const barWidth = 8;
+        const maxBarH = 42;
+
+        const bars = hourlyData.map((d, i) => {
+          const cx = Math.round(colW * i + colW / 2);
+          const isAct = d.hour === selectedHour;
+          const barH = d.mins === 0 ? 1 : d.mins === 1 ? 3 : Math.max(3, Math.round(d.mins / 32 * maxBarH));
+          const barY = baselineY - barH;
+          const barX = Math.round(cx - barWidth / 2);
+
+          const valSvg = d.mins > 0
+            ? `<text x="${cx}" y="${barY - 3}" text-anchor="middle" font-size="8" font-weight="${isAct ? '800' : '700'}" fill="#111">${d.mins}m</text>`
+            : '';
+
+          const barSvg = d.mins > 0
+            ? (isAct
+                ? `<rect x="${barX - 1.5}" y="${barY - 1.5}" width="${barWidth + 3}" height="${barH + 1.5}" fill="#fff" stroke="#111" stroke-width="1.2"/><rect x="${barX}" y="${barY}" width="${barWidth}" height="${barH}" fill="#111" rx="1"/>`
+                : `<rect x="${barX}" y="${barY}" width="${barWidth}" height="${barH}" fill="#111" rx="1"/>`
+              )
+            : `<line x1="${cx - 2}" y1="${baselineY}" x2="${cx + 2}" y2="${baselineY}" stroke="#bbb" stroke-width="1"/>`;
+
+          return `
+            <g onclick="selectHourlySlot(${d.hour})" style="cursor:pointer;">
+              ${valSvg}
+              ${barSvg}
+            </g>
+          `;
+        }).join('');
+
+        const ticks = `
+          <text x="0" y="${baselineY + 14}" font-size="9" font-weight="700" fill="#666">00:00</text>
+          <text x="${Math.round(chartW * 6 / 24)}" y="${baselineY + 14}" text-anchor="middle" font-size="9" font-weight="700" fill="#666">06:00</text>
+          <text x="${Math.round(chartW * 12 / 24)}" y="${baselineY + 14}" text-anchor="middle" font-size="9" font-weight="700" fill="#666">12:00</text>
+          <text x="${Math.round(chartW * 18 / 24)}" y="${baselineY + 14}" text-anchor="middle" font-size="9" font-weight="700" fill="#666">18:00</text>
+          <text x="${chartW}" y="${baselineY + 14}" text-anchor="end" font-size="9" font-weight="700" fill="#666">23:59</text>
+        `;
+
+        return `
+          <svg viewBox="0 0 ${chartW} 76" width="100%" height="76" style="display:block;overflow:visible;">
+            <line x1="0" y1="${baselineY}" x2="${chartW}" y2="${baselineY}" stroke="#111" stroke-width="1.2"/>
+            ${bars}
+            ${ticks}
+          </svg>
+        `;
+      }
+
+      function renderJournalScreen() {
+
+        if (currentMode === "current") {
+          // Photo 2 Current
+          return `
+            ${renderStatusBar("20:16", "89%")}
+            <div class="page-title-row">
+              <h2>阅读手账</h2>
+              <span class="date-sub">09.10 - 09.16</span>
+            </div>
+            <div class="ink-body journal-view">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;position:relative;">
+                <span class="flaw-tag">排版失衡</span>
+                <div>
+                  <div style="font-size:14px;color:#333;margin-bottom:6px;">近七天，读了</div>
+                  <div style="font-size:36px;font-weight:700;font-family:var(--serif);">400 <span style="font-size:16px;">分钟</span></div>
+                </div>
+                <div style="text-align:right;font-size:14px;line-height:1.6;">
+                  <div>今日 86 分钟</div>
+                  <div>阅读 5 天</div>
+                </div>
+              </div>
+
+              <div style="margin-top:10px;">
+                <div style="font-size:15px;font-weight:700;margin-bottom:12px;">七天的阅读节奏</div>
+                <div style="display:flex;align-items:flex-end;height:130px;gap:12px;border-bottom:1px solid #000;padding-bottom:6px;justify-content:space-around;position:relative;">
+                  <span class="flaw-tag" style="top:10px;">0值浮空</span>
+                  ${rawDays.map(d => `
+                    <div style="display:flex;flex-direction:column;align-items:center;height:100%;justify-content:flex-end;gap:4px;">
+                      <span style="font-size:11px;font-weight:600;">${d.mins}</span>
+                      <div style="width:24px;background:#000;height:${Math.max(d.mins > 0 ? (d.mins/maxVal*100) : 0, 1)}px;"></div>
+                    </div>
+                  `).join('')}
+                </div>
+                <div style="display:flex;justify-content:space-around;margin-top:6px;font-size:13px;font-weight:600;">
+                  ${rawDays.map((d, i) => `<span ${i === 6 ? 'style="text-decoration:underline;"' : ''}>${d.date}</span>`).join('')}
+                </div>
+                <div style="font-size:13px;margin-top:10px;">最长阅读日 09.10 · 185 分钟</div>
+              </div>
+
+              <div style="margin-top:10px;">
+                <div style="font-size:14px;font-weight:700;margin-bottom:8px;">今日阅读时段</div>
+                <div style="height:20px;border:1px solid #000;position:relative;background:#f0f0f0;">
+                  <div style="position:absolute;left:2%;width:4%;height:100%;background:#000;"></div>
+                  <div style="position:absolute;left:46%;width:12%;height:100%;background:#000;"></div>
+                  <div style="position:absolute;left:68%;width:6%;height:100%;background:#000;"></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px;">
+                  <span>00</span><span>06</span><span>12</span><span>18</span><span>24</span>
+                </div>
+              </div>
+
+              <button class="btn-more-details" style="margin-top:auto;" onclick="switchScreen('extended')">
+                <span>更多详情</span><span>&gt;</span>
+              </button>
+            </div>
+            ${renderTabBar("journal")}
+          `;
+        }
+
+        // REDESIGNED Photo 2 (Clean unboxed Paper layout with pixel-perfect SVGs)
+        const curDayObj = rawDays[selectedBarDay];
+        const curHour = hourlyData[selectedHour];
+        const hourDesc = curHour.mins === 0 
+          ? `${String(curHour.hour).padStart(2,'0')}:00 - ${String(curHour.hour+1).padStart(2,'0')}:00 · 未翻阅`
+          : curHour.mins === 1
+          ? `01:00 · 随手翻看 1 分钟`
+          : `${String(curHour.hour).padStart(2,'0')}:00 - ${String(curHour.hour+1).padStart(2,'0')}:00 · 专注阅读 ${curHour.mins} 分钟${curHour.mins >= 30 ? '（深度）' : ''}`;
+
+        return `
+          ${renderStatusBar("20:16", "89%")}
+          <div class="page-title-row">
+            <h2>阅读手账</h2>
+            <span class="date-sub">09.10 — 09.16</span>
+          </div>
+          <div class="ink-body journal-view">
+            <!-- 1. Hero Reading Summary -->
+            <div class="journal-hero-stats">
+              <div class="jh-left">
+                <div class="kicker">近七天，读了</div>
+                <div>
+                  <span class="main-number">400</span><span class="unit">分钟</span>
+                </div>
+                <div class="sub-insight">折合 6.7 小时 · 达成 5 天阅读</div>
+              </div>
+              <div class="jh-right">
+                <div class="jh-stat-item">
+                  <small>今日阅读用时</small>
+                  <strong>86 分钟</strong>
+                </div>
+                <div class="jh-stat-item">
+                  <small>本周专注达标</small>
+                  <strong>5 / 7 天</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="paper-rule"></div>
+
+            <!-- 2. 7-Day Rhythm Chart -->
+            <div class="chart-section">
+              <div class="chart-sec-header">
+                <h4>七天的阅读节奏</h4>
+                <div class="chart-selected-detail">
+                  ${selectedBarDay === 6 ? '今日' : `09.${rawDays[selectedBarDay].date}`} · <strong>${curDayObj.mins} 分钟</strong>
+                </div>
+              </div>
+
+              ${renderSvg7DayChart()}
+
+              <div class="chart-summary-badge">
+                <span>🏆</span>
+                <span>最长沉浸日 <strong>09.10</strong> · 达 <strong>185 分钟</strong> (3.1 小时)</span>
+              </div>
+            </div>
+
+            <div class="paper-rule"></div>
+
+            <!-- 3. 24h Hourly Intensity Histogram -->
+            <div class="daypart-box">
+              <div class="daypart-header">
+                <span>今日阅读时段与强度</span>
+                <span class="daypart-sub">${hourDesc}</span>
+              </div>
+
+              ${renderSvgHourlyChart()}
+
+              <div class="dayparts-breakdown-row">
+                <div class="dp-pill">
+                  <small>深夜 00-06</small>
+                  <strong>1 分 (1%)</strong>
+                </div>
+                <div class="dp-pill">
+                  <small>清晨 06-12</small>
+                  <strong>8 分 (9%)</strong>
+                </div>
+                <div class="dp-pill">
+                  <small>午后 12-18</small>
+                  <strong>15 分 (17%)</strong>
+                </div>
+                <div class="dp-pill primary">
+                  <small>晚间 18-24 ★</small>
+                  <strong>62 分 (73%)</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="paper-rule"></div>
+
+            <!-- 5. More Details Action CTA -->
+            <button class="btn-more-details" onclick="switchScreen('extended')">
+              <span>查看全部书目阅读档案与历史明细</span>
+              <span>›</span>
+            </button>
+          </div>
+          ${renderTabBar("journal")}
+        `;
+      }
+
+      // 3. PAGE 3: 更多详情 / 阅读档案 (Extended)
+      function renderExtendedScreen() {
+        if (currentMode === "current") {
+          // Photo 3 Current
+          return `
+            ${renderStatusBar("20:16", "89%")}
+            <div class="ink-body extended-view">
+              <div style="border:1px solid #000;padding:12px;position:relative;">
+                <span class="flaw-tag">无达标激励</span>
+                <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;">
+                  <span>每日目标</span>
+                  <span>1h 26m / 30m</span>
+                </div>
+                <div style="height:4px;border:1px solid #000;background:#eee;margin:10px 0;"><div style="width:100%;height:100%;background:#000;"></div></div>
+                <div style="display:flex;justify-content:space-between;font-size:13px;">
+                  <span>连续 3 天</span>
+                  <span>最长 8 天</span>
+                </div>
+              </div>
+
+              <div style="border:1px solid #000;padding:10px;display:flex;flex-direction:column;gap:12px;position:relative;">
+                <span class="flaw-tag" style="top:250px;">垃圾文件混入</span>
+                <div style="display:flex;flex-direction:column;gap:4px;border-bottom:1px solid #eee;padding-bottom:8px;">
+                  <div style="display:flex;justify-content:space-between;">
+                    <strong style="font-size:15px;font-family:var(--serif);">三国演义</strong>
+                    <div style="text-align:right;"><strong style="font-size:16px;">4.0</strong><div style="font-size:11px;">小时</div></div>
+                  </div>
+                  <div style="font-size:12px;color:#555;">22 次 · 第十五回</div>
+                  <div style="height:2px;background:#000;width:13%;"></div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:4px;border-bottom:1px solid #eee;padding-bottom:8px;">
+                  <div style="display:flex;justify-content:space-between;">
+                    <strong style="font-size:15px;font-family:var(--serif);">重生之大涅槃</strong>
+                    <div style="text-align:right;"><strong style="font-size:16px;">13.2</strong><div style="font-size:11px;">小时</div></div>
+                  </div>
+                  <div style="font-size:12px;color:#555;">47 次 · 第三十一章 自由之辩（下）</div>
+                  <div style="height:2px;background:#000;width:45%;"></div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:4px;border-bottom:1px solid #eee;padding-bottom:8px;">
+                  <div style="display:flex;justify-content:space-between;">
+                    <strong style="font-size:15px;font-family:var(--serif);">三命通会</strong>
+                    <div style="text-align:right;"><strong style="font-size:16px;">0</strong><div style="font-size:11px;">分钟</div></div>
+                  </div>
+                  <div style="font-size:12px;color:#555;">0 次 · 关于本书</div>
+                  <div style="height:2px;background:#ccc;width:100%;"></div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:4px;border-bottom:1px solid #eee;padding-bottom:8px;">
+                  <div style="display:flex;justify-content:space-between;">
+                    <strong style="font-size:15px;font-family:var(--serif);">许仙志</strong>
+                    <div style="text-align:right;"><strong style="font-size:16px;">18</strong><div style="font-size:11px;">分钟</div></div>
+                  </div>
+                  <div style="font-size:12px;color:#555;">1 次 · 第一章 种梨</div>
+                  <div style="height:2px;background:#000;width:1%;"></div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:4px;padding-bottom:4px;">
+                  <div style="display:flex;justify-content:space-between;">
+                    <strong style="font-size:14px;color:#900;">crash_report.txt</strong>
+                    <div style="text-align:right;"><strong style="font-size:14px;">0</strong><div style="font-size:11px;">分钟</div></div>
+                  </div>
+                  <div style="font-size:12px;color:#555;">完成</div>
+                  <div style="height:2px;background:#ccc;width:100%;"></div>
+                </div>
+              </div>
+            </div>
+            ${renderTabBar("journal")}
+          `;
+        }
+
+        // REDESIGNED Photo 3
+        return `
+          ${renderStatusBar("20:16", "89%")}
+          <div class="page-title-row">
+            <button class="header-back-btn" onclick="switchScreen('journal')">‹ 返回手账</button>
+            <h2 style="font-size:18px;">阅读档案与目标</h2>
+            <span class="date-sub">共 4 本在读</span>
+          </div>
+          <div class="ink-body extended-view">
+            <!-- Goal Card -->
+            <div class="goal-hero-card">
+              <div class="goal-top-line">
+                <span class="goal-title">每日目标</span>
+                <div class="goal-target-val">
+                  <span>已完成 86 分钟 / 30 分钟</span>
+                  <span class="badge-done">🎉 今日已达标</span>
+                </div>
+              </div>
+              <div class="goal-progress-bar">
+                <div class="goal-progress-fill" style="width: 100%;"></div>
+              </div>
+              <div class="goal-streak-row">
+                <span>🔥 连续达成 <strong>3</strong> 天</span>
+                <span>🏆 历史最长 <strong>8</strong> 天</span>
+              </div>
+            </div>
+
+            <!-- Records List -->
+            <div class="book-records-card">
+              <div class="records-card-header">
+                <span>累计阅读书目 (已过滤系统日志)</span>
+                <span>按时长排序 ▾</span>
+              </div>
+              <div class="records-list">
+                <div class="record-row-item" onclick="switchScreen('detail')">
+                  <div class="record-top-row">
+                    <span class="record-title">三国演义</span>
+                    <span class="record-duration">4.0<small>小时</small></span>
+                  </div>
+                  <div class="record-mid-row">
+                    <span>[明] 罗贯中 · 读至 第十五回 · 22 次</span>
+                    <strong style="color:#000;">全书 13%</strong>
+                  </div>
+                  <div class="record-progress-track">
+                    <div class="record-progress-fill" style="width: 13%;"></div>
+                  </div>
+                </div>
+
+                <div class="record-row-item" onclick="switchScreen('detail')">
+                  <div class="record-top-row">
+                    <span class="record-title">重生之大涅槃</span>
+                    <span class="record-duration">13.2<small>小时</small></span>
+                  </div>
+                  <div class="record-mid-row">
+                    <span>奥尔良烤鲟鱼堡 · 第三十一章 自由之辩 · 47 次</span>
+                    <strong style="color:#000;">全书 45%</strong>
+                  </div>
+                  <div class="record-progress-track">
+                    <div class="record-progress-fill" style="width: 45%;"></div>
+                  </div>
+                </div>
+
+                <div class="record-row-item" onclick="switchScreen('detail')">
+                  <div class="record-top-row">
+                    <span class="record-title">许仙志</span>
+                    <span class="record-duration">18<small>分钟</small></span>
+                  </div>
+                  <div class="record-mid-row">
+                    <span>说梦者 · 第一章 种梨 · 1 次</span>
+                    <strong style="color:#000;">全书 1%</strong>
+                  </div>
+                  <div class="record-progress-track">
+                    <div class="record-progress-fill" style="width: 1%;"></div>
+                  </div>
+                </div>
+
+                <div class="record-row-item" onclick="switchScreen('detail')">
+                  <div class="record-top-row">
+                    <span class="record-title">三命通会</span>
+                    <span class="record-duration">0<small>分钟</small></span>
+                  </div>
+                  <div class="record-mid-row">
+                    <span>万民英 · 关于本书 · 尚未开始</span>
+                    <strong style="color:#666;">未读 0%</strong>
+                  </div>
+                  <div class="record-progress-track">
+                    <div class="record-progress-fill" style="width: 0%;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          ${renderTabBar("journal")}
+        `;
+      }
+
+      // 4. PAGE 4: 单书阅读统计 (Detail)
+      function renderDetailScreen() {
+        if (currentMode === "current") {
+          // Photo 4 Current (Dithered gray cards!)
+          return `
+            ${renderStatusBar("20:16", "88%")}
+            <div class="page-title-row">
+              <h2>阅读统计</h2>
+              <span class="date-sub">三国演义</span>
+            </div>
+            <div class="ink-body detail-view">
+              <div style="display:grid;grid-template-columns:90px 1fr;gap:14px;border-bottom:1px solid #000;padding-bottom:10px;position:relative;">
+                <span class="flaw-tag">虚线悬空按键</span>
+                <div>
+                  <div style="border:1px solid #000;height:95px;display:grid;place-items:center;font-weight:700;">图书</div>
+                  <div style="border:1px dashed #000;height:24px;display:grid;place-items:center;margin-top:6px;font-size:12px;">⚲ 调整</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;">
+                  <h3 style="font-size:18px;font-family:var(--serif);">三国演义</h3>
+                  <div style="font-size:12px;color:#444;">罗贯中</div>
+                  <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-top:4px;">
+                    <span>全书进度</span><span>13%</span>
+                  </div>
+                  <div style="height:6px;background:#000;width:13%;margin-bottom:4px;"></div>
+                  <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;">
+                    <span>章节进度</span><span>33%</span>
+                  </div>
+                  <div style="height:6px;background:#000;width:33%;margin-bottom:4px;"></div>
+                  <div style="font-size:12px;font-weight:600;">当前章节：第十五回</div>
+                </div>
+              </div>
+
+              <!-- Dithered Cards Simulation -->
+              <div class="metrics-matrix" style="position:relative;">
+                <span class="flaw-tag" style="top:-12px;right:30%;">50%点阵灰致命残影</span>
+                <div class="current-dither-card">
+                  <div class="cd-val">10m</div>
+                  <div class="cd-lab">上次阅读</div>
+                </div>
+                <div class="current-dither-card">
+                  <div class="cd-val">4h 5m</div>
+                  <div class="cd-lab">总时长</div>
+                </div>
+                <div class="current-dither-card">
+                  <div class="cd-val">22</div>
+                  <div class="cd-lab">阅读次数</div>
+                </div>
+                <div class="current-dither-card">
+                  <div class="cd-val">阅读中</div>
+                  <div class="cd-lab">状态</div>
+                </div>
+                <div class="current-dither-card full-w">
+                  <div class="cd-val">2026-09-16</div>
+                  <div class="cd-lab">最后阅读日期</div>
+                </div>
+                <div class="current-dither-card full-w">
+                  <div class="cd-val">2026-08-28 - ?</div>
+                  <div class="cd-lab">开始日期 - 结束日期 (问号异常)</div>
+                </div>
+                <div class="current-dither-card full-w">
+                  <div class="cd-val">~27h 25m / 148 阅读次数</div>
+                  <div class="cd-lab">预计剩余时间</div>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        // REDESIGNED Photo 4
+        return `
+          ${renderStatusBar("20:16", "88%")}
+          <div class="page-title-row">
+            <button class="header-back-btn" onclick="switchScreen('home')">‹ 返回书架</button>
+            <h2 style="font-size:18px;">书籍阅读统计</h2>
+            <span class="date-sub">已读 13 天</span>
+          </div>
+          <div class="ink-body detail-view">
+            <!-- Hero Book Meta -->
+            <div class="detail-hero-box">
+              <div class="detail-cover-col">
+                <div class="detail-cover">
+                  <h4>三国演义</h4>
+                  <span>[明] 罗贯中</span>
+                </div>
+                <button class="btn-adjust-time" title="修正误记时长">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  <span>修正用时</span>
+                </button>
+              </div>
+
+              <div class="detail-info-col">
+                <h3 class="detail-title">三国演义</h3>
+                <div class="detail-author">[明] 罗贯中 · 正在阅读</div>
+
+                <div class="detail-progress-group">
+                  <div class="progress-bar-row">
+                    <div class="progress-bar-label">
+                      <span>全书进度 (第 15 / 120 回)</span>
+                      <strong>13%</strong>
+                    </div>
+                    <div class="progress-bar-track">
+                      <div class="progress-bar-fill" style="width:13%;"></div>
+                    </div>
+                  </div>
+
+                  <div class="progress-bar-row">
+                    <div class="progress-bar-label">
+                      <span>当前章节进度</span>
+                      <strong>33%</strong>
+                    </div>
+                    <div class="progress-bar-track">
+                      <div class="progress-bar-fill" style="width:33%;"></div>
+                    </div>
+                  </div>
+                  <div style="font-size:12px;font-weight:600;margin-top:2px;">
+                    第十五回 · 太史慈酣斗小霸王
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Crisp Monochrome Metrics Matrix (Zero Dither, 100% Crisp Eink) -->
+            <div class="metrics-matrix">
+              <div class="metric-card-sharp">
+                <span class="card-label">上次翻阅</span>
+                <span class="card-val-big">10<small>分钟前</small></span>
+                <span class="card-subtext">今天 20:06</span>
+              </div>
+              <div class="metric-card-sharp">
+                <span class="card-label">累计总阅读用时</span>
+                <span class="card-val-big">4<small>小时</small> 5<small>分</small></span>
+                <span class="card-subtext">245 分钟</span>
+              </div>
+
+              <div class="metric-card-sharp">
+                <span class="card-label">翻开阅读频次</span>
+                <span class="card-val-big">22<small>次</small></span>
+                <span class="card-subtext">平均每次约 11 分钟</span>
+              </div>
+              <div class="metric-card-sharp">
+                <span class="card-label">当前阅读状态</span>
+                <span class="card-val-big">在读<small>中</small></span>
+                <span class="card-subtext">已连续活跃 3 天</span>
+              </div>
+
+              <div class="metric-card-sharp full-w">
+                <span class="card-label">阅读周期记录</span>
+                <span class="card-val-big" style="font-size:16px;">2026.08.28 — 2026.09.16</span>
+                <span class="card-subtext">历时 20 天 · 实际阅读 13 天 (活跃度 65%)</span>
+              </div>
+
+              <div class="metric-card-sharp full-w" style="border-width:2px;background:#fbfaf7;">
+                <span class="card-label">⏱ 智能阅读推算 (基于近期阅读速率)</span>
+                <span class="card-val-big" style="font-size:17px;">预计尚需约 27.5 小时</span>
+                <span class="card-subtext">按当前节奏约翻阅 148 次 · 预计 10 月中旬读完本书</span>
+              </div>
+            </div>
+
+            <!-- Primary Action Button -->
+            <button class="btn-detail-read-now" onclick="switchScreen('home')">
+              继续阅读《三国演义》 ›
+            </button>
+          </div>
+        `;
+      }
+
+      // =====================================================================
+      // STATE MANAGEMENT & INTERACTIVITY
+      // =====================================================================
+      window.switchScreen = function(screen) {
+        currentScreen = screen;
+        document.querySelectorAll(".screen-nav-btn").forEach(b => {
+          b.classList.toggle("active", b.dataset.screen === screen);
+        });
+        updateExpl();
+        render();
+      };
+
+      window.selectBarDay = function(dayIndex) {
+        selectedBarDay = dayIndex;
+        render();
+      };
+
+      window.selectHourlySlot = function(h) {
+        selectedHour = h;
+        render();
+      };
+      function render() {
+        if (currentScreen === "home") appRoot.innerHTML = renderHomeScreen();
+        else if (currentScreen === "journal") appRoot.innerHTML = renderJournalScreen();
+        else if (currentScreen === "extended") appRoot.innerHTML = renderExtendedScreen();
+        else if (currentScreen === "detail") appRoot.innerHTML = renderDetailScreen();
+
+        // Bind bottom nav click events inside the screen
+        appRoot.querySelectorAll(".ink-tab-item").forEach(item => {
+          item.addEventListener("click", () => {
+            const target = item.dataset.nav;
+            if (target === "home") switchScreen("home");
+            else if (target === "journal") switchScreen("journal");
+          });
+        });
+      }
+
+      // Sidebar Mode Switchers
+      document.querySelectorAll(".mode-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          currentMode = btn.dataset.mode;
+          updateExpl();
+          render();
+        });
+      });
+
+      // Sidebar Screen Switchers
+      document.querySelectorAll(".screen-nav-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          switchScreen(btn.dataset.screen);
+        });
+      });
+
+      // Rig Controls Handling
+      function logicalCanvas(device) {
+        const [panelWidth, panelHeight] = DEVICE_PROFILES[device].panel;
+        return [panelHeight, panelWidth]; // portrait swap
+      }
+
+      function syncScale() {
+        frame.style.transform = "none";
+        const naturalWidth = frame.offsetWidth;
+        const naturalHeight = frame.offsetHeight;
+        const scale = Math.min((viewport.clientWidth - 48) / naturalWidth, (viewport.clientHeight - 48) / naturalHeight, 1);
+        frame.style.transform = `scale(${Math.max(scale, .1)})`;
+        sizer.style.width = `${naturalWidth * scale}px`;
+        sizer.style.height = `${naturalHeight * scale}px`;
+      }
+
+      function applyConfiguration() {
+        const device = deviceSelect.value;
+        const [width, height] = logicalCanvas(device);
+        const safe = DEVICE_PROFILES[device].safe;
+
+        lab.dataset.device = device;
+        lab.dataset.shell = shellSelect.value;
+        lab.dataset.showSafe = String(safeToggle.checked);
+        lab.style.setProperty("--screen-width", `${width}px`);
+        lab.style.setProperty("--screen-height", `${height}px`);
+        ["top", "right", "bottom", "left"].forEach((edge, index) => lab.style.setProperty(`--safe-${edge}`, `${safe[index]}px`));
+
+        appRoot.dataset.type = typeSelect.value;
+        document.querySelector("#canvas-readout").textContent = `${width} × ${height} 逻辑像素`;
+        requestAnimationFrame(syncScale);
+      }
+
+      [deviceSelect, shellSelect, typeSelect, safeToggle].forEach(control => control.addEventListener("change", () => {
+        applyConfiguration();
+        render();
+      }));
+
+      new ResizeObserver(syncScale).observe(viewport);
+      window.addEventListener("resize", syncScale);
+
+      // Initialize
+      applyConfiguration();
+      updateExpl();
+      render();
+    })();
+  </script>
+</body>
+</html>

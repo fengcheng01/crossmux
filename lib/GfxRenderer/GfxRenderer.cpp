@@ -13,6 +13,7 @@
 #include <string_view>
 
 #include "FontCacheManager.h"
+#include "DirectGlyphSmoothing.h"
 #include "Memory.h"
 
 namespace {
@@ -526,7 +527,13 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
       innerBase = cursorX + left;  // screenX = innerBase + glyphX
     }
 
-    if (is2Bit) {
+    const bool smoothCorners = renderer.usesDirectGlyphSmoothing() && !renderer.usesSolidGlyphs() &&
+                               renderMode != GfxRenderer::BW;
+    const auto coverageAt = [&](int x, int y) {
+      return smoothCorners ? directGlyphSmoothing::coverage(bitmap, width, height, x, y, is2Bit)
+                           : get2BitCoverage(bitmap, y * width + x);
+    };
+    if (is2Bit || smoothCorners) {
       for (int glyphY = 0; glyphY < height; glyphY++) {
         const int outerCoord = outerBase + glyphY;
         if (syntheticBoldPixels == 0) {
@@ -539,7 +546,7 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
               screenX = innerBase + glyphX;
               screenY = outerCoord;
             }
-            const uint8_t coverage = get2BitCoverage(bitmap, glyphY * width + glyphX);
+            const uint8_t coverage = coverageAt(glyphX, glyphY);
             draw2BitGlyphPixel(renderer, renderMode, screenX, screenY, pixelState, coverage);
           }
           continue;
@@ -558,7 +565,7 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
             screenY = outerCoord;
           }
 
-          const uint8_t current = glyphX < width ? get2BitCoverage(bitmap, glyphY * width + glyphX) : 0;
+          const uint8_t current = glyphX < width ? coverageAt(glyphX, glyphY) : 0;
           const uint8_t coverage = dilate2BitCoverage(current, previous1, previous2, syntheticBoldPixels);
           draw2BitGlyphPixel(renderer, renderMode, screenX, screenY, pixelState, coverage);
           previous2 = previous1;
@@ -1780,6 +1787,8 @@ bool GfxRenderer::glyphIntersectsStrip(int x0, int y0, int x1, int y1) const {
   return !(maxY < _stripY0 || minY >= _stripY0 + _stripRows);
 }
 
+
+
 void GfxRenderer::invertScreen() const {
   for (uint32_t i = 0; i < frameBufferSize; i++) {
     frameBuffer[i] = ~frameBuffer[i];
@@ -1794,12 +1803,23 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
     effectiveRefreshMode = nextRefreshOverride;
     nextRefreshOverridePending = false;
   }
+  if (nextDriveAllPending) {
+    nextDriveAllPending = false;
+#if defined(SIMULATOR)
+    display.displayBuffer(effectiveRefreshMode, fadingFix);
+#else
+    display.displayBufferDriveAll(effectiveRefreshMode, fadingFix);
+#endif
+    LOG_DBG("GFX", "displayBuffer done drive-all mode=%d", static_cast<int>(effectiveRefreshMode));
+    return;
+  }
   display.displayBuffer(effectiveRefreshMode, fadingFix);
   LOG_DBG("GFX", "displayBuffer done mode=%d", static_cast<int>(effectiveRefreshMode));
 }
 
 void GfxRenderer::displaySleepClean() const {
   nextRefreshOverridePending = false;
+  nextDriveAllPending = false;
 #if defined(SIMULATOR)
   display.displayBuffer(HalDisplay::FAST_REFRESH, true);
 #else
@@ -1808,6 +1828,7 @@ void GfxRenderer::displaySleepClean() const {
 }
 
 void GfxRenderer::displayBufferDriveAll(const HalDisplay::RefreshMode refreshMode) const {
+  nextDriveAllPending = false;
   HalDisplay::RefreshMode effectiveRefreshMode = refreshMode;
   if (nextRefreshOverridePending) {
     effectiveRefreshMode = nextRefreshOverride;

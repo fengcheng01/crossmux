@@ -1734,6 +1734,7 @@ void EpubReaderActivity::rememberCurrentContentOffset() {
 void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int orientedMarginTop,
                                         const int orientedMarginRight, const int orientedMarginBottom,
                                         const int orientedMarginLeft) {
+  ReaderUtils::DirectGlyphSmoothingScope fontCoverage(renderer);
   const auto t0 = millis();
   const int fontId = SETTINGS.getReaderFontId();
   const auto renderPage = [&] {
