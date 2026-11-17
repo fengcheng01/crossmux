@@ -45,7 +45,10 @@ class SdCardFont {
   // Load .cpfont file: reads header + intervals into RAM, records file layout offsets.
   // Supports v4 (multi-style) format.
   // Returns true on success.
-  bool load(const char* path, bool preferFlash = false, bool enablePsramGlyphCache = false, uint8_t pointSize = 0);
+  // UI fallback sizes may put their permanent lookup tables in PSRAM, without
+  // enabling the larger reader glyph cache. Allocation failure rejects the face.
+  bool load(const char* path, bool preferFlash = false, bool enablePsramGlyphCache = false, uint8_t pointSize = 0,
+            bool preferPsramMetadata = false);
 #if FREEINK_DEVICE_MURPHY_M4
   bool isTtf() const { return ttfBackend_ != nullptr; }
   MurphyM4TtfFont* getTtfBackend() { return ttfBackend_.get(); }
@@ -193,6 +196,9 @@ class SdCardFont {
     static_assert(sizeof(BmpInterval16) == 6, "BmpInterval16 must remain compact");
     BmpInterval16* bmpIntervals = nullptr;
     bool intervalsAreBmp16 = false;
+#if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR) && !defined(CROSSPOINT_EMULATED)
+    memory::ByteBuffer psramIntervals;
+#endif
 
     // Persistent kern-class + ligature tables (lazy-loaded on first prewarm).
     // The full kern MATRIX is NOT resident — on Literata-class fonts a single
@@ -278,6 +284,7 @@ class SdCardFont {
   size_t flashPayloadSize_ = 0;
 #if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR) && !defined(CROSSPOINT_EMULATED)
   mutable bool glyphCacheAllowed_ = false;
+  bool preferPsramMetadata_ = false;
   mutable bool glyphCacheAttempted_ = false;
   mutable memory::ByteBuffer glyphCacheBuffer_;
   mutable SdCardFontGlyphCache glyphCache_;

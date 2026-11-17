@@ -100,6 +100,10 @@ class GfxRenderer {
   bool fadingFix;
   bool absoluteGrayPlanes;
   bool directGlyphSmoothing = false;
+  // Direct AA pass-1 threshold: BW glyph draws skip coverage-1 pixels so the
+  // differential repaint shows cores + dark edges only; the gray step then
+  // adds the light-gray ink. Kills the black-then-thin AA flash on turns.
+  bool directInkThreshold = false;
   bool solidGlyphs = false;
   bool glyphDither = false;
   mutable uint8_t syntheticBoldPixels = 0;
@@ -250,6 +254,8 @@ class GfxRenderer {
 
   void setDirectGlyphSmoothing(bool enabled) { directGlyphSmoothing = enabled; }
   bool usesDirectGlyphSmoothing() const { return directGlyphSmoothing; }
+  void setDirectInkThreshold(bool enabled) { directInkThreshold = enabled; }
+  bool usesDirectInkThreshold() const { return directInkThreshold; }
 
 
   // Fading fix control
@@ -467,6 +473,12 @@ class GfxRenderer {
   void displayGrayBufferDirect() const;
   void displaySwiftAa(const uint8_t* edgePlane) const;
   bool supportsSwiftAa() const;
+  // Swift recipe widened to four levels: differential repaint base (pass1
+  // mode selectable) + gray step classified by the coverage bits (RED = MSB,
+  // BW = LSB planes, absolute encoding). No flash by construction.
+  void displayDifferentialGray4(const uint8_t* lsbPlane, const uint8_t* msbPlane,
+                                HalDisplay::RefreshMode pass1 = HalDisplay::FAST_REFRESH) const;
+  bool supportsDifferentialGray4() const;
 
   // Tiled grayscale (X4): stream one band of a plane straight to controller RAM
   // from `scratch` (panelWidthBytes * numRows, physical rows [yStart, yStart+

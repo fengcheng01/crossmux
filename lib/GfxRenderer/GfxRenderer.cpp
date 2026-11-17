@@ -393,6 +393,11 @@ static void draw2BitGlyphPixel(const GfxRenderer& renderer, const GfxRenderer::R
     if (GfxRenderer::glyphDitherPixel(coverage, x, y)) renderer.drawPixel(x, y, pixelState);
     return;
   }
+  // Direct's pass-1 B/W frame keeps light-gray pixels white: the gray step
+  // then only ADDS ink (light edges darken in) instead of lifting the black
+  // pass-1 paint — the black-then-thin transition read as an AA flash. Plane
+  // renders keep the full coverage classes (renderMode != BW).
+  if (renderMode == GfxRenderer::BW && renderer.usesDirectInkThreshold() && coverage == 1) return;
   const auto pixel = GfxRenderer::mapTwoBitGlyphCoverage(renderMode, coverage, renderer.usesAbsoluteGrayPlanes());
   if (!pixel.draw) return;
   renderer.drawPixel(x, y, renderMode == GfxRenderer::BW ? pixelState : pixel.state);
@@ -2501,6 +2506,30 @@ bool GfxRenderer::supportsSwiftAa() const {
   return true;  // UI flow runs; the preview above stands in for the hardware
 #else
   return display.supportsSwiftAa();
+#endif
+}
+
+void GfxRenderer::displayDifferentialGray4(const uint8_t* lsbPlane, const uint8_t* msbPlane,
+                                           HalDisplay::RefreshMode pass1) const {
+#if defined(SIMULATOR)
+  // The shim has no repaint/step waveforms. Preview via the gray compositor:
+  // refresh the B/W base snapshot, load both coverage planes, then compose —
+  // the same stand-in displayGrayBufferAbsolute uses for the absolute waveform.
+  (void)pass1;
+  display.displayBuffer(HalDisplay::FAST_REFRESH);
+  display.copyGrayscaleLsbBuffers(lsbPlane);
+  display.copyGrayscaleMsbBuffers(msbPlane);
+  display.displayGrayBuffer(false);
+#else
+  display.displayDifferentialGray4(lsbPlane, msbPlane, pass1, fadingFix);
+#endif
+}
+
+bool GfxRenderer::supportsDifferentialGray4() const {
+#if defined(SIMULATOR)
+  return true;  // UI flow runs; the preview above stands in for the hardware
+#else
+  return display.supportsDifferentialGray4();
 #endif
 }
 

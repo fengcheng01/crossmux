@@ -2,10 +2,10 @@
 
 #include <I18n.h>
 
+#include <atomic>
 #include <cstdint>
 
 #include "activities/Activity.h"
-#include "util/ButtonNavigator.h"
 
 struct Rect;
 
@@ -35,11 +35,14 @@ class PinEntryActivity : public Activity {
       : PinEntryActivity(renderer, mappedInput, mode, WakeTarget()) {}
 
   void onEnter() override;
+  void requestUpdate(bool immediate = false) override;
   void loop() override;
   void render(RenderLock&& lock) override;
   // The lock screen must not be escaped by system gestures: a swipe-up that
   // goHome()s from the PIN pad bypasses the lock entirely.
   bool blocksSystemGestures() const override { return true; }
+  bool sleepOnPowerRelease() const override { return mode == Mode::Unlock && !waitForPowerRelease; }
+  bool resumesReaderOnSleep() const override { return mode == Mode::Unlock && target.toReader; }
 
  private:
   static constexpr int PIN_LENGTH = 4;
@@ -54,6 +57,22 @@ class PinEntryActivity : public Activity {
   void applyUnlockSuccess();
   StrId promptId() const;
   void showMessage(StrId id);
+  struct RenderState {
+    StrId prompt;
+    StrId message;
+    uint8_t digitCount;
+    int cursorKey;
+    bool hasMessage;
+    bool operator==(const RenderState& other) const {
+      return prompt == other.prompt && message == other.message && digitCount == other.digitCount &&
+             cursorKey == other.cursorKey && hasMessage == other.hasMessage;
+    }
+  };
+  RenderState snapshotRenderState();
+  portMUX_TYPE renderStateMux = portMUX_INITIALIZER_UNLOCKED;
+  RenderState pendingRenderState{};
+  RenderState frameState{};
+  bool frameValid = false;
 
   Mode mode;
   WakeTarget target;
@@ -62,12 +81,14 @@ class PinEntryActivity : public Activity {
   uint16_t firstEntry = 0;
   uint8_t digits[PIN_LENGTH] = {};
   uint8_t digitCount = 0;
+  // A key accepted while the finger is down must not fire again on release.
+  bool touchKeyHeld = false;
   // -1 = no key highlighted. Touch/button selection appears only after input.
   int cursorKey = -1;
   bool hasMessage = false;
   StrId message = StrId::STR_CROSSPOINT;  // only read while hasMessage
-  bool finished = false;                  // navigation/result already dispatched
-  ButtonNavigator buttonNavigator;
+  std::atomic<bool> finished{false};      // navigation/result already dispatched
+  bool waitForPowerRelease = false;
 
   // Layout, resolved once in onEnter() so loop() hit-testing matches render().
   int titleTop = 0;

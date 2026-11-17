@@ -7,6 +7,10 @@
 #include <sys/time.h>
 #include <time.h>
 
+#if FREEINK_DEVICE_MURPHY_M4 && !defined(SIMULATOR)
+#include <esp_system.h>
+#endif
+
 HalClock halClock;
 
 namespace {
@@ -75,8 +79,19 @@ void HalClock::begin() {
   _rtcAvailable = _sdkRtc.begin();
   LOG_INF("CLK", _rtcAvailable ? "External RTC found" : "Using software clock");
 
-  if (!hasValidTime() && restoreSystemTimeFromRtc()) {
+  const time_t systemTime = nowUtc();
+  bool wakingFromDeepSleep = false;
+#if FREEINK_DEVICE_MURPHY_M4 && !defined(SIMULATOR)
+  // ESP32-S3 retains its system clock across deep sleep using the internal RC
+  // oscillator. It can still look valid after wake even when it has drifted.
+  wakingFromDeepSleep = esp_reset_reason() == ESP_RST_DEEPSLEEP;
+#endif
+  if ((systemTime == 0 || wakingFromDeepSleep) && restoreSystemTimeFromRtc()) {
     LOG_INF("CLK", "System UTC clock restored from external RTC");
+    if (wakingFromDeepSleep && systemTime != 0) {
+      LOG_INF("CLK", "Deep-sleep system clock differed from RTC by %lld seconds",
+              static_cast<long long>(nowUtc()) - static_cast<long long>(systemTime));
+    }
   }
 }
 

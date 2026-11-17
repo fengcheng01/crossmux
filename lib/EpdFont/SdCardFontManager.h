@@ -25,6 +25,8 @@ class SdCardFontManager {
 
   // Additively load the .cpfont of `family` at the exact physical `pointSize`
   // (used for size-matched CJK UI fallback alongside the reader-size font).
+  // May use one fixed supplemental cpfont UI family instead of the reader
+  // family; identical point sizes from these two families stay separate.
   // Does not unload anything. If a font of that size is already loaded its id
   // is reused. Returns the font id, or 0 if the family has no file at that size
   // or loading failed.
@@ -45,17 +47,19 @@ class SdCardFontManager {
   uint8_t currentPointSize() const { return loadedPointSize_; };
 
  private:
+  enum class FontRole : uint8_t { ReaderFamily, UiFallback };
   struct LoadedFont {
     SdCardFont* font;  // heap-allocated, owned
     int fontId;
     uint8_t size;
+    FontRole role;
   };
   static int computeFontId(uint32_t contentHash, const char* familyName, uint8_t pointSize);
 
   // Load+register a single .cpfont file and append it to loaded_.
   // Returns the font id, or 0 on failure (allocation, read, or id collision).
   int loadFile(const SdCardFontFileInfo& file, const char* familyName, GfxRenderer& renderer, bool preferFlash,
-               bool enablePsramGlyphCache);
+               bool enablePsramGlyphCache, FontRole role = FontRole::ReaderFamily);
 
   std::string loadedFamilyName_;
   uint8_t loadedPointSize_ = 0;

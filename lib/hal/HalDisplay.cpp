@@ -157,6 +157,13 @@ void HalDisplay::displaySwiftAa(const uint8_t* edgePlane, bool turnOffScreen) {
   einkDisplay.displaySwiftAaBuffer(edgePlane, turnOffScreen);
 }
 
+bool HalDisplay::supportsDifferentialGray4() const { return einkDisplay.supportsDifferentialGray4(); }
+
+void HalDisplay::displayDifferentialGray4(const uint8_t* lsbPlane, const uint8_t* msbPlane,
+                                          RefreshMode pass1, bool turnOffScreen) {
+  einkDisplay.displayDifferentialGray4Buffer(lsbPlane, msbPlane, convertRefreshMode(pass1), turnOffScreen);
+}
+
 void HalDisplay::displayGrayBufferAbsolute(bool turnOffScreen, bool cleanWhite) {
   einkDisplay.displayGrayBuffer(turnOffScreen, nullptr, true, cleanWhite);
 }

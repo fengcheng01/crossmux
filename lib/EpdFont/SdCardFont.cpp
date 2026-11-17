@@ -318,6 +318,13 @@ void SdCardFont::freeStyleMiniKern(PerStyle& s) {
 
 void SdCardFont::freeStyleAll(PerStyle& s) {
   freeStyleMiniData(s);
+#if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR) && !defined(CROSSPOINT_EMULATED)
+  if (s.psramIntervals) {
+    s.fullIntervals = nullptr;
+    s.bmpIntervals = nullptr;
+    s.psramIntervals.reset();
+  }
+#endif
   delete[] s.fullIntervals;
   s.fullIntervals = nullptr;
   delete[] s.bmpIntervals;
@@ -651,7 +658,8 @@ void SdCardFont::computeStyleFileOffsets(PerStyle& s, uint32_t baseOffset) {
 
 // --- Load ---
 
-bool SdCardFont::load(const char* path, bool preferFlash, bool enablePsramGlyphCache, uint8_t pointSize) {
+bool SdCardFont::load(const char* path, bool preferFlash, bool enablePsramGlyphCache, uint8_t pointSize,
+                      bool preferPsramMetadata) {
   freeAll();
 #if FREEINK_DEVICE_MURPHY_M4
   auto isTtf = [](const char* p) {
@@ -677,8 +685,10 @@ bool SdCardFont::load(const char* path, bool preferFlash, bool enablePsramGlyphC
 #endif
 #if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR) && !defined(CROSSPOINT_EMULATED)
   glyphCacheAllowed_ = enablePsramGlyphCache;
+  preferPsramMetadata_ = preferPsramMetadata;
 #else
   (void)enablePsramGlyphCache;
+  (void)preferPsramMetadata;
 #endif
   if (strlen(path) >= sizeof(filePath_)) {
     LOG_ERR("SDCF", "Path too long (%zu bytes, max %zu)", strlen(path), sizeof(filePath_) - 1);
@@ -858,8 +868,33 @@ bool SdCardFont::loadSelectedSource() {
       return false;
     }
 
+    // Four NotoSansSC UI sizes have 24KB of compact intervals each. Keep these
+    // persistent tables out of internal RAM and the render stack. Bounds above
+    // cap any table at 4096 * 12 bytes; the shared PSRAM reserve still applies.
+#if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR) && !defined(CROSSPOINT_EMULATED)
+    if (preferPsramMetadata_ && s.header.intervalCount != 0) {
+      const size_t bytes =
+          s.header.intervalCount * (canUseBmp16 ? sizeof(PerStyle::BmpInterval16) : sizeof(EpdUnicodeInterval));
+      if (memory::psramHasHeadroom(bytes, bytes, 16 * 1024)) {
+        s.psramIntervals = memory::makePsramByteBufferNoThrow(bytes);
+      }
+      if (!s.psramIntervals) {
+        LOG_ERR("SDCF", "Failed to allocate %u-byte UI font index in PSRAM", static_cast<unsigned>(bytes));
+        freeAll();
+        return false;
+      }
+      // heap_caps_calloc supplies aligned storage; these are not packed file reads.
+      if (canUseBmp16) {
+        s.bmpIntervals = reinterpret_cast<PerStyle::BmpInterval16*>(s.psramIntervals.get());
+      } else {
+        s.fullIntervals = reinterpret_cast<EpdUnicodeInterval*>(s.psramIntervals.get());
+      }
+    }
+#endif
     if (canUseBmp16) {
-      s.bmpIntervals = new (std::nothrow) PerStyle::BmpInterval16[s.header.intervalCount];
+      if (!s.bmpIntervals) {
+        s.bmpIntervals = makeUniqueNoThrow<PerStyle::BmpInterval16[]>(s.header.intervalCount).release();
+      }
       if (!s.bmpIntervals) {
         LOG_ERR("SDCF", "Failed to allocate compact intervals for style %u", i);
         freeAll();
@@ -876,7 +911,9 @@ bool SdCardFont::loadSelectedSource() {
       }
       s.intervalsAreBmp16 = true;
     } else {
-      s.fullIntervals = new (std::nothrow) EpdUnicodeInterval[s.header.intervalCount];
+      if (!s.fullIntervals) {
+        s.fullIntervals = makeUniqueNoThrow<EpdUnicodeInterval[]>(s.header.intervalCount).release();
+      }
       if (!s.fullIntervals) {
         LOG_ERR("SDCF", "Failed to allocate %u intervals for style %u", s.header.intervalCount, i);
         freeAll();

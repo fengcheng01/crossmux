@@ -203,6 +203,26 @@ Incremental drawing does not imply a different panel waveform or windowed
 refresh. Those are display-driver decisions and require separate hardware
 measurement.
 
+### Lock-screen PIN entry
+
+In unlock mode, a fresh Power release returns to sleep regardless of the
+configured short-power action. The PIN page consumes the inherited wake hold
+and its release, including a Power-as-Confirm alias. Sleeping from the gate
+preserves its deferred home/reader target; setting a PIN from Settings keeps
+the normal power-button behavior.
+
+PIN keys accept the immediate touch press via `wasScreenTouchPressed()` and
+suppress that contact's subsequent tap. This bypasses the 90 ms list-selection hold
+delay without changing list gestures. The fourth digit verifies immediately.
+The page publishes a small render-state snapshot under a critical section and
+retains the single framebuffer, redrawing changed boxes and cursor keys. A
+newer snapshot skips an obsolete panel update and queues another render; the
+panel still uses the existing FAST waveform.
+
+Verify wake → Power → wake still asks for the PIN and resumes the original
+book after successful verification. Also check fast taps, held contacts,
+backspace, wrong PIN, double-entry setup, and Power-as-Confirm settings.
+
 ### Lyra Carousel home
 
 Lyra Carousel displays one centered recent-book cover in a `380x540` frame.

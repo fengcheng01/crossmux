@@ -37,14 +37,14 @@ constexpr StrId TAB_NAME_IDS[] = {StrId::STR_FONT, StrId::STR_SIZE, StrId::STR_L
 
 constexpr StrId LAYOUT_ROW_NAME_IDS[] = {StrId::STR_LINE_SPACING, StrId::STR_EXTRA_SPACING,
                                          StrId::STR_FIRST_LINE_INDENT, StrId::STR_ALIGNMENT, StrId::STR_SCREEN_MARGIN};
-constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING,
+constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_TEXT_AA,
+                                        StrId::STR_FOCUS_READING,
                                         StrId::STR_READING_GUIDE_LINE,
                                         StrId::STR_READING_GUIDE_LINE_STYLE,
                                         StrId::STR_READING_GUIDE_LINE_OFFSET,
                                         StrId::STR_HYPHENATION,
                                         StrId::STR_EMBEDDED_STYLE,
-                                        StrId::STR_FAKE_BOLD,
-                                        StrId::STR_TEXT_AA};
+                                        StrId::STR_FAKE_BOLD};
 #if FREEINK_DEVICE_MURPHY_M4
 constexpr StrId AA_MODE_IDS[] = {StrId::STR_STATE_OFF, StrId::STR_AA_OVERLAY,
                                  StrId::STR_AA_DIRECT, StrId::STR_AA_SWIFT, StrId::STR_AA_SINGLE_FLASH,
@@ -136,8 +136,6 @@ void TextSettingsActivity::onEnter() {
     if (!fonts_[i].isBuiltin) familyLabels_[i] = sdFontLabel(fonts_[i].name, registry_);
   }
 
-  rebuildSizeList();
-
   currentFamilyIndex_ = 0;
   for (int i = 0; i < static_cast<int>(fonts_.size()); i++) {
     const auto& font = fonts_[i];
@@ -152,6 +150,14 @@ void TextSettingsActivity::onEnter() {
   initialFamilyIndex_ = currentFamilyIndex_;
   initialPointSize_ = SETTINGS.fontPointSize;
   initialSdFontFlashPreload_ = SETTINGS.sdFontFlashPreload;
+  // The size list belongs to the resolved family, so build it AFTER the
+  // selection scan. Building it first ran on the member-default family
+  // (fonts_[0]): the highlight snapped inside the wrong point-size set and
+  // armed the Size tab's remembered row with it — the tab then showed a
+  // wrong size (e.g. 22 pt) and confirming that row silently rewrote the
+  // reading size.
+  rebuildSizeList();
+
   // Per-tab ring positions (0 = tab bar, 1..N = row). The base reset each
   // tab's nav with followOnBuild armed, so each tab's first build shows its
   // remembered selection (Family/Size open on the current item).

@@ -192,6 +192,12 @@ inline void displayBaseWithRefreshCycle(const GfxRenderer& renderer, int& pagesU
   }
 }
 
+// Direct (pulse tier) retired in v145: hardware A/B against the vendor E
+// waveform left its edges jagged and its background dirty. v146 replaced the
+// mode with the no-flash differential four-level path
+// (GfxRenderer::displayDifferentialGray4) on EPUB and the two-pass overlay on
+// TXT. The enum case and the SDK pulse path remain for future waveform
+// experiments, like the retired LUT tables in Ssd1677Luts.h.
 enum class GrayRefresh { Overlay, SingleFlash, WhiteFlash, Direct };
 
 inline void displayGrayRefresh(const GfxRenderer& renderer, const GrayRefresh refresh) {
@@ -283,18 +289,31 @@ inline bool usesDirectGrayAa() {
 }
 
 // Shared by TTF and cpfont; this changes drawing only, not cached glyph data.
+// Direct and White-flash soften supported corners; only Direct thresholds BW.
 // Restore on exit so UI and other AA modes keep their original coverage.
+// Besides corner smoothing, the scope arms the pass-1 ink threshold: BW glyph
+// draws skip coverage-1 pixels so the differential repaint lands cores + dark
+// edges only and the gray step just adds the light-gray ink — the page turn
+// reads as ink settling, not a black-then-thin AA flash.
 class DirectGlyphSmoothingScope {
  public:
   explicit DirectGlyphSmoothingScope(GfxRenderer& renderer) : renderer_(renderer) {
 #if FREEINK_DEVICE_MURPHY_M4
-    enabled_ = usesDirectGrayAa() && !SETTINGS.screenInverted && !SETTINGS.readingBackgroundEnabled;
-    if (enabled_) renderer_.setDirectGlyphSmoothing(true);
+    const bool direct = usesDirectGrayAa();
+    const bool whiteFlash = SETTINGS.textAntiAliasing == CrossPointSettings::TEXT_AA_WHITE_FLASH;
+    enabled_ = (direct || whiteFlash) && !SETTINGS.screenInverted && !SETTINGS.readingBackgroundEnabled;
+    if (enabled_) {
+      renderer_.setDirectGlyphSmoothing(true);
+      renderer_.setDirectInkThreshold(direct);
+    }
 #endif
   }
   ~DirectGlyphSmoothingScope() {
 #if FREEINK_DEVICE_MURPHY_M4
-    if (enabled_) renderer_.setDirectGlyphSmoothing(false);
+    if (enabled_) {
+      renderer_.setDirectGlyphSmoothing(false);
+      renderer_.setDirectInkThreshold(false);
+    }
 #endif
   }
   DirectGlyphSmoothingScope(const DirectGlyphSmoothingScope&) = delete;

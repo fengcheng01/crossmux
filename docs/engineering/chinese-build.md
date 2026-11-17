@@ -20,6 +20,17 @@ gates every CN-only resource:
 | WeRead (`src/activities/apps/weread/`) | Compiled into native CN builds through `build_src_filter`. Device requests use the app-local `WeReadHttpClient` over wolfSSL; the native simulator uses the pinned simulator fork's `esp_http_client` shim over the host `curl`. |
 | First-boot locale defaults (`src/CrossPointSettings.h`) | A fresh CN build starts with `Language::ZH_CN` and UTC+8 (`clockUtcOffsetQ = 80`); non-CN builds default to `Language::EN` and UTC+0. Saved UTC offsets are preserved across reflashes. When switching CN → global, the existing SKU/renderability guard resets Chinese to English, including legacy settings without a `langSku` marker. |
 
+On PSRAM-equipped Chinese targets, size-matched UI fallbacks use the installed
+`NotoSansSC` cpfont family (8/10/12/14pt), independent of the selected reading
+family. The fixed family matches the built-in Noto Sans UI, so rare characters
+such as 涅槃 no longer switch a complete title into the reading typeface. These
+reuse the existing extra-size slots and on-demand SD glyph path, not a second
+TTF backend. Their permanent lookup tables use checked PSRAM allocations
+(24KB per official size), preserving internal RAM for reading and image decode.
+With no matching NotoSansSC file, the built-in subset is retained;
+missing characters require installing the corresponding size. C3 builds keep
+their existing built-in-only UI memory policy.
+
 **Flash budget** (default `partitions.csv`, dual A/B app slot = 6.25 MB):
 
 | Section | Bytes |

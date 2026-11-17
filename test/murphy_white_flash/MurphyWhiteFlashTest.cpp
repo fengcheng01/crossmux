@@ -28,12 +28,12 @@ constexpr unsigned dose(const Lut& lut, unsigned target, unsigned source) {
 }
 
 template <typename Lut>
-constexpr bool validPulse(const Lut& lut, unsigned lightInkFrames) {
+constexpr bool validPulse(const Lut& lut, unsigned lightInkFrames, unsigned darkInkFrames) {
   if (lut.size() != sizeof(freeink::lut_m4_from_white)) return false;
   for (unsigned i = 100; i < lut.size(); ++i) {
     if (lut[i] != freeink::lut_m4_from_white[i]) return false;
   }
-  return dose(lut, 0, 2) == frames(lut) && dose(lut, 1, 1) == lightInkFrames && dose(lut, 2, 1) == 12 &&
+  return dose(lut, 0, 2) == frames(lut) && dose(lut, 1, 1) == lightInkFrames && dose(lut, 2, 1) == darkInkFrames &&
          dose(lut, 3, 1) == 24 && dose(lut, 3, 2) == 0;
 }
 
@@ -60,8 +60,8 @@ static_assert(inkEnd(freeink::lut_m4_direct_pulse, 3) == 30);
 static_assert(frames(freeink::lut_m4_from_white) == 60);
 static_assert(frames(freeink::lut_m4_white_pulse) == 24);
 static_assert(frames(freeink::lut_m4_direct_pulse) == 30);
-static_assert(validPulse(freeink::lut_m4_white_pulse, 9));
-static_assert(validPulse(freeink::lut_m4_direct_pulse, 8));
+static_assert(validPulse(freeink::lut_m4_white_pulse, 11, 17));
+static_assert(validPulse(freeink::lut_m4_direct_pulse, 8, 12));
 static_assert(dose(freeink::lut_m4_white_pulse, 1, 2) == 0);
 static_assert(dose(freeink::lut_m4_white_pulse, 2, 2) == 0);
 static_assert(dose(freeink::lut_m4_direct_pulse, 1, 2) == 18);

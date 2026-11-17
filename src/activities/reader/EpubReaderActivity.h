@@ -91,7 +91,7 @@ class EpubReaderActivity final : public ReaderActivity {
   int lastSavedPageCount = -1;
 
   static constexpr int BUILD_PAGES_PER_CHUNK = 8;
-  static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 2;
+  static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 1;
   static constexpr size_t BACKGROUND_BUILD_MIN_FREE_HEAP = 32 * 1024;
   static constexpr size_t BACKGROUND_BUILD_MIN_MAX_ALLOC = 16 * 1024;
   bool buildTickHeapGate();

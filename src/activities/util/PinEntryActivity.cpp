@@ -17,6 +17,8 @@ PinEntryActivity::PinEntryActivity(GfxRenderer& renderer, MappedInputManager& ma
 
 void PinEntryActivity::onEnter() {
   Activity::onEnter();
+  waitForPowerRelease = mappedInput.isPressed(MappedInputManager::Button::Power);
+  frameValid = false;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int pageWidth = renderer.getScreenWidth();
@@ -44,6 +46,21 @@ void PinEntryActivity::onEnter() {
   keypadY += shift;
 
   requestUpdate();
+}
+
+void PinEntryActivity::requestUpdate(const bool immediate) {
+  const RenderState state{promptId(), message, digitCount, cursorKey, hasMessage};
+  taskENTER_CRITICAL(&renderStateMux);
+  pendingRenderState = state;
+  taskEXIT_CRITICAL(&renderStateMux);
+  Activity::requestUpdate(immediate);
+}
+
+PinEntryActivity::RenderState PinEntryActivity::snapshotRenderState() {
+  taskENTER_CRITICAL(&renderStateMux);
+  const RenderState state = pendingRenderState;
+  taskEXIT_CRITICAL(&renderStateMux);
+  return state;
 }
 
 Rect PinEntryActivity::keyRect(const int index) const {
@@ -77,9 +94,8 @@ void PinEntryActivity::enterDigit(const int digit) {
   digits[digitCount++] = static_cast<uint8_t>(digit);
   hasMessage = false;
   if (digitCount == PIN_LENGTH) {
-    // Paint the fourth box before verify/navigation so the pad does not look
-    // stuck on three dots while home/reader is loading.
-    requestUpdateAndWait();
+    // Verification and navigation should not wait for a full e-paper repaint.
+    // A wrong PIN requests its own message repaint below.
     submitEntry();
   } else {
     requestUpdate();
@@ -164,6 +180,10 @@ void PinEntryActivity::applyUnlockSuccess() {
 
 void PinEntryActivity::loop() {
   if (finished) return;
+  if (waitForPowerRelease) {
+    if (!mappedInput.isPressed(MappedInputManager::Button::Power)) waitForPowerRelease = false;
+    return;  // Consume the wake gesture's release, including its Confirm alias.
+  }
 
   // Set mode is a child screen: Back cancels back to Settings. Unlock mode is
   // the root lock — Back is just backspace; the only way past it is the PIN.
@@ -175,13 +195,28 @@ void PinEntryActivity::loop() {
     return;
   }
 
-  for (int i = 0; i < KEY_COUNT; i++) {
-    if (i == 9) continue;
-    const Rect r = keyRect(i);
-    if (mappedInput.wasTapInRect(r.x, r.y, r.width, r.height)) {
-      cursorKey = i;
-      pressKey(i);
-      return;
+  int touchX = 0;
+  int touchY = 0;
+  const bool touchHeld = mappedInput.isScreenTouchHeld(touchX, touchY);
+  if (touchKeyHeld) {
+    if (!touchHeld || mappedInput.wasScreenTouchReleased()) touchKeyHeld = false;
+    return;  // Consume this contact's release as well as its hold.
+  }
+
+  // Keypad presses need no list-selection hold delay; suppress their later tap.
+  const bool keyDown = touchHeld && mappedInput.wasScreenTouchPressed(touchX, touchY);
+  const bool keyTap = !touchHeld && mappedInput.wasScreenTapped(touchX, touchY);
+  if (keyDown || keyTap) {
+    for (int i = 0; i < KEY_COUNT; i++) {
+      if (i == 9) continue;
+      const Rect r = keyRect(i);
+      if (touchX >= r.x && touchX < r.x + r.width && touchY >= r.y && touchY < r.y + r.height) {
+        touchKeyHeld = keyDown;
+        if (keyDown) mappedInput.suppressTouchContact();
+        cursorKey = i;
+        pressKey(i);
+        return;
+      }
     }
   }
 
@@ -193,28 +228,40 @@ void PinEntryActivity::loop() {
     pressKey(cursorKey);
     return;
   }
-  buttonNavigator.onRelease({MappedInputManager::Button::Down}, [this] { moveCursor(3); });
-  buttonNavigator.onRelease({MappedInputManager::Button::Up}, [this] { moveCursor(-3); });
-  buttonNavigator.onRelease({MappedInputManager::Button::Right}, [this] { moveCursor(1); });
-  buttonNavigator.onRelease({MappedInputManager::Button::Left}, [this] { moveCursor(-1); });
+  if (mappedInput.wasReleased(MappedInputManager::Button::Down)) moveCursor(3);
+  if (mappedInput.wasReleased(MappedInputManager::Button::Up)) moveCursor(-3);
+  if (mappedInput.wasReleased(MappedInputManager::Button::Right)) moveCursor(1);
+  if (mappedInput.wasReleased(MappedInputManager::Button::Left)) moveCursor(-1);
 }
 
 void PinEntryActivity::render(RenderLock&&) {
-  renderer.clearScreen();
+  if (finished) return;
+  const RenderState state = snapshotRenderState();
+  const bool fullFrame = !frameValid;
+  if (fullFrame) renderer.clearScreen();
   const auto& metrics = UITheme::getInstance().getMetrics();
   const int radius = metrics.optionPopupSelectionRadius + 2;
 
-  renderer.drawCenteredText(UI_12_FONT_ID, titleTop, I18N.get(promptId()), true, EpdFontFamily::BOLD);
-  if (hasMessage) {
-    renderer.drawCenteredText(UI_10_FONT_ID, messageTop, I18N.get(message), true);
+  if (fullFrame || state.prompt != frameState.prompt) {
+    renderer.fillRect(0, titleTop, renderer.getScreenWidth(), renderer.getLineHeight(UI_12_FONT_ID), false);
+    renderer.drawCenteredText(UI_12_FONT_ID, titleTop, I18N.get(state.prompt), true, EpdFontFamily::BOLD);
+  }
+  if (fullFrame || state.hasMessage != frameState.hasMessage || state.message != frameState.message) {
+    renderer.fillRect(0, messageTop, renderer.getScreenWidth(), renderer.getLineHeight(UI_10_FONT_ID), false);
+    if (state.hasMessage) renderer.drawCenteredText(UI_10_FONT_ID, messageTop, I18N.get(state.message), true);
   }
 
   const int boxGap = boxSide / 3;
   const int boxesW = PIN_LENGTH * boxSide + (PIN_LENGTH - 1) * boxGap;
   int x = (renderer.getScreenWidth() - boxesW) / 2;
   for (int i = 0; i < PIN_LENGTH; i++) {
+    if (!fullFrame && (i < state.digitCount) == (i < frameState.digitCount)) {
+      x += boxSide + boxGap;
+      continue;
+    }
+    renderer.fillRect(x, boxTop, boxSide, boxSide, false);
     renderer.drawRoundedRect(x, boxTop, boxSide, boxSide, 2, radius, true);
-    if (i < digitCount) {
+    if (i < state.digitCount) {
       const int dot = std::max(10, boxSide / 4);
       renderer.fillRoundedRect(x + (boxSide - dot) / 2, boxTop + (boxSide - dot) / 2, dot, dot, dot / 2, Color::Black);
     }
@@ -223,9 +270,12 @@ void PinEntryActivity::render(RenderLock&&) {
 
   for (int i = 0; i < KEY_COUNT; i++) {
     if (i == 9) continue;
+    if (!fullFrame && (state.cursorKey == frameState.cursorKey || (i != state.cursorKey && i != frameState.cursorKey)))
+      continue;
     const Rect r = keyRect(i);
     const char label[2] = {static_cast<char>(i < 9 ? '1' + i : (i == 10 ? '0' : '<')), '\0'};
-    const bool active = cursorKey >= 0 && i == cursorKey;
+    const bool active = state.cursorKey >= 0 && i == state.cursorKey;
+    renderer.fillRect(r.x, r.y, r.width, r.height, false);
     if (active) {
       renderer.fillRoundedRect(r.x, r.y, r.width, r.height, radius, Color::Black);
     } else {
@@ -238,8 +288,18 @@ void PinEntryActivity::render(RenderLock&&) {
                       EpdFontFamily::BOLD);
   }
 
-  const char* backLabel = mode == Mode::Unlock ? tr(STR_DELETE) : tr(STR_BACK);
-  const auto labels = mappedInput.mapLabels(backLabel, tr(STR_CONFIRM), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  if (fullFrame) {
+    const char* backLabel = mode == Mode::Unlock ? tr(STR_DELETE) : tr(STR_BACK);
+    const auto labels = mappedInput.mapLabels(backLabel, tr(STR_CONFIRM), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  }
+  // Retain the framebuffer even if a newer input makes this panel update obsolete.
+  frameState = state;
+  frameValid = true;
+  if (finished) return;
+  if (!(snapshotRenderState() == state)) {
+    Activity::requestUpdate(true);
+    return;
+  }
   renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }

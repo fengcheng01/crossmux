@@ -554,6 +554,14 @@ bool ActivityManager::isReaderActivity() const {
          (currentActivity && currentActivity->isReaderActivity());
 }
 
+bool ActivityManager::resumesReaderOnSleep() const {
+  return std::any_of(stackActivities.begin(), stackActivities.end(),
+                     [](const auto& activity) { return activity->resumesReaderOnSleep(); }) ||
+         (currentActivity && currentActivity->resumesReaderOnSleep());
+}
+
+bool ActivityManager::sleepOnPowerRelease() const { return currentActivity && currentActivity->sleepOnPowerRelease(); }
+
 bool ActivityManager::keepsBluetoothAlive() const {
   return std::any_of(stackActivities.begin(), stackActivities.end(),
                      [](const auto& activity) { return activity->keepsBluetoothAlive(); }) ||

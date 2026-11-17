@@ -117,6 +117,12 @@ class HalDisplay {
   // frame's AA-edge MSB plane (absolute encoding), panel orientation.
   void displaySwiftAa(const uint8_t* edgePlane, bool turnOffScreen = false);
   bool supportsSwiftAa() const;
+  // Swift recipe widened to four levels (see PanelDriver::displayDifferentialGray4):
+  // pass 1 is the differential repaint in the given mode, pass 2 classifies the
+  // coverage bits (RED = MSB, BW = LSB planes, absolute encoding). No flash.
+  bool supportsDifferentialGray4() const;
+  void displayDifferentialGray4(const uint8_t* lsbPlane, const uint8_t* msbPlane,
+                                RefreshMode pass1 = FAST_REFRESH, bool turnOffScreen = false);
 
   // Tiled grayscale: stream one band of a plane (lsbPlane selects LSB/MSB RAM)
   // straight to the controller; supportsStripGrayscale() gates the path. See

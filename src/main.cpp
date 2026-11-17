@@ -431,7 +431,7 @@ void enterDeepSleep(bool fromTimeout = false) {
 #endif
   bleinput::stop();
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
-  APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
+  APP_STATE.lastSleepFromReader = activityManager.resumesReaderOnSleep();
 
   const bool isQuickResumeSleep =
       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
@@ -1019,6 +1019,12 @@ void loop() {
 #endif
     enterDeepSleep();
     // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
+    return;
+  }
+
+  // The unlock gate owns short power presses regardless of the configured action.
+  if (activityManager.sleepOnPowerRelease() && mappedInputManager.wasReleased(MappedInputManager::Button::Power)) {
+    enterDeepSleep();
     return;
   }
 

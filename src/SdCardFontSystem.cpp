@@ -54,7 +54,6 @@ void SdCardFontSystem::begin(GfxRenderer& renderer, bool deferFamilyLoad) {
     if (family) {
       if (manager_.loadFamily(*family, renderer, SETTINGS.fontPointSize, SETTINGS.sdFontFlashPreload != 0)) {
         snapFontPointSizeTo(manager_.currentPointSize());
-        setupUiFallbacks(renderer);
         LOG_DBG("SDFS", "Loaded SD card font family: %s", SETTINGS.sdFontFamilyName);
       } else {
         LOG_ERR("SDFS", "Failed to load SD font family: %s (clearing)", SETTINGS.sdFontFamilyName);
@@ -66,6 +65,7 @@ void SdCardFontSystem::begin(GfxRenderer& renderer, bool deferFamilyLoad) {
     }
   }
 
+  if (!deferFamilyLoad) setupUiFallbacks(renderer);
   LOG_DBG("SDFS", "SD font system ready (%d families discovered)", registry_.getFamilyCount());
 }
 
@@ -86,13 +86,14 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, bool allowFlashCache)
   const bool preferFlash = allowFlashCache && SETTINGS.sdFontFlashPreload != 0;
 
   if (wantedFamily[0] == '\0') {
-    if (!currentFamily.empty()) {
+    if (!currentFamily.empty() || registryWasDirty) {
       manager_.unloadAll(renderer);
     }
     // Back on a built-in family, which exists only at BUILTIN_READER_POINT_SIZES:
     // a size inherited from an SD family has to come back into that set.
     snapFontPointSizeTo(snapToNearestPointSize(BUILTIN_READER_POINT_SIZES, std::size(BUILTIN_READER_POINT_SIZES),
                                                SETTINGS.fontPointSize));
+    setupUiFallbacks(renderer);
     return;
   }
 
@@ -106,6 +107,7 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, bool allowFlashCache)
       LOG_DBG("SDFS", "SD font family disappeared: %s (clearing)", wantedFamily);
       manager_.unloadAll(renderer);
       SETTINGS.clearSdFontFamily();
+      setupUiFallbacks(renderer);
       return;
     }
     const auto* selected = family->findNearestSize(SETTINGS.fontPointSize);
@@ -126,7 +128,6 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, bool allowFlashCache)
   if (family) {
     if (manager_.loadFamily(*family, renderer, SETTINGS.fontPointSize, preferFlash)) {
       snapFontPointSizeTo(manager_.currentPointSize());
-      setupUiFallbacks(renderer);
       LOG_DBG("SDFS", "Loaded SD font family: %s", wantedFamily);
     } else {
       LOG_ERR("SDFS", "Failed to load SD font family: %s (clearing)", wantedFamily);
@@ -136,6 +137,7 @@ void SdCardFontSystem::ensureLoaded(GfxRenderer& renderer, bool allowFlashCache)
     LOG_DBG("SDFS", "SD font family not found: %s (clearing)", wantedFamily);
     SETTINGS.clearSdFontFamily();
   }
+  setupUiFallbacks(renderer);
 }
 
 void SdCardFontSystem::releaseLoadedFont(GfxRenderer& renderer) { manager_.unloadAll(renderer); }
@@ -167,11 +169,20 @@ void SdCardFontSystem::setupUiFallbacks(GfxRenderer& renderer) {
   return;
 #endif
 #endif
+#if defined(ENABLE_CHINESE_VERSION) && defined(BOARD_HAS_PSRAM)
+  // Built-in Chinese UI is Noto Sans. Rare title glyphs must use that same
+  // family, never the user's reading face. Reuse the existing four UI-size
+  // slots with on-demand cpfont glyphs, not another full TTF/PSRAM arena.
+  const auto* family = registry_.findFamily(COMPLETE_CHINESE_NOTO_SANS_FAMILY);
+  if (!family || family->isTtf()) return;
+  const std::string& familyName = family->name;
+#else
   const std::string& familyName = manager_.currentFamilyName();
   if (familyName.empty()) return;  // no SD family loaded — nothing to fall back to
 
   const auto* family = registry_.findFamily(familyName);
   if (!family) return;
+#endif
 
 #if FREEINK_DEVICE_MURPHY_M4
   if (family->isTtf()) {
@@ -194,14 +205,13 @@ void SdCardFontSystem::setupUiFallbacks(GfxRenderer& renderer) {
     return;
   }
 #endif
-  const auto readerIt = renderer.getFontMap().find(manager_.getFontId(familyName));
-  if (readerIt == renderer.getFontMap().end()) return;
-
 #ifdef ENABLE_CHINESE_VERSION
   // Builtin CN UI fonts already contain 一/common Han, so the global "does the
   // UI font miss CJK?" probe would skip fallbacks. Rare title glyphs (涅槃)
   // are outside that 3500-char set and still need the SD family.
 #else
+  const auto readerIt = renderer.getFontMap().find(manager_.getFontId(familyName));
+  if (readerIt == renderer.getFontMap().end()) return;
   static constexpr uint32_t kCjkProbes[] = {0x4E00, 0x3042, 0x30A2, 0xAC00};
   bool needsFallback = false;
   for (const uint32_t cp : kCjkProbes) {

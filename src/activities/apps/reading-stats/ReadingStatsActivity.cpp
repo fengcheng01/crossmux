@@ -902,7 +902,7 @@ void ReadingStatsActivity::renderPaper() {
   const int top = GUI.drawPaperHeading(renderer, Rect{x, content.y + m.statusHeight, width, m.headingHeight},
                                        tr(STR_PAPER_JOURNAL), range) +
                   16;
-  const int actionHeight = std::max(44, textH + 12);
+  const int actionHeight = std::max(38, renderer.getLineHeight(m.bodyFont) + 8);
   moreHitRect_ = Rect{x, content.y + content.height - actionHeight - 6, width, actionHeight};
   const int smallH = renderer.getLineHeight(m.smallFont);
 
@@ -928,11 +928,11 @@ void ReadingStatsActivity::renderPaper() {
   const int summaryBottom = metaY + smallH + 8;
   GUI.drawPaperRule(renderer, Rect{x, summaryBottom, width, 1});
 
-  // 2. 7-Day Chart Block (Taller & more spacious: 190px)
+  // 2. Keep the chart legible while reserving two complete lines for the habit card.
   const int chartX = x;
   const int chartW = width;
   const int chartY = summaryBottom + 12;
-  const int chartH = wide ? 120 : 190;
+  const int chartH = wide ? 120 : 166;
   // Header row:
   GUI.drawPaperText(renderer, Rect{chartX, chartY, chartW / 2, textH}, textFont, tr(STR_PAPER_RHYTHM), true);
   char todayHeader[48] = {};
@@ -1065,7 +1065,13 @@ void ReadingStatsActivity::renderPaper() {
   }
 
   // 5. Reading Habit Insight Card
-  if (!wide && y + 60 <= moreHitRect_.y - 6) {
+  constexpr int kHabitActionGap = 6;
+  constexpr int kHabitTextPadding = 7;
+  constexpr int kHabitLineGap = 3;
+  const int habitTitleH = renderer.getLineHeight(UI_10_FONT_ID);
+  const int habitMinimumHeight = kHabitTextPadding * 2 + habitTitleH + kHabitLineGap + smallH;
+  const int habitAvailableHeight = moreHitRect_.y - y - kHabitActionGap;
+  if (!wide && habitAvailableHeight >= habitMinimumHeight) {
     uint64_t dpMs[4] = {};
     for (int h = 0; h < 24; ++h) {
       const uint64_t ms = READING_STATS.getDayHourReadingMs(reference, h);
@@ -1098,7 +1104,9 @@ void ReadingStatsActivity::renderPaper() {
       habitDesc = "本周已达成多日阅读，保持着优秀的阅读节奏";
     }
 
-    const int cardH = 54;
+    // The action stays pinned to the bottom. Give the formerly empty space to
+    // the insight card and center its two lines as one block.
+    const int cardH = habitAvailableHeight;
     const Rect habitCard{x, y, width, cardH};
     renderer.fillRect(habitCard.x, habitCard.y, habitCard.width, habitCard.height, false);
     renderer.drawRect(habitCard.x, habitCard.y, habitCard.width, habitCard.height);
@@ -1107,14 +1115,21 @@ void ReadingStatsActivity::renderPaper() {
 
     char hTitle[48] = {};
     snprintf(hTitle, sizeof(hTitle), "阅读习惯画像 · %s", habitType);
-    renderer.drawText(UI_10_FONT_ID, habitCard.x + 12, habitCard.y + 8, hTitle, true, EpdFontFamily::BOLD);
-    renderer.drawText(SMALL_FONT_ID, habitCard.x + 12, habitCard.y + 30, habitDesc);
+    const int textBlockH = habitTitleH + kHabitLineGap + smallH;
+    const int habitTextY = habitCard.y + (habitCard.height - textBlockH) / 2;
+    const Rect titleRect{habitCard.x + 12, habitTextY, habitCard.width - 24, habitTitleH};
+    const Rect descRect{habitCard.x + 12, habitTextY + habitTitleH + kHabitLineGap, habitCard.width - 24, smallH};
+    GUI.drawPaperText(renderer, titleRect, UI_10_FONT_ID, hTitle, true);
+    GUI.drawPaperText(renderer, descRect, SMALL_FONT_ID, habitDesc);
 
-    y += cardH + 10;
+    y += cardH + kHabitActionGap;
   }
 
   moreHitRect_ = Rect{x, content.y + content.height - actionHeight - 6, width, actionHeight};
-  GUI.drawPaperAction(renderer, moreHitRect_, "查看全部书目阅读档案与历史明细  ›", showFocus && focus == 0);
+  const char* moreLabel = tr(STR_VIEW_MORE);
+  const int moreActionWidth = std::min(width, renderer.getTextWidth(m.bodyFont, moreLabel, EpdFontFamily::BOLD) + 44);
+  const Rect moreActionRect{x + width - moreActionWidth, moreHitRect_.y, moreActionWidth, moreHitRect_.height};
+  GUI.drawPaperAction(renderer, moreActionRect, moreLabel, showFocus && focus == 0);
   const auto labels = mainTabButtonLabels(tr(STR_BACK), tr(STR_SELECT), true);
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();

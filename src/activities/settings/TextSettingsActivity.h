@@ -35,7 +35,11 @@ class TextSettingsActivity final : public UiTabListActivity {
   // Row indices per tab. enum class (not plain enum) so a LayoutRow can't be
   // silently confused with a StyleRow of equal value.
   enum class LayoutRow { LineSpacing, ParaSpacing, FirstLineIndent, Alignment, ScreenMargin, Count };
+  // AntiAliasing leads the Style tab: it is the most frequently adjusted row
+  // while tuning gray modes, and the hidden-guide-row arithmetic below depends
+  // on ReadingGuideLineStyle..ReadingGuideLineOffset staying contiguous.
   enum class StyleRow {
+    AntiAliasing,
     FocusReading,
     ReadingGuideLine,
     ReadingGuideLineStyle,
@@ -43,7 +47,6 @@ class TextSettingsActivity final : public UiTabListActivity {
     Hyphenation,
     EmbeddedStyle,
     FakeBold,
-    AntiAliasing,
     Count
   };
   static constexpr int HIDDEN_GUIDE_ROW_COUNT =

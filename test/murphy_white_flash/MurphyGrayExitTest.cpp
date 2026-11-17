@@ -108,7 +108,8 @@ int main() {
   gray();
   paints.clear();
   gray();
-  assert(paints.size() == 1 && paints[0].sequence == 0xCC);  // No extra white on gray page turns.
+  assert(paints.size() == 1 && paints[0].sequence == 0xCF);  // No extra white on gray page turns.
+  assert(!analogOn);  // B/W baseline writes happen only after analog shutdown.
   paints.clear();
   panel.display(bus, menu.data(), oldPage.data(), RefreshMode::Fast, false);
   checkExit();  // RAM cleanup must not lose physical-gray state or retain old shadow.
@@ -159,6 +160,17 @@ int main() {
     resets = 0;
     assert(panel.requestSleepClean());
   };
+
+  // Direct's two custom 0xCC paints leave analog powered. Clock entry must
+  // shut that drive down before SWRESET, not trust the restored RAM baseline.
+  panel.begin(bus);
+  panel.displayDifferentialGray4(bus, oldPage.data(), oldPage.data(), oldPage.data(), RefreshMode::Fast, false);
+  assert(analogOn);
+  paints.clear();
+  activations.clear();
+  requestClock();
+  panel.display(bus, menu.data(), oldPage.data(), RefreshMode::Fast, false);
+  checkClock();
 
   gray();
   paints.clear();
@@ -224,11 +236,34 @@ int main() {
   assert((paints[0].xRange == std::array<uint8_t, 4>{0, 0, 15, 0}));
   assert((paints[0].yRange == std::array<uint8_t, 4>{1, 0, 0, 0}));
 
-  // Reading white flash with no power-off request still uses its accepted CC waveform.
+  // White flash shuts down even with the optional fading fix off. OTP whitening
+  // powers itself up: repeated turns retain two paints and one gray power-on.
   panel.begin(bus);
   paints.clear();
+  activations.clear();
+  panel.flashToWhite(bus);
+  bus.waitRefreshComplete();
+  assert(activations == std::vector<uint8_t>({0xFF}));
+  panel.copyGrayscaleLsb(bus, oldPage.data());
+  panel.copyGrayscaleMsb(bus, oldPage.data());
   panel.displayGray(bus, oldPage.data(), false, lut_m4_white_pulse.data(), true, true);
-  assert(paints.size() == 1 && paints[0].sequence == 0xCC && paints[0].lut == lut_m4_white_pulse);
+  assert(paints.size() == 2 && paints.back().sequence == 0xCF && paints.back().lut == lut_m4_white_pulse);
+  assert(activations == std::vector<uint8_t>({0xFF, 0xC0, 0xCF}));
+  assert(!analogOn && !busy);
+  panel.cleanupGrayscaleBuffers(bus, oldPage.data());
+  assert(!analogOn);
+  paints.clear();
+  activations.clear();
+  panel.flashToWhite(bus);
+  bus.waitRefreshComplete();
+  panel.copyGrayscaleLsb(bus, oldPage.data());
+  panel.copyGrayscaleMsb(bus, oldPage.data());
+  panel.displayGray(bus, oldPage.data(), false, lut_m4_white_pulse.data(), true, true);
+  assert(activations == std::vector<uint8_t>({0xFF, 0xC0, 0xCF}));
+  panel.cleanupGrayscaleBuffers(bus, oldPage.data());
+  paints.clear();
+  panel.display(bus, menu.data(), oldPage.data(), RefreshMode::Fast, false);
+  checkExit();
   delayedActivationBusy = false;
 
   panel.deepSleep(bus);
@@ -253,5 +288,5 @@ int main() {
   other.deepSleep(bus);
   assert(!analogOn && activations.back() == 0x03);
 
-  std::puts("PASS: clean reset, one D7 paint, BW power-off, full gray window, Direct CF and other-board isolation");
+  std::puts("PASS: clean exit, BW/gray power-off, unchanged white-flash activation count and other-board isolation");
 }

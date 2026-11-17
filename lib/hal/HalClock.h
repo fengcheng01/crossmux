@@ -33,7 +33,8 @@ class HalClock {
 
  public:
   // The POSIX UTC system clock is the runtime source on every device. An
-  // external RTC, when present, is used only to restore time after power loss.
+  // external RTC, when present, restores time when invalid and after each M4
+  // deep-sleep wake, where the internal RC clock can drift while asleep.
   void begin();
   void update();
 

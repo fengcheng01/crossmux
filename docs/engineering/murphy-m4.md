@@ -45,6 +45,53 @@ uses the normal 50 ms main-loop delay. Touch initialization reads back the
 volatile mode, threshold, and report-rate registers before accepting input;
 invalid status/event/coordinate frames are discarded without latching contact.
 
+After each M4 deep-sleep wake, `HalClock::begin()` restores system UTC from the
+external RX8010 when it provides a valid date. The ESP32-S3 internal RC clock
+retains an apparently valid epoch through sleep but can drift, so checking
+`hasValidTime()` alone skipped the more stable RTC. Wi-Fi SNTP still writes
+the RX8010 on sync. A serial log records the system-vs-RTC delta on wake; if
+the clock still gains tens of seconds over a day after this change, compare
+the RX8010 against a reference to determine whether its offset calibration
+needs adjustment. This change does not alter the clock display waveform or
+request additional Wi-Fi connections.
+
+The v170 Clock-lock FULL trial is rejected: from a Direct AA reading page, the
+stock SSD1677 OTP FULL (`0xF7`) visibly cycled the entire panel several times,
+but the prior page's characters remained visible immediately on the clock
+screen. Recording-bus tests showed one FULL activation, so the visible cycles
+were phases within that waveform, not repeated software requests. The current
+Clock entry returns to the single OTP HALF (`0xD7`); hourly cleaning and
+minute windows retain their previous behavior. Do not stack further FULL
+updates without a measured drive or optical result. Compare the same lock
+transition with one-bit reading (AA off) and from Home to distinguish gray
+waveform carry-over from a general lock/panel condition. Inspect the panel
+immediately and after settling; controller RAM synchronization alone does not
+prove the physical pigment state is clean.
+
+After the v172 A/B test, Direct AA still left prior-page text that developed
+into dirty Clock background after several turns; AA Off did not. The Direct
+gray4 path ends with two custom `0xCC` activations, whose low control bits do
+not shut analog/clock down, yet it recorded `_isScreenOn = false`. The next
+SleepClean called `resetForClean()`, whose `powerOffController()` returned
+early on that false state and then SWRESET ran while the modeled analog drive
+was still active. The recording-bus test reproduces this as a reset-while-on
+assertion. The driver now records the actual powered state after gray4, so the
+existing M4 `0x83` shutdown completes before SWRESET and the OTP HALF clock
+paint. No page-turn LUT, activation or buffer changes; the exit to lock/menu
+may take the existing 200 ms shutdown interval. This fixes a state/sequence
+error, not a proven optical root cause. Check Direct page turns remain fast,
+then compare lock residue immediately and after one minute against v172.
+
+PIN input accepts a stable touch after 90 ms of contact and suppresses its
+later release. The fourth digit immediately verifies the code instead of
+waiting for a redundant complete PIN repaint. EPUB reading defers idle font
+prewarming and background section building while touch/button input or a page
+turn is pending, and builds at most one background page per loop tick. These
+changes add no persistent buffer or heap allocation; verify rapid PIN entry,
+single-action touch release across unlock, and taps during EPUB pagination on
+hardware. Power-key wake can still spend time in deep-sleep boot and the first
+physical PIN paint; this patch does not claim to shorten that boot path.
+
 Reader anti-aliasing on this panel:
 
 - Swift (快刷叠刷, experimental, v36): the TW recipe rebuilt as its own AA
@@ -83,15 +130,74 @@ Reader anti-aliasing on this panel:
 
 - Overlay (叠加): FAST 1-bit then gray `lut_grayscale` (two refreshes).
 - Combined (合成): removed in v131; old stored selections migrate to Off.
-- Direct (无闪直刷（灰阶试验）): v129 sends absolute two-bit glyph coverage,
-  including the status bar, using one `lut_m4_direct_pulse` activation. There is
-  no preceding B/W page activation or later gray overlay on ordinary light-mode
-  pages. v127/v128's 4x4 B/W spatial pattern was reported jagged and is no longer
-  enabled by the reader. Night mode and reading backgrounds retain one B/W FAST
-  refresh. Automatic HALF cleanup remains suppressed; explicit EPUB manual
-  cleanup still works. Low-memory allocation failure falls back to B/W.
+- Direct (无闪直刷（差分四灰阶）): v129 sent absolute two-bit glyph coverage,
+  including the status bar, in one `lut_m4_direct_pulse` activation; v145 tried
+  the Single-flash E waveform every turn and the user rejected losing no-flash.
+  v146-v148 rebuilt the mode on the no-flash two-pass differential recipe:
+  pass 1 is the stock differential repaint (FAST; HALF on the scheduled cleanup
+  boundary or manual refresh), pass 2 (`displayDifferentialGray4`) drives the
+  absolute-encoded planes (RED = MSB, BW = LSB) through lut_m4_gray4_step —
+  lut_grayscale's doses re-indexed so light/dark edges take the Overlay lifts
+  and black cores take Swift's VSH1 hold. Direct keeps its rendering
+  differences over Overlay: nearest-coverage TTF quantization and the shared
+  convex-corner glyph smoothing. EPUB only (TXT falls back to the two-pass
+  overlay); night mode and reading backgrounds retain one B/W FAST refresh;
+  the rare no-plane OOM page paints 1-bit, single-plane OOM falls back to
+  Swift's one-level edge pass.
 
 ### v129 pulse grayscale experiments
+
+Current white-flash follow-up: v161's 9/13/24 result still left diagonal
+strokes visibly stepped. The next calibration uses 11/17/24 doses while the
+24-frame total stays unchanged. White-flash also shares Direct's render-time convex-corner
+softening for both TTF and cpfont. Only supported full-ink corners become dark
+gray; existing gray pixels, straight stems, isolated dots and one-pixel
+diagonals keep their coverage. Direct's B/W ink threshold is still Direct-only.
+There are no extra glyph buffers or panel activations. Render CPU time and
+optical improvement require hardware comparison; this cannot remove the panel's
+pixel grid or turn four gray levels into continuous tones.
+
+Device feedback also reported the UI background progressively dirtying from
+the lower right after exiting White-flash, continuing across main-tab changes
+and later appearing on the lock screen. This is not yet a confirmed root cause,
+but M4 absolute-gray updates left analog drive on while cleanup replaced
+the gray RAM with a B/W baseline. M4 now finishes absolute gray with `0xCF`
+even when fading fix is disabled, before cleanup RAM writes. OTP whitening
+self-powers through `0xFF`, so its redundant standalone `0xC0` is skipped:
+successive white turns remain `FF, C0, CF`, with two display activations.
+Gray exit still resets the controller and paints the UI with one powered-down
+`D7` clean. Other SSD1677 boards retain their previous power policy. Recording-
+bus tests cover repeated white turns, exit, window updates, delayed BUSY,
+baseline writes, main-tab-style B/W paints, sleep clean and other-board
+isolation. Check home and every main tab immediately and after 30/60 seconds,
+then enter the lock screen and check it after the same delay. Also compare
+page-turn timing on the actual M4.
+
+The Paper journal's reading-habit card takes the available height down to the
+fixed bottom action, leaving one 6px gap. Its minimum height is derived from
+the two actual font line heights, padding and line gap; both lines render
+through clipped paper-text rectangles so they cannot cross the card border.
+The first attempt kept the 190px chart and a 44px action, leaving less than
+the 71px two-line minimum on the 480x800 M4 and hiding the card. The portrait
+chart is now 166px and the action 38px, reserving room for the full two-line
+card. The bottom action stays right-aligned as `查看更多 >` and keeps its
+full-width hit target. Check the actual portrait screen for both complete
+lines, chart labels, and separation above the action.
+
+
+Chinese UI fallback is now the fixed installed `NotoSansSC` cpfont family,
+matching the embedded UI face instead of borrowing the current reading font.
+Install its 8/10/12/14pt files for rare-title coverage. Existing UI-size slots
+load lookup metadata/on-demand glyphs, with no extra full TTF arena or PSRAM
+glyph cache. The official files have 4000 compact intervals each: 24,000 bytes
+per size (96,000 bytes total) now explicitly allocated in PSRAM, with the usual
+256KB reserve and checked failure rather than an internal-RAM fallback. Glyph
+overflow/prewarm still uses the existing bounded caches. Font objects and the
+five-slot manager registry remain internal; tables unload with their fonts.
+The reader remains independently selectable. If those
+files are absent, the built-in subset remains and unsupported characters may
+be missing; another reading face is never substituted. Verify the same recent
+book list before and after switching reading family and size.
 
 Hardware feedback: Single-flash's full vendor E waveform produces good final
 CangEr JinKai text, but flashes black. Both the original idle-white table and
@@ -100,9 +206,26 @@ latter was also reported slow; it is retained as historical data, not selected.
 
 White flash (快速灰阶试验), setting value 6, still OTP-whitens first. It then
 uses `lut_m4_white_pulse`, removing the old 60-frame erase/settle sequence in
-favor of 24 timing frames. White targets select VSL throughout; light gray,
-dark gray and black select VSH1 for 9, 12 and 24 frames respectively. The
-accepted Single-flash mode (value 5) remains unchanged as a comparison.
+favor of 24 timing frames. White targets select VSL throughout; the current
+light gray, dark gray and black targets select VSH1 for 11, 17 and 24 frames.
+The accepted Single-flash mode (value 5) remains unchanged as a comparison.
+
+The v156 white-flash calibration trial reduced only light gray from 9 to
+8 VSH1 frames (phase durations 8/4/12, still 24 frames total). Device feedback
+reported mediocre quality and a discontinuity in a straight stroke; the cause
+is not established. The second-round trial restored light gray to 9 and raised
+dark gray from 12 to 13 VSH1 frames, using phase durations 9/4/11. Device
+feedback still described diagonal strokes as visibly jagged. The current trial
+uses phase durations 11/6/7, producing 11/17/24 doses so both edge shades land
+farther from white while black remains unchanged.
+The 24-frame total and complete black, white and VCOM drive schedules are
+preserved. OTP whitening, activation count, frame-rate/voltage registers and
+reader rendering remain unchanged; there are no added waits or allocations.
+This tests a darker intermediate edge, not a proven fix for the discontinuity.
+Compare the same font, size and page against the prior white-flash firmware
+and Single-flash; check fine strokes, 30+ page turns for residue, and measured
+turn time plus visible settling. Unchanged electrical timing does not prove
+unchanged optical settling or Single-flash quality.
 
 Direct (value 3) uses a separate 36-frame sequence. v129 drove black in
 frames 0..24, light gray in 24..33, and dark gray in 24..36. Hardware feedback
@@ -487,6 +610,282 @@ The v143 firmware keeps the v142 30-frame Direct waveform and fixes the
 renderer guard so a TTF light-gray neighbor (coverage 1) participates in the
 same convex-corner test as a cpfont full-ink neighbor. This changes only the
 edge classification; glyph interiors and the waveform are unchanged.
+
+### v144 Direct periodic Single-flash quality tier
+
+User feedback after v143: Direct's anti-aliasing still falls short of
+Single-flash quality for both TTF and cpfont text. Byte-level decoding of the
+two tables shows why no pulse-table retune can close the gap: the E waveform
+defines its gray levels through a balanced oscillation (white +15/-15,
+dark gray +15/-15, black +24/-24 frames) whose final phases land each pixel at
+its target from any start state, and that oscillation is itself the visible
+flash. The v142 pulse table instead preconditions monotonically (18 VSL
+frames) and doses once (8/12 VSH1), so its levels depend on the previous
+page's ink. Cleaning and level definition are inseparable in one activation —
+the same conclusion the v29-v33 iterations reached on device.
+
+v144 therefore composes the two hardware-proven tiers instead of recalibrating:
+Direct keeps the no-flash pulse table for ordinary turns, and the scheduled
+cleanup boundary (the reader's existing `pagesUntilFullRefresh` cadence, user
+configurable) or an EPUB manual refresh upgrades that one turn to the
+Single-flash activation (`displayGrayBufferAbsolute(false)`, E-verbatim
+clean-and-paint). Boundary/manual Direct turns no longer paint the B/W HALF
+first — the E activation is itself a full clean, matching the singleFlashAa
+branch. Both readers (EPUB tiled/strip/buffered paths and TXT) select the tier
+from the same consumed `HALF_REFRESH` boundary. No LUT bytes, voltages, frame
+counts, settings or allocations change; the tier adds one bool per page render.
+
+Hardware QA: read a long stretch in Direct and confirm the boundary turn
+flashes once and restores factory-level edges; check that the cadence interval
+matches the refresh-frequency setting; test manual refresh in Direct (expect
+the E activation, not B/W HALF + pulse); re-verify night mode and reading
+backgrounds still take the B/W FAST fallback, and that Swift/Overlay/Single
+flash/White flash modes are unchanged.
+
+### v145 Direct adopts the E waveform every turn
+
+Device result on v144: pages still dirtied between boundary turns (default
+cadence 15 pages), and the user's own A/B — reader-menu return (which sets
+`forcedRefreshPending`, so v144 rendered it with the E activation) versus an
+ordinary turn (pulse table) — showed E-quality text judged good and
+pulse-quality text judged bad, for both TTF and cpfont. The pulse tier is
+therefore retired from the reader: Direct now selects the Single-flash
+activation on every turn in EPUB (tiled buffered, tiled strip, and non-tiled
+paths) and TXT, keeping Direct's rendering differences (nearest-coverage
+quantization, convex-corner glyph smoothing) over plain Single-flash. The mode
+label is renamed accordingly (no longer "no-flash"); `GrayRefresh::Direct` and
+the SDK `displayGrayBufferDirect` pulse path remain as experiment surface.
+The Style tab's anti-aliasing row moves to the top of the list (it was last
+and is the most adjusted row while tuning gray modes).
+
+Hardware QA: Direct vs Single-flash on the same TTF and cpfont pages (Direct
+should match its quality with slightly softer corners); confirm each Direct
+turn flashes once like Single-flash and the background stays clean across 30+
+turns; night mode/backgrounds still fall back to B/W FAST; the Style tab opens
+with the anti-aliasing row first, with guide-line rows still hiding when
+disabled.
+
+### v146 Direct rebuilt as no-flash differential four-level gray
+
+User feedback on v145: the flash itself was never acceptable — Direct exists
+to be the no-flash mode ("我要的就是无闪"). The E-every-turn change is reverted
+and the mode is rebuilt on Swift's two-pass differential recipe (the TW
+firmware's no-flash gray4 architecture), widened from one edge level to four:
+
+- New driver path `Ssd1677Driver::displayDifferentialGray4` (facade
+  `displayDifferentialGray4Buffer`, HAL/GfxRenderer forwards). Pass 1 is the
+  stock differential repaint exactly as Swift's — no inversion flash; the host
+  picks its mode so the scheduled cleanup boundary and manual refresh run HALF
+  (deep clean) through the same activation instead of a third pass. Pass 2
+  loads RED = the new frame's MSB plane and BW = its LSB plane (absolute
+  coverage encoding), so the differential classes split the four levels:
+  light gray (01, resting on white) selects the same lut_grayscale g1 doses
+  Swift's edges already run on this panel; dark gray (10, resting on black)
+  selects g2; black cores (11) select g3; white (00) idles. Every dose acts on
+  the known B/W endpoint pass 1 just established — the missing ingredient that
+  sank the single-pass pulse table. Both activations restore the B/W
+  differential baseline afterwards.
+- EPUB wires Direct to the new path on the tiled buffered route (both planes);
+  single-plane OOM falls back to Swift's one-level edge pass; the no-plane
+  strip route restores the B/W baseline and paints 1-bit (no flash); the
+  non-tiled route and TXT fall back to the generic two-pass overlay. The
+  periodic boundary now maps to pass-1 HALF, addressing the v144 "dirty pages"
+  report within the standard refresh-frequency cadence.
+- The mode label returns to no-flash naming (无闪直刷（差分四灰阶）); the
+  anti-aliasing row stays first on the Style tab (v145 change kept).
+- No new LUT tables, voltages or frame counts: pass 2 reuses
+  `_cfg.swiftEdgeLut` (lut_grayscale). No new settings or heap allocations —
+  the planes reuse the existing tiled buffers.
+
+Calibration caveat (device QA required): g1-on-white is proven by Swift, but
+g2-on-black (dark-gray landing) and g3-on-black-cores are first drives of
+lut_grayscale's other classes in the differential role on GDEQ0426T82. Watch
+for dark-gray edges not separating from black cores (g2 too weak — Swift shows
+g2 invisible on black) and for core lightening (g3). If g2 proves inert, the
+documented escalation is a dedicated four-level step table derived from the TW
+slot-0 magnitudes (see lut_m4_edge_weak), not a return to absolute modes.
+
+Hardware QA: Direct EPUB page turns must show two quick passes with no
+inversion flash; compare edges against Swift (should gain the light-gray
+level) and Single-flash (reference quality); turn 30+ pages and check residue
+against the refresh-frequency setting; verify boundary/manual turns clean via
+pass-1 HALF; check image pages, night mode, backgrounds, menu return, and TXT
+fallback; confirm the AA picker row order.
+
+### v147 Direct gray4 uses the overlay plane encoding
+
+Device result on v146: pages turned whitened (发白) — glyph cores washed to
+gray, edges too light, no visible AA levels. Root cause: the tiled path still
+rendered Direct's planes under the ABSOLUTE encoding, whose 11 class (black
+cores) selected lut_grayscale's dark-gray group — every core was actively
+driven off black — and whose 10 class (dark edges) took the mid-gray group.
+The table expects the OVERLAY encoding: black and white both encode 00 and
+idle, light-gray edges select g2, dark-gray edges select g3 — the exact
+combination the Overlay mode runs on this panel daily.
+
+v147 drops directAa from the tiled path's `setAbsoluteGrayPlanes(true)`
+(Swift and Single-flash keep it) and re-wraps the single-plane OOM fallback
+(Swift's edge pass classifies by the absolute MSB plane) in an
+absolute-encoding scope. Driver pass-2 timing, voltages and LUT bytes are
+unchanged; the fix is purely which pixels each LUT group sees.
+
+Hardware QA: Direct page turns must now keep solid black cores with gray
+edges and no whitening; compare against the Overlay mode on the same page
+(should match, plus softer corners from the smoothing); re-check 30+ turns,
+boundary/manual HALF cleaning, image pages, night mode and TXT fallback.
+
+### v149 Direct step table re-indexed for solid cores
+
+Device result on v147: the anti-aliasing levels became visible (the encoding
+fix worked) but glyph cores still read washed-out (字体发白). With the overlay
+encoding, black cores and white background share the idle 00 group, so cores
+relied solely on pass 1's differential FAST — the same reason Swift's pass 2
+tops cores up with its g1 VSH1 hold every turn.
+
+v149 introduces `lut_m4_gray4_step`: lut_grayscale's group bytes re-indexed
+for the ABSOLUTE encoding the Direct planes render — 01 light-gray edges take
+the Overlay mode's 9-frame VSL lift (old g2 bytes), 10 dark-gray edges its
+6-frame lift (old g3), and 11 black cores take Swift's 7-frame VSH1 hold (old
+g1). Every dose therefore runs in a role the panel already executes daily
+(Overlay mode for the lifts, Swift for the hold); only the group indexing is
+new. TP, frame rate and voltages stay lut_grayscale verbatim; the table is a
+constexpr flash permutation with no runtime allocation. The reader returns
+Direct to `setAbsoluteGrayPlanes(true)` (single-plane OOM fallback simplified
+back — both paths classify absolutely now), and the driver gates the gray4
+path on the new `gray4StepLut` config field (M4 sets it; other SSD1677 boards
+report unsupported and keep the base-class fallback).
+
+Hardware QA: cores must read solid black (compare Single-flash's cores);
+edges keep the two gray levels; no flash on ordinary turns; re-check the
+boundary/manual HALF, image pages, night mode and TXT fallback.
+
+### v150 Direct ink-in turn: pass-1 threshold + white-hold clean
+
+Device result on v149: AA quality and core blackness accepted, but the page
+turn showed the gray step as a visible flash — pass 1 painted every glyph
+pixel (edges included) full black, then pass 2 lifted the edge classes, so
+text appeared bold and visibly thinned ~100ms later (black-then-thin). The
+same structure is why Overlay's second pass reads as a blink.
+
+v150 makes the whole turn ink-adding instead:
+
+- The Direct render scope arms a new `directInkThreshold`: BW glyph draws skip
+  coverage-1 pixels, so pass 1's differential repaint lands cores + dark-gray
+  edges only (light edges stay white). Plane renders are unaffected (they do
+  not run in BW mode). The rare B/W fallback pages render slightly thinner
+  text; the menu/status-bar paints outside the scope are unchanged.
+- `lut_m4_gray4_step` retunes two groups: 01 (light gray, now resting on
+  white) takes a 3-frame VSH1 nudge — the single from-white estimate to
+  retune if light edges land wrong; 00 (white) takes the overlay g2 white-hold
+  (9 VSL frames, Swift's non-edge clean) so background and orphaned-gray
+  pixels are re-driven every turn. 10/11 keep the v149 doses (6-frame VSL
+  lift from black, Swift's core hold).
+- Turn optics: thin black text sweeps in, then the light-gray rings darken
+  within one short step — ink settling, no lightening flash.
+
+Known trade-off (documented in the table): a pixel persisting in the SAME
+coverage class across turns is idled by the differential pass 1 and drifts
+one dose-step per turn toward its class drive; text normally moves, so this
+only affects static furniture. Hardware QA: confirm the turn reads flash-free
+on TTF and cpfont; light-gray edge depth after the 3-frame nudge; background
+cleanliness over 30+ turns; cores stay solid; boundary HALF still cleans.
+
+### v151 Direct fast-transition pass 1
+
+Device result on v150: the flash is gone, but the turn still read as
+non-AA text appearing and then being de-jaggified — the 0xFC DU pass 1 held
+the interim B/W state for ~500ms, long enough to register. v151 replaces the
+ordinary-turn pass 1 with the device-proven page-turn transition table
+(`lut_m4_page_turn`, ~5 frames): every changed pixel still moves
+differentially (no inversion flash), but the interim state passes in ~40ms —
+below perception — and the ~80ms gray step lands as part of the same turn
+(total ≈150ms, also ~4x faster than v150). The short drive may under-shoot
+endpoints; pass 2's class holds top them up (7 VSH1 frames on cores, 9 VSL
+on white), and the HALF boundary/manual path still runs the deep clean
+unchanged. If text dirt accumulates, the documented knob is the transition
+TP (bump from 0x05 toward 0x0A, per the page-turn LUT's tuning note).
+
+Hardware QA: the turn must read as one step with the AA already applied;
+verify text cleanliness over 30+ turns (transition under-drive), edge/core
+quality unchanged from v150, boundary HALF cleaning, and the first Direct
+turn after boot/menu-return.
+
+### v152 Direct residue: longer transition + gray-exit hygiene
+
+Device result on v151: the turn itself is good, but faint residue remained
+after page turns and the lock screens picked it up (the single-pass HALF
+sleep entry only partially lifts AA gray ink — the line 50 device note).
+Both symptoms trace to the 5-frame transition's under-drive.
+
+- Pass 1 now runs `lut_m4_gray4_trans`: lut_m4_page_turn with TP raised from
+  0x05 to the anti-ghosting 0x0A its own tuning note documents (~80ms; turn
+  total ≈180ms, still one perceptual step). Copied so the strip animation
+  keeps its faster timing.
+- `displayDifferentialGray4` arms `BwPreparation::GrayExit` (the v130
+  absolute-gray exit, gated on whiteBeforeBwAfterAbsoluteGray and not
+  clobbering a pending preparation): the next B/W paint after a Direct page —
+  menu, home, popups — white-cleans first instead of diffing gray ink away
+  as if it were a valid baseline. `requestSleepClean()` overrides the
+  preparation with SleepClean, so the sleep entry keeps its settled OTP-HALF
+  path with no extra white flash. Direct page turns themselves never consult
+  the preparation, so reading stays flash-free.
+
+Hardware QA: 30+ turns with no accumulating reader residue; enter every lock
+face from a Direct page and check for reader ghosting; open the reader menu
+(expect one white clean, then a clean menu); unlock/relock; confirm the turn
+still reads as a single step at the longer transition.
+
+### v154 Direct post-build first page garbled: BUSY race in the gray step
+
+Device result on v153: re-entering a book whose section cache rebuilds
+("索引中") rendered the first Direct page as two interleaved glyph layers
+with a small horizontal offset and mesh noise; the next page turn was clean.
+Only the post-build (and menu-return) first render was affected.
+
+Root cause: those renders run pass 1 as HALF, whose forced power-off bits
+shut the panel's rails down. Pass 2's 0xC0 re-enable delays BUSY assertion,
+and the gray step waited with Swift's level-only `waitBusy` — it returned
+before the waveform started, so the baseline restore (BW=RED=fb) rewrote the
+planes while the activation was scanning: rows classified before the rewrite
+used the gray planes, rows after used the thresholded fb — the interleaved
+double rendering. Ordinary turns were safe because their pass 1 (transition
+LUT, 0xCC without the disable bits) keeps the rails up and BUSY asserts
+immediately. The fix waits with `waitRefreshComplete`, the same remedy the
+v132 absolute-gray completion race needed (displayGray's "abs_gray" wait).
+Swift's own edge pass still uses waitBusy and carries the same theoretical
+exposure after its powered-down pass 1; it was never observed on device —
+left unchanged pending evidence.
+
+Hardware QA: rebuild a section (change font size, re-enter) and verify the
+first Direct page renders cleanly; return from the reader menu; ordinary
+turns unchanged.
+
+### v155 Direct pass 1 always takes the transition table
+
+The v154 BUSY fix did not cure the post-rebuild garble (device retest), which
+re-opens the root cause. The remaining unique state of those renders was the
+OTP HALF pass 1 — and one asymmetry stood out: the tiled path pre-writes both
+gray planes into controller RAM (the legacy flow for Overlay/Single-flash),
+so when pass 1 ran, RED held the MSB gray plane, not a frame baseline. The
+stock displayImpl writes BOTH planes (BW and RED = fb) before any non-Fast
+activation; the differential-gray4 HALF branch wrote only BW. If the panel's
+0xD4 consults RED at all despite the BYPASS_RED label, the OTP waveform
+classified against gray-plane bits — the garbled composite.
+
+v155 removes the HALF branch from the reader entirely: every Direct pass 1
+(ordinary, boundary, manual, post-build, menu return) runs the
+transition-table repaint, byte-identical to the proven ordinary turn. That
+path classifies against the pre-written planes and, because the planes mark
+all ink while the thresholded fb agrees, effectively re-drives every pixel —
+the strongest no-flash clean, so the periodic HALF ride-along is not mourned:
+deep cleaning remains with the GrayExit white clean when leaving the reader.
+The driver's Half branch stays for API completeness, now defensively writing
+RED = fb like displayImpl does.
+
+Hardware QA: rebuild a section and check the first Direct page; menu return;
+30+ ordinary turns; residue watch (the boundary HALF no longer exists — if
+background dirt accumulates over long reads, the knob is the transition TP
+or reinstating a corrected HALF later).
 
 ### Local M4 test version increments
 

@@ -52,6 +52,8 @@ class Activity {
   virtual bool skipLoopDelay() { return false; }
   virtual bool preventAutoSleep() { return false; }
   virtual bool isReaderActivity() const { return false; }
+  virtual bool resumesReaderOnSleep() const { return isReaderActivity(); }
+  virtual bool sleepOnPowerRelease() const { return false; }
   virtual bool keepsBluetoothAlive() const { return isReaderActivity(); }
   virtual bool deferBluetoothStart() const { return false; }
   // Reading surfaces opt into output-polarity inversion; menus and overlays stay normal.

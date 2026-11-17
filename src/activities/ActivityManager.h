@@ -148,6 +148,8 @@ class ActivityManager {
 
   bool preventAutoSleep() const;
   bool isReaderActivity() const;
+  bool resumesReaderOnSleep() const;
+  bool sleepOnPowerRelease() const;
   bool keepsBluetoothAlive() const;
   bool deferBluetoothStart() const;
   bool handleForcedRefresh();

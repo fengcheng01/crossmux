@@ -72,6 +72,11 @@ class MappedInputManager {
   // (which wasScreenTapped never reports). InputSnapshot builders forward it
   // off-target so FreeInkUI routing clears its pressed-element state.
   bool wasScreenTouchReleased() const;
+  // A screen that acts while a contact is still held can prevent its eventual
+  // release from activating the next activity.
+  void suppressTouchContact() const;
+  // Immediate contact edge for controls that act on press rather than a tap/hold.
+  bool wasScreenTouchPressed(int& x, int& y) const;
   bool wasTapInRect(int x, int y, int width, int height) const;
   bool wasListItemTapped(int& index, int itemCount, int selectedIndex, int listTop, int listHeight,
                          bool hasSubtitle) const;

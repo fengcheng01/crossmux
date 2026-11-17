@@ -435,9 +435,15 @@ void EpubReaderActivity::loop() {
 
   READING_STATS.tickActiveSession();
 
+  int touchX = 0;
+  int touchY = 0;
+  const bool deferBackgroundWork = pendingManualTurn != 0 || mappedInput.wasAnyPressed() ||
+                                   mappedInput.wasAnyReleased() || mappedInput.wasScreenTouchReleased() ||
+                                   mappedInput.isScreenTouchHeld(touchX, touchY);
+
   constexpr unsigned long IDLE_PREWARM_DEBOUNCE_MS = 400;
   auto* fcm = renderer.getFontCacheManager();
-  if (section && !section->isBuilding() && !RenderLock::peek() && renderer.hasFrameBuffer() &&
+  if (!deferBackgroundWork && section && !section->isBuilding() && !RenderLock::peek() && renderer.hasFrameBuffer() &&
       lastRenderCompleteMs != 0 && millis() - lastRenderCompleteMs > IDLE_PREWARM_DEBOUNCE_MS &&
       ESP.getFreeHeap() > RENDER_MIN_FREE_HEAP && ESP.getMaxAllocHeap() > RENDER_MIN_MAX_ALLOC && fcm &&
       fcm->canIdlePrewarm(SETTINGS.getReaderFontId()) &&
@@ -460,7 +466,8 @@ void EpubReaderActivity::loop() {
     }
   }
 
-  if (section && !section->isBuilding() && section->isPartial() && !RenderLock::peek() && buildViewportWidth > 0 &&
+  if (!deferBackgroundWork && section && !section->isBuilding() && section->isPartial() && !RenderLock::peek() &&
+      buildViewportWidth > 0 &&
       !partialRebuildStartFailed &&
       section->currentPage + PARTIAL_REBUILD_START_MARGIN >= static_cast<int>(section->pageCount)) {
     RenderLock lock;
@@ -474,7 +481,7 @@ void EpubReaderActivity::loop() {
     }
   }
 
-  if (section && section->isBuilding() && !RenderLock::peek() &&
+  if (!deferBackgroundWork && section && section->isBuilding() && !RenderLock::peek() &&
       (section->isPartial() || static_cast<int>(section->pageCount) < section->currentPage + BUILD_WINDOW_AHEAD) &&
       buildTickHeapGate()) {
     RenderLock lock;
@@ -1873,9 +1880,16 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     renderer.displayBuffer(cleanImageBasePending ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
     pagesUntilFullRefresh = 1;
   } else if (directSelected) {
-    // Ordinary Direct pages have no B/W activation; commit both gray planes
-    // together below. Unsupported backgrounds/night mode keep one FAST paint.
-    if (!directAa || manualRefreshPending) {
+    // Direct: no-flash two-pass differential four-level gray, pass 1 ALWAYS
+    // the transition-table repaint (see displayDifferentialGray4). The former
+    // boundary/manual HALF pass 1 garbled the first page after a section
+    // rebuild on device (v154) — the pre-written gray planes sat in RED when
+    // the OTP waveform ran; the transition path instead classifies against
+    // them and re-drives every pixel, which is also the stronger no-flash
+    // clean. Deep cleaning rides the GrayExit white clean when leaving the
+    // reader, not this turn. Night mode, reading backgrounds and the
+    // non-tiled fallback keep one B/W paint and take the generic overlay path.
+    if (!directAa || !tiledGrayscale) {
       renderer.displayBuffer(manualRefreshPending && !SETTINGS.screenInverted ? HalDisplay::HALF_REFRESH
                                                                             : HalDisplay::FAST_REFRESH);
     }
@@ -1918,11 +1932,12 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       GfxRenderer& r;
       ~ClearAbsoluteGray() { r.setAbsoluteGrayPlanes(false); }
     } clearAbsoluteGray{renderer};
-    // Single-flash needs the absolute four-level plane encoding
-    // (black=11 … white=00); the overlay encoding maps black and white both
-    // to 00 and relies on the B/W paint these modes skip. Swift uses only the
-    // MSB plane (black + dark-gray edges carry the edge bit). The RAII above
-    // restores the overlay encoding on every exit path.
+    // Single-flash, Swift and Direct need the absolute four-level plane
+    // encoding (black=11 … white=00); the overlay encoding maps black and
+    // white both to 00 and relies on the B/W paint these modes skip. Direct's
+    // step table (lut_m4_gray4_step) is lut_grayscale re-indexed for this
+    // encoding: cores take a VSH1 hold, edges take the overlay lifts. The
+    // RAII above restores the overlay encoding on every exit path.
     if (directAa || swiftAa || singleFlashAa) renderer.setAbsoluteGrayPlanes(true);
     constexpr int STRIP_ROWS = 80;
     const int gh = renderer.getDisplayHeight();
@@ -2000,7 +2015,14 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       if (swiftAa) {
         renderer.displaySwiftAa(lsbPlaneBuf.get());
       } else if (directAa) {
-        renderer.displayGrayBufferDirect();
+        if (msbPlaneBuf) {
+          renderer.displayDifferentialGray4(lsbPlaneBuf.get(), msbPlaneBuf.get());
+        } else {
+          // OOM fallback with one plane: Swift's one-level edge pass (no
+          // flash). Both paths classify by absolute-encoded planes.
+          renderPlaneToBuffer(false, lsbPlaneBuf.get());
+          renderer.displaySwiftAa(lsbPlaneBuf.get());
+        }
       } else if (whiteFlashAa) {
         renderer.displayGrayBufferFromWhite();
       } else if (singleFlashAa) {
@@ -2072,7 +2094,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
         renderer.setRenderMode(GfxRenderer::BW);
         if (directAa) {
-          renderer.displayGrayBufferDirect();
+          // Strip fallback holds no planes for the gray4 step; restore the B/W
+          // baseline (the strips left gray planes in controller RAM) and paint
+          // 1-bit — still no flash, just no AA on this rare OOM page.
+          renderer.cleanupGrayscaleWithFrameBuffer();
+          renderer.displayBuffer(HalDisplay::FAST_REFRESH);
         } else if (whiteFlashAa) {
           renderer.displayGrayBufferFromWhite();
         } else if (singleFlashAa) {
@@ -2094,7 +2120,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       }
     }
   } else {
-    if (needsAnyGrayscale && !singleFlashAa && !directAa) {
+    if (needsAnyGrayscale && !singleFlashAa) {
       if (!renderer.storeBwBuffer()) {
         return;
       }
@@ -2143,10 +2169,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
               "gray_lsb=%lums gray_msb=%lums gray_display=%lums bw_restore=%lums total=%lums",
               tPrewarm - t0, tBwRender - tPrewarm, tDisplay - tBwRender, tBwStore - tDisplay, tGrayLsb - tBwStore,
               tGrayMsb - tGrayLsb, tGrayDisplay - tGrayMsb, tBwRestore - tGrayDisplay, tEnd - t0);
-    } else if (singleFlashAa || directAa) {
-      const auto refresh = directAa       ? ReaderUtils::GrayRefresh::Direct
-                           : whiteFlashAa ? ReaderUtils::GrayRefresh::WhiteFlash
-                                          : ReaderUtils::GrayRefresh::SingleFlash;
+    } else if (singleFlashAa) {
+      const auto refresh = whiteFlashAa ? ReaderUtils::GrayRefresh::WhiteFlash
+                                        : ReaderUtils::GrayRefresh::SingleFlash;
       ReaderUtils::renderAntiAliased(renderer, [&] { renderGrayscalePass(); }, refresh);
       renderer.cleanupGrayscaleWithFrameBuffer();
       const auto tEnd = millis();

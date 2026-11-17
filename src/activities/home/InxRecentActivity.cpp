@@ -174,7 +174,12 @@ void InxRecentActivity::openSelected() {
   onSelectBook((*books)[selected].path);
 }
 
-void InxRecentActivity::setThumbnailHeight(const int height) {
+void InxRecentActivity::setThumbnailHeight(const int displayHeight) {
+#if defined(BOARD_HAS_PSRAM) && !defined(SIMULATOR) && !defined(CROSSPOINT_EMULATED)
+  const int height = std::max(0, displayHeight);
+#else
+  const int height = InxCoverGeometry::thumbnailHeightForCropFill(displayHeight);
+#endif
   if (thumbnailHeight == height) return;
   thumbnailHeight = height;
   targetCoverStates.fill(CoverCacheState::Unchecked);
@@ -596,7 +601,7 @@ void InxRecentActivity::drawFlow(const Rect& content) {
   const int coverH = heroPanel.y + heroPanel.height - 18 - coverTop;
   const int coverW = coverH * 70 / 100;
   const Rect cover{heroPanel.x + 14, coverTop, coverW, coverH};
-  setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(coverH));
+  setThumbnailHeight(coverH);
   drawBookCover(0, cover);
   renderer.drawRect(cover.x, cover.y, cover.width, cover.height, 1, true);
   renderer.drawLine(cover.x + 4, cover.y, cover.x + 4, cover.y + cover.height - 1, 1, true);
@@ -746,7 +751,7 @@ void InxRecentActivity::drawPaperFlow(const Rect& content) {
   GUI.drawPaperHeading(renderer, layout.kicker, tr(STR_NOW_READING), date);
   flowHeroHit_ = layout.hero;
   heroCoverRect_ = layout.cover;
-  setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(layout.cover.height));
+  setThumbnailHeight(layout.cover.height);
   drawBookCover(0, layout.cover);
 
   const RecentBook& book = (*books)[0];
@@ -858,7 +863,7 @@ void InxRecentActivity::drawGrid(const Rect& content) {
                     cellWidth - kGap, cellHeight - kGap};
     if (showSelection && index == selected) drawSparseInk(renderer, cell);
     const Rect cover = fitCoverRect(Rect{cell.x + kGap, cell.y + kGap, cell.width - kGap * 2, cell.height - kGap * 2});
-    if (slot == 0) setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(cover.height));
+    if (slot == 0) setThumbnailHeight(cover.height);
     drawBookCover(index, cover);
     if (showSelection && index == selected) drawThickFrame(renderer, cover);
     const int barWidth = std::max(24, cover.width - 30);
@@ -878,7 +883,7 @@ void InxRecentActivity::drawList(const Rect& content) {
     const Rect row{content.x, content.y + slot * rowHeight, content.width, rowHeight};
     if (showSelection && index == selected) drawSparseInk(renderer, row);
     const Rect cover = fitCoverRect(Rect{row.x + kPagePadding, row.y + 5, 88, row.height - 10});
-    if (slot == 0) setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(cover.height));
+    if (slot == 0) setThumbnailHeight(cover.height);
     drawBookCover(index, cover);
     const int textX = cover.x + cover.width + 14;
     const int textWidth = row.x + row.width - kPagePadding - textX;
@@ -905,7 +910,7 @@ void InxRecentActivity::drawIcons(const Rect& content) {
     const Rect cell{content.x + column * cellWidth + 5, content.y + row * cellHeight + 5, cellWidth - 10,
                     cellHeight - 10};
     const Rect cover = fitCoverRect(Rect{cell.x + 4, cell.y + 4, cell.width - 8, cell.height - 8});
-    if (slot == 0) setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(cover.height));
+    if (slot == 0) setThumbnailHeight(cover.height);
     drawBookCover(index, cover);
     drawProgressBadge(renderer, cover, progressOf(statsAt(index)));
     if (showSelection && index == selected)
@@ -920,7 +925,7 @@ void InxRecentActivity::drawCover(const Rect& content) {
   const int targetWidth = std::max(1, content.width * 78 / 100);
   const Rect cover = fitCoverRect(Rect{content.x + (content.width - targetWidth) / 2, content.y + 6, targetWidth,
                                        std::max(1, content.height - progressBlockHeight - 12)});
-  setThumbnailHeight(InxCoverGeometry::thumbnailHeightForCropFill(cover.height));
+  setThumbnailHeight(cover.height);
   drawBookCover(selected, cover);
   if (showSelection) drawThickFrame(renderer, cover);
   const int barWidth = std::max(24, cover.width * 80 / 100);

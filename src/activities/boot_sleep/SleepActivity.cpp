@@ -41,16 +41,15 @@ namespace {
 static bool s_sleepFromInverted = false;
 
 HalDisplay::RefreshMode sleepCleanRefresh() {
-  // M4 uses a single calm HALF refresh (0xD4) on sleep: exactly 1 gentle pass, NO repeated flashing!
+  // The normal-polarity sleep entry uses one OTP HALF pass; inverted entry
+  // needs FULL to replace the reversed physical image.
   return s_sleepFromInverted ? HalDisplay::FULL_REFRESH : HalDisplay::HALF_REFRESH;
 }
 
 #if FREEINK_DEVICE_MURPHY_M4
-// Entering sleep straight from the reader: the panel just showed a dense text
-// page, and the single-pass HALF entry can leave faint residue on some pages
-// (AA gray ink always, heavy B/W pages sometimes — "有时略带残影", device
-// 2026-09-04). Take the FULL clean for every reader exit; entries from light
-// screens (home, menus) keep the gentle HALF.
+// Calendar/countdown entry and ticks choose the sleep-clean refresh after a
+// reader page. This currently remains the one-pass HALF on normal-polarity
+// pages; Clock uses its separate displaySleepClean() path.
 bool sleepEntryFromAaReader() {
   return APP_STATE.lastSleepFromReader;
 }
